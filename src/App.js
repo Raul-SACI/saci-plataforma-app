@@ -169,11 +169,11 @@ function AlumnoApp({user,onLogout}){
   const totalPagado=movs.filter(m=>m.estado==="pagado").reduce((a,m)=>a+m.monto,0);
   const totalPend=movs.filter(m=>m.estado==="pendiente").reduce((a,m)=>a+m.monto,0);
 
-  const tabs=[{id:"videos",label:"Videos"},{id:"materiales",label:"Materiales"},{id:"evaluaciones",label:"Evaluaciones"},{id:"pagos",label:"Pagos"}];
+  const adminTabs=[{id:"videos",label:"Videos"},{id:"materiales",label:"Materiales"},{id:"evaluaciones",label:"Evaluaciones"},{id:"pagos",label:"Pagos"}];
 
   return <div style={{background:BG,minHeight:"100vh"}}>
     <Nav user={user} onLogout={onLogout}/>
-    <Tabs tabs={tabs} active={tab} onChange={setTab}/>
+    <Tabs tabs={adminTabs} active={tab} onChange={setTab}/>
     <div style={{padding:"20px"}}>
 
       {tab==="videos"&&<div>
@@ -458,7 +458,7 @@ function AdminApp({user,onLogout}){
 
   return <div style={{background:BG,minHeight:"100vh"}}>
     <Nav user={user} onLogout={onLogout}/>
-    <Tabs tabs={tabs} active={tab} onChange={setTab}/>
+    <Tabs tabs={adminTabs} active={tab} onChange={setTab}/>
     <div style={{padding:"20px"}}>
       <Alert msg={msg.txt} type={msg.type}/>
 
