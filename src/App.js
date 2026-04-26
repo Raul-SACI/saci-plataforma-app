@@ -135,7 +135,7 @@ function AlumnoApp({user,onLogout}){
   const [pagosInfo,setPagosInfo]=useState(null);
   const [movs,setMovs]=useState([]);
   const [loading,setLoading]=useState(false);
-
+  const alumnoTabs=[{id:"videos",label:"Videos"},{id:"materiales",label:"Materiales"},{id:"evaluaciones",label:"Evaluaciones"},{id:"pagos",label:"Pagos"}];
   const [videos, setVideos] = useState({});
   const [vidLoading, setVidLoading] = useState(false);
   const [playingId, setPlayingId] = useState(null);
