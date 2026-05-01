@@ -870,19 +870,87 @@ function AdminAlumnos() {
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(ws);
         const mapped = rows.map(r => ({
-          nombre: r.nombre || r.Nombre || '',
-          email: r.email || r.Email || '',
-          telefono: r.telefono || r.Telefono || '',
-          estado: r.estado || 'activo'
+          nombre: r.nombre || r.Nombre || r.NOMBRE || '',
+          email: (r.email || r.Email || r.EMAIL || '').toString().trim().toLowerCase(),
+          telefono: r.telefono || r.Telefono || r.TELEFONO || '',
+          estado: r.estado || r.Estado || 'activo',
+          password: (r.password || r.contraseña || r.Contraseña || r.PASSWORD || '123456').toString(),
         })).filter(r => r.email);
-        if (!mapped.length) return toast('No se encontraron datos válidos', 'error');
-        const { error } = await supabase.from('alumnos').insert(mapped);
-        if (error) toast(error.message, 'error');
-        else { toast(`${mapped.length} alumnos importados ✅`, 'info'); load(); }
-      } catch { toast('Error al leer el archivo', 'error'); }
+
+        if (!mapped.length) return toast('No se encontraron datos válidos. Verificá que el Excel tenga columnas: nombre, email, telefono, password', 'error');
+
+        // Guardar sesión admin
+        const { data: { session: adminSession } } = await supabase.auth.getSession();
+
+        let creados = 0, errores = 0, omitidos = 0;
+        const resultados = [];
+
+        toast(`⏳ Procesando ${mapped.length} alumnos...`, 'info');
+
+        for (const alumno of mapped) {
+          try {
+            // 1. Crear en Supabase Auth
+            const { error: authError } = await supabase.auth.signUp({
+              email: alumno.email,
+              password: alumno.password,
+              options: { data: { nombre: alumno.nombre } }
+            });
+
+            // Restaurar sesión admin después de cada signUp
+            if (adminSession) {
+              await supabase.auth.setSession({
+                access_token: adminSession.access_token,
+                refresh_token: adminSession.refresh_token
+              });
+            }
+
+            if (authError && !authError.message.includes('already registered')) {
+              errores++;
+              resultados.push(`❌ ${alumno.email}: ${authError.message}`);
+              continue;
+            }
+            if (authError?.message.includes('already registered')) {
+              omitidos++;
+            }
+
+            // 2. Insertar en tabla alumnos (si no existe)
+            const { error: dbError } = await supabase.from('alumnos').insert({
+              nombre: alumno.nombre,
+              email: alumno.email,
+              telefono: alumno.telefono || null,
+              estado: alumno.estado || 'activo',
+            });
+
+            if (dbError && !dbError.message.includes('duplicate')) {
+              errores++;
+              resultados.push(`❌ DB ${alumno.email}: ${dbError.message}`);
+            } else {
+              creados++;
+            }
+
+            // Pequeña pausa para no saturar la API
+            await new Promise(r => setTimeout(r, 300));
+
+          } catch (err) {
+            errores++;
+            resultados.push(`❌ ${alumno.email}: ${err.message}`);
+          }
+        }
+
+        // Mostrar resumen
+        const resumen = `✅ ${creados} creados${omitidos ? `, ⚠️ ${omitidos} ya existían` : ''}${errores ? `, ❌ ${errores} errores` : ''}`;
+        toast(resumen, errores > 0 ? 'error' : 'success');
+        if (resultados.length) console.log('Detalle importación:', resultados);
+        load();
+
+      } catch (err) {
+        toast('Error al leer el archivo: ' + err.message, 'error');
+      }
     };
     reader.readAsBinaryString(file);
     e.target.value = '';
+  };
+        value = '';
   };
 
   const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '' }); setEditing(a.id); setModal(true); };
@@ -995,7 +1063,6 @@ function AdminAlumnos() {
       )}
     </div>
   );
-}
 
 // ─── ADMIN PAGOS ──────────────────────────────────────────────────────
 function AdminPagos() {
@@ -2291,6 +2358,10 @@ function AlumnoVideos({ alumno, user }) {
 
   const toggleTema = id => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
 
+  const MAX_ACCESOS = 2;
+  const [accesosBloqueados, setAccesosBloqueados] = useState({});
+  const [accesoError, setAccesoError] = useState(null);
+
   const registrarVista = async (video) => {
     if (!video?.id) return;
     const key = `vis_${video.id}`;
@@ -2300,7 +2371,24 @@ function AlumnoVideos({ alumno, user }) {
     await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumno?.id || null });
   };
 
-  const seleccionarVideo = (v) => { setCurrent(v); registrarVista(v); };
+  const seleccionarVideo = async (v) => {
+    setAccesoError(null);
+    if (alumno?.id) {
+      // Contar cuántas veces este alumno vio este video
+      const { count } = await supabase
+        .from('visualizaciones')
+        .select('id', { count: 'exact', head: true })
+        .eq('video_id', v.id)
+        .eq('alumno_id', alumno.id);
+
+      if (count >= MAX_ACCESOS) {
+        setAccesoError({ video: v, count });
+        return;
+      }
+    }
+    setCurrent(v);
+    registrarVista(v);
+  };
 
   const embedUrl = current ? getEmbedUrl(current) : null;
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
@@ -2378,11 +2466,28 @@ function AlumnoVideos({ alumno, user }) {
           {videos.length === 0 && <Empty icon="🎬" text="No hay videos" />}
         </div>
       </div>
+      {/* Modal acceso bloqueado */}
+      {accesoError && (
+        <div className="modal-overlay" onClick={() => setAccesoError(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'3rem',marginBottom:12}}>🔒</div>
+            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Acceso limitado</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:6}}>
+              Ya accediste a <strong style={{color:'var(--text)'}}>{accesoError.video.titulo}</strong> el máximo de veces permitidas.
+            </div>
+            <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',margin:'16px 0',fontSize:'0.85rem',color:'var(--danger)'}}>
+              Límite: {MAX_ACCESOS} acceso{MAX_ACCESOS!==1?'s':''} por video · Usados: {accesoError.count}
+            </div>
+            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>
+              Si necesitás acceso adicional, contactá al docente.
+            </div>
+            <button className="btn btn-ghost" onClick={() => setAccesoError(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
-
-// ─── ALUMNO MATERIALES ────────────────────────────────────────────────
+} ────────────────────────────────────────────────
 function AlumnoMateriales() {
   const TIPO_INFO = {
     pdf:   { icon: '📕', label: 'PDF' },
