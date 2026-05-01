@@ -872,7 +872,7 @@ function AdminAlumnos() {
         const mapped = rows.map(r => ({
           nombre: r.nombre || r.Nombre || r.NOMBRE || '',
           email: (r.email || r.Email || r.EMAIL || '').toString().trim().toLowerCase(),
-          telefono: r.telefono || r.Telefono || r.TELEFONO || '',
+          telefono: r.dni || r.DNI || r.telefono || r.Telefono || '',
           estado: r.estado || r.Estado || 'activo',
           password: (r.password || r.contraseña || r.Contraseña || r.PASSWORD || '123456').toString(),
         })).filter(r => r.email);
@@ -950,8 +950,6 @@ function AdminAlumnos() {
     reader.readAsBinaryString(file);
     e.target.value = '';
   };
-        value = '';
-  };
 
   const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '' }); setEditing(a.id); setModal(true); };
   const filtered = alumnos.filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()));
@@ -977,7 +975,7 @@ function AdminAlumnos() {
       <div className="table-wrap">
         {filtered.length === 0 ? <Empty icon="👥" text="No hay alumnos" /> : (
           <table>
-            <thead><tr><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Nombre</th><th>Email</th><th>DNI</th><th>Estado</th><th>Acciones</th></tr></thead>
             <tbody>
               {filtered.map(a => (
                 <tr key={a.id}>
@@ -1015,8 +1013,8 @@ function AdminAlumnos() {
             <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="alumno@email.com" disabled={!!editing} style={editing ? {opacity:0.5,cursor:'not-allowed'} : {}} />
           </div>
           <div className="form-group">
-            <label>Teléfono</label>
-            <input value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} placeholder="Opcional" />
+            <label>DNI</label>
+            <input value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} placeholder="Ej: 12345678" />
           </div>
           {!editing && (
             <div className="form-group">
@@ -1064,6 +1062,7 @@ function AdminAlumnos() {
     </div>
   );
 
+}
 // ─── ADMIN PAGOS ──────────────────────────────────────────────────────
 function AdminPagos() {
   const today = new Date().toISOString().split('T')[0];
@@ -1692,7 +1691,7 @@ function AdminVideos() {
               {['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5','Semana 6'].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
-          <div className="form-group"><label>Descripción</label><textarea value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} placeholder="Opcional" /></div>
+          <div className="form-group"><label>Descripción</label><textarea value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} placeholder="Ej: 12345678" /></div>
           <div style={{marginBottom:14}}>
             <label>Fuente del video</label>
             <div className="tabs" style={{marginBottom:0,marginTop:8}}>
@@ -2129,7 +2128,7 @@ function AdminMateriales() {
           </div>
           <div className="form-group">
             <label>Descripción</label>
-            <textarea value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} placeholder="Opcional" />
+            <textarea value={form.descripcion} onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))} placeholder="Ej: 12345678" />
           </div>
           <div className="form-group">
             <label>Tipo</label>
@@ -2487,87 +2486,72 @@ function AlumnoVideos({ alumno, user }) {
       )}
     </div>
   );
-} ────────────────────────────────────────────────
+}
+
+// ─── ALUMNO MATERIALES ────────────────────────────────────────────────
 function AlumnoMateriales() {
   const TIPO_INFO = {
-    pdf:   { icon: '📕', label: 'PDF' },
-    word:  { icon: '📘', label: 'Word' },
-    excel: { icon: '📗', label: 'Excel' },
-    link:  { icon: '🔗', label: 'Link' },
-    video: { icon: '🎬', label: 'Video' },
-    imagen:{ icon: '🖼️', label: 'Imagen' },
-    doc:   { icon: '📝', label: 'Doc' },
+    pdf:'📕', word:'📘', excel:'📗', link:'🔗', video:'🎬', imagen:'🖼️', doc:'📝', otro:'📦'
   };
   const [temas, setTemas] = useState([]);
   const [mats, setMats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
-  const [expandedTemas, setExpandedTemas] = useState({});
+  const [expanded, setExpanded] = useState({});
   const toast = useToast();
 
   useEffect(() => {
     Promise.all([
-      supabase.from('temas_materiales').select('*').order('orden', { ascending: true }),
-      supabase.from('materiales').select('*').order('orden', { ascending: true }),
-    ]).then(([{ data: tData }, { data: mData, error }]) => {
-      if (error) console.error('mat err:', error);
-      setTemas(tData || []);
-      setMats(mData || []);
-      setLoading(false);
-      // Expand all by default
+      supabase.from('temas_materiales').select('*').order('orden'),
+      supabase.from('materiales').select('*').order('orden'),
+    ]).then(([{ data: tData }, { data: mData }]) => {
+      setTemas(tData || []); setMats(mData || []); setLoading(false);
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
-      setExpandedTemas(exp);
+      setExpanded(exp);
     });
   }, []);
 
-  const toggleTema = (id) => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
+  const toggleTema = id => setExpanded(p => ({ ...p, [id]: !p[id] }));
 
-  const openMaterial = (m) => {
-    if (m.tipo === 'pdf' || m.tipo === 'imagen') {
-      setPreview(m);
-    } else {
-      window.open(m.url, '_blank');
-    }
-  };
-
-  const download = async (m) => {
+  const download = async m => {
     try {
       const res = await fetch(m.url);
       const blob = await res.blob();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = (m.unidad || m.titulo) + (m.tipo === 'pdf' ? '.pdf' : m.tipo === 'word' ? '.docx' : m.tipo === 'excel' ? '.xlsx' : '');
+      a.download = m.unidad || m.titulo || 'archivo';
       a.click();
       URL.revokeObjectURL(a.href);
     } catch { toast('Error al descargar', 'error'); }
   };
 
   const MatCard = ({ m }) => {
-    const ti = TIPO_INFO[m.tipo] || { icon: '📄', label: m.tipo };
+    const icon = TIPO_INFO[m.tipo] || '📦';
     const puedeDescargar = m.permite_descarga !== false;
     return (
-      <div className="card card-hover fade-in" style={{display:'flex',flexDirection:'column',gap:0}}>
+      <div className="card card-hover" style={{display:'flex',flexDirection:'column',gap:0}}>
         <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
-          <div style={{fontSize:'2.2rem',lineHeight:1,flexShrink:0}}>{ti.icon}</div>
+          <div style={{fontSize:'2.2rem',lineHeight:1,flexShrink:0}}>{icon}</div>
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:700,fontSize:'0.95rem'}}>{m.unidad || m.titulo}</div>
-            {m.descripcion && <div style={{fontSize:'0.8rem',color:'var(--text2)',marginTop:3,lineHeight:1.4}}>{m.descripcion}</div>}
-            <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
-              <span className="chip chip-blue">{ti.label}</span>
+            {m.descripcion && <div style={{fontSize:'0.8rem',color:'var(--text2)',marginTop:3}}>{m.descripcion}</div>}
+            <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
+              <span className="chip chip-blue">{m.tipo?.toUpperCase()}</span>
               {!puedeDescargar && <span className="chip chip-yellow" style={{fontSize:'0.68rem'}}>🔒 Solo visualización</span>}
             </div>
           </div>
         </div>
         <div style={{display:'flex',gap:8,marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
-          <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => openMaterial(m)}>
-            👁️ Visualizar
-          </button>
+          {['pdf','imagen','video','link'].includes(m.tipo) && (
+            <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => setPreview(m)}>👁️ Visualizar</button>
+          )}
           {puedeDescargar && (
-            <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>
-              ⬇️ Descargar
-            </button>
+            <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>
+          )}
+          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && (
+            <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>
           )}
         </div>
       </div>
@@ -2578,17 +2562,14 @@ function AlumnoMateriales() {
   return (
     <div className="page-content fade-in">
       <div className="page-header"><div><div className="page-title">📄 Materiales</div><div className="page-subtitle">{mats.length} materiales disponibles</div></div></div>
-
       {mats.length === 0 && <Empty icon="📄" text="No hay materiales disponibles aún" />}
-
-      {/* Materiales agrupados por tema */}
       {temas.map(t => {
         const tMats = mats.filter(m => m.tema_id === t.id);
         if (!tMats.length) return null;
-        const isOpen = expandedTemas[t.id];
+        const isOpen = expanded[t.id];
         return (
           <div key={t.id} style={{marginBottom:14}}>
-            <div onClick={() => toggleTema(t.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderRadius:isOpen?'12px 12px 0 0':'12px',background:'var(--surface)',border:`1px solid var(--border)`,borderLeft:`4px solid ${t.color||'var(--accent)'}`,cursor:'pointer',transition:'all 0.2s'}}>
+            <div onClick={() => toggleTema(t.id)} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderRadius:isOpen?'12px 12px 0 0':'12px',background:'var(--surface)',border:'1px solid var(--border)',borderLeft:`4px solid ${t.color||'var(--accent)'}`,cursor:'pointer'}}>
               <div style={{display:'flex',alignItems:'center',gap:12}}>
                 <span style={{fontSize:'1.3rem'}}>📂</span>
                 <div>
@@ -2603,56 +2584,40 @@ function AlumnoMateriales() {
             </div>
             {isOpen && (
               <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-                <div className="grid-2">
-                  {tMats.map(m => <MatCard key={m.id} m={m} />)}
-                </div>
+                <div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div>
               </div>
             )}
           </div>
         );
       })}
-
-      {/* Materiales sin tema */}
       {mats.filter(m => !m.tema_id).length > 0 && (
         <div style={{marginBottom:14}}>
-          <div onClick={() => toggleTema('sin-tema')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderRadius:expandedTemas['sin-tema']?'12px 12px 0 0':'12px',background:'var(--surface)',border:'1px solid var(--border)',borderLeft:'4px solid var(--border)',cursor:'pointer'}}>
+          <div onClick={() => toggleTema('sin-tema')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderRadius:expanded['sin-tema']?'12px 12px 0 0':'12px',background:'var(--surface)',border:'1px solid var(--border)',borderLeft:'4px solid var(--border)',cursor:'pointer'}}>
             <div style={{fontWeight:600,color:'var(--text2)'}}>📁 Otros materiales</div>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <span className="chip chip-blue">{mats.filter(m=>!m.tema_id).length}</span>
-              <span style={{color:'var(--text2)',fontSize:'1rem'}}>{expandedTemas['sin-tema']?'▲':'▼'}</span>
-            </div>
+            <span style={{color:'var(--text2)',fontSize:'1rem'}}>{expanded['sin-tema']?'▲':'▼'}</span>
           </div>
-          {expandedTemas['sin-tema'] && (
+          {expanded['sin-tema'] && (
             <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-              <div className="grid-2">
-                {mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}
-              </div>
+              <div className="grid-2">{mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}</div>
             </div>
           )}
         </div>
       )}
-
-      {/* Preview modal */}
       {preview && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setPreview(null)}>
-          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:18,width:'90vw',maxWidth:900,height:'85vh',display:'flex',flexDirection:'column',animation:'fadeInScale 0.3s ease'}}>
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget&&setPreview(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:18,width:'90vw',maxWidth:900,height:'85vh',display:'flex',flexDirection:'column'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 22px',borderBottom:'1px solid var(--border)'}}>
-              <div style={{fontWeight:700}}>{preview.unidad || preview.titulo}</div>
-              <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                {preview.permite_descarga !== false && (
-                  <button className="btn btn-success btn-sm" onClick={() => download(preview)}>⬇️ Descargar</button>
-                )}
+              <div style={{fontWeight:700}}>{preview.unidad||preview.titulo}</div>
+              <div style={{display:'flex',gap:8}}>
+                {preview.permite_descarga!==false && <button className="btn btn-success btn-sm" onClick={() => download(preview)}>⬇️ Descargar</button>}
                 <button className="modal-close" onClick={() => setPreview(null)}>✕</button>
               </div>
             </div>
             <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px'}}>
-              {preview.tipo === 'pdf' ? (
-                <iframe src={preview.url + '#toolbar=' + (preview.permite_descarga !== false ? '1' : '0')} style={{width:'100%',height:'100%',border:'none'}} />
-              ) : preview.tipo === 'imagen' ? (
-                <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000',padding:20}}>
-                  <img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain',borderRadius:8}} />
-                </div>
-              ) : null}
+              {preview.tipo==='pdf' ? <iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
+              : preview.tipo==='imagen' ? <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}><img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} /></div>
+              : preview.tipo==='link' ? <div style={{textAlign:'center',padding:40}}><a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a></div>
+              : null}
             </div>
           </div>
         </div>
@@ -2660,6 +2625,7 @@ function AlumnoMateriales() {
     </div>
   );
 }
+
 // ─── ALUMNO EVALUACIONES ─────────────────────────────────────────────
 function AlumnoEvaluaciones({ alumno }) {
   const [evals, setEvals] = useState([]);
