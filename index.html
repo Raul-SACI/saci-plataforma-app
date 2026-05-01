@@ -2384,19 +2384,19 @@ function AlumnoVideos({ alumno, user }) {
       console.warn('No se puede registrar vista - video:', video?.id, 'alumno:', alumnoId);
       return;
     }
+    // Usar sessionStorage para evitar duplicar dentro de la misma sesión/pestaña
+    const key = `vista_${video.id}_${alumnoId}`;
+    if (sessionStorage.getItem(key)) {
+      console.log('Ya registrado en esta sesión:', video.titulo);
+      return;
+    }
     console.log('Registrando vista:', video.titulo, 'alumno id:', alumnoId);
-    const unMinAtras = new Date(Date.now() - 60 * 1000).toISOString();
-    const { count } = await supabase
-      .from('visualizaciones')
-      .select('id', { count: 'exact', head: true })
-      .eq('video_id', video.id)
-      .eq('alumno_id', alumnoId)
-      .gte('created_at', unMinAtras);
-    console.log('Vistas en último minuto:', count);
-    if (count > 0) return;
     const { error } = await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumnoId });
     if (error) console.error('Error registrando vista:', error);
-    else console.log('Vista registrada OK ✅');
+    else {
+      sessionStorage.setItem(key, '1');
+      console.log('Vista registrada OK ✅');
+    }
   };
 
   const seleccionarVideo = async (v) => {
