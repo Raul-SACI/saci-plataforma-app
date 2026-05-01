@@ -238,9 +238,7 @@ const BUNNY_API_KEY = '31ebdf0b-51c7-4388-8d3e0f3cdc7f-dad7-49dd';
 const ADMIN_EMAIL = 'admin@saci.com';
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false }
-});
+const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // ─── CONTEXT ─────────────────────────────────────────────────────────
 const AppCtx = createContext(null);
@@ -819,19 +817,21 @@ function AdminAlumnos() {
     try {
       if (editing) {
         const updatePayload = { nombre: form.nombre, estado: form.estado };
-        if (form.telefono !== undefined) updatePayload.telefono = form.telefono;
+        if (form.telefono) updatePayload.telefono = form.telefono;
         const { error } = await supabase.from('alumnos').update(updatePayload).eq('id', editing);
         if (error) throw new Error(error.message);
         toast('Alumno actualizado ✏️', 'success');
       } else {
-        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+        const { data: { session: adminSession } } = await supabase.auth.getSession();
+        const { data, error: authError } = await supabase.auth.signUp({
           email: form.email,
           password: form.password,
-          email_confirm: true,
-          user_metadata: { nombre: form.nombre },
+          options: { data: { nombre: form.nombre } }
         });
         if (authError) throw new Error(authError.message);
-
+        if (adminSession) {
+          await supabase.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
+        }
         const insertPayload = { nombre: form.nombre, email: form.email, estado: form.estado || 'activo' };
         if (form.telefono) insertPayload.telefono = form.telefono;
         const { error: dbError } = await supabase.from('alumnos').insert(insertPayload);
@@ -843,6 +843,7 @@ function AdminAlumnos() {
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
   };
+
 
   const changePassword = async () => {
     if (!newPw || newPw.length < 6) return toast('Mínimo 6 caracteres', 'error');
