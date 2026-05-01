@@ -2349,12 +2349,26 @@ function AlumnoVideos({ alumno, user }) {
     Promise.all([
       supabase.from('temas_videos').select('*').order('orden'),
       supabase.from('videos').select('*').order('orden'),
-    ]).then(([{ data: tData }, { data: vData }]) => {
+    ]).then(async ([{ data: tData }, { data: vData }]) => {
       setTemas(tData || []); setVideos(vData || []); setLoading(false);
       if (vData?.length) {
-        setCurrent(vData[0]);
-        // Registrar vista del primer video al cargar
-        setTimeout(() => registrarVista(vData[0]), 2000);
+        const firstVideo = vData[0];
+        // Verificar accesos antes de cargar el primer video
+        if (alumno?.id) {
+          const { count } = await supabase
+            .from('visualizaciones')
+            .select('id', { count: 'exact', head: true })
+            .eq('video_id', firstVideo.id)
+            .eq('alumno_id', alumno.id);
+          if (count >= MAX_ACCESOS) {
+            setAccesoError({ video: firstVideo, count });
+          } else {
+            setCurrent(firstVideo);
+            setTimeout(() => registrarVista(firstVideo), 1500);
+          }
+        } else {
+          setCurrent(firstVideo);
+        }
       }
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
