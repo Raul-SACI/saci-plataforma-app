@@ -2187,10 +2187,11 @@ function AdminEvaluaciones() {
   const [evals, setEvals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
-  const [viewModal, setViewModal] = useState(null);
-  const [form, setForm] = useState({ titulo: '', meta: '', link: '', estado: 'activo', preguntas: [], semana: '' });
   const [editing, setEditing] = useState(null);
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true };
+  const [form, setForm] = useState(emptyForm);
   const toast = useToast();
+  const today = new Date().toISOString().split('T')[0];
 
   const load = async () => {
     const { data } = await supabase.from('evaluaciones').select('*').order('created_at', { ascending: false });
@@ -2198,27 +2199,35 @@ function AdminEvaluaciones() {
   };
   useEffect(() => { load(); }, []);
 
-  const addPregunta = () => setForm(p => ({ ...p, preguntas: [...p.preguntas, { texto: '', opciones: ['', '', '', ''], correcta: 0 }] }));
-  const remPregunta = i => setForm(p => ({ ...p, preguntas: p.preguntas.filter((_, j) => j !== i) }));
-  const updPregunta = (i, field, val) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, j) => j === i ? { ...q, [field]: val } : q) }));
-  const updOpcion = (i, k, val) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, j) => j === i ? { ...q, opciones: q.opciones.map((o, l) => l === k ? val : o) } : q) }));
-
   const save = async () => {
-    if (!form.titulo) return toast('Título requerido', 'error');
-    const data = { titulo: form.titulo, meta: form.meta || '', link: form.link || '', estado: form.estado || 'activo', semana: form.semana || null, preguntas: form.preguntas };
+    if (!form.titulo) return toast('El título es requerido', 'error');
+    if (!form.link_google) return toast('El link de Google Forms es requerido', 'error');
     const { error } = editing
-      ? await supabase.from('evaluaciones').update(data).eq('id', editing)
-      : await supabase.from('evaluaciones').insert(data);
+      ? await supabase.from('evaluaciones').update(form).eq('id', editing)
+      : await supabase.from('evaluaciones').insert(form);
     if (error) return toast(error.message, 'error');
-    toast('Evaluación guardada 📝', 'success');
-    setModal(false); setEditing(null); setForm({ titulo: '', meta: '', link: '', estado: 'activo', preguntas: [], semana: '' }); load();
+    toast(editing ? 'Evaluación actualizada ✏️' : 'Evaluación agregada ✅', 'success');
+    setModal(false); setEditing(null); setForm(emptyForm); load();
   };
 
   const remove = async id => {
-    if (!confirm('¿Eliminar evaluación?')) return;
+    if (!confirm('¿Eliminar esta evaluación?')) return;
     await supabase.from('evaluaciones').delete().eq('id', id);
     toast('Evaluación eliminada', 'info'); load();
   };
+
+  const openEdit = ev => {
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false });
+    setEditing(ev.id); setModal(true);
+  };
+
+  const toggleVisible = async (id, visible) => {
+    await supabase.from('evaluaciones').update({ visible: !visible }).eq('id', id);
+    load();
+  };
+
+  const isVencida = ev => ev.fecha_limite && ev.fecha_limite < today;
+  const isProxVencer = ev => ev.fecha_limite && ev.fecha_limite >= today && ev.fecha_limite <= new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
 
   if (loading) return <Loading />;
   return (
@@ -2226,90 +2235,92 @@ function AdminEvaluaciones() {
       <div className="page-header">
         <div>
           <div className="page-title">📝 Evaluaciones</div>
-          <div className="page-subtitle">{evals.length} evaluaciones</div>
+          <div className="page-subtitle">{evals.filter(e=>e.visible!==false).length} activas · {evals.filter(e=>isVencida(e)).length} vencidas</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', descripcion: '', preguntas: [] }); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
+        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
       </div>
-      <div className="grid-2">
-        {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones" /> : evals.map(ev => (
-          <div key={ev.id} className="card card-hover">
-            <div style={{fontWeight:700,fontSize:'1rem'}}>{ev.titulo}</div>
-            {ev.descripcion && <div style={{fontSize:'0.82rem',color:'var(--text2)',marginTop:4}}>{ev.descripcion}</div>}
-            <div style={{fontSize:'0.78rem',color:'var(--text2)',marginTop:8}}>{(ev.preguntas || []).length} preguntas</div>
-            <div style={{display:'flex',gap:8,marginTop:12}}>
-              <button className="btn btn-ghost btn-sm" onClick={() => { setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', preguntas: ev.preguntas || [] }); setEditing(ev.id); setModal(true); }}>✏️ Editar</button>
-              <button className="btn btn-success btn-sm" onClick={() => setViewModal(ev)}>👁️ Ver</button>
-              <button className="btn btn-danger btn-sm" onClick={() => remove(ev.id)}>🗑️</button>
-            </div>
-          </div>
-        ))}
-      </div>
-      {modal && (
-        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => setModal(false)}>
-          <div className="form-group"><label>Título</label><input value={form.titulo} onChange={e => setForm(p => ({ ...p, titulo: e.target.value }))} /></div>
-          <div className="form-group"><label>Meta / Descripción</label><textarea value={form.meta} onChange={e => setForm(p => ({ ...p, meta: e.target.value }))} placeholder="Objetivo de la evaluación" /></div>
-          <div className="form-group"><label>Link de referencia</label><input value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} placeholder="https://... (opcional)" /></div>
-          <div className="form-group">
-            <label>Estado</label>
-            <select value={form.estado} onChange={e => setForm(p => ({ ...p, estado: e.target.value }))}>
-              <option value="activo">Activo</option>
-              <option value="inactivo">Inactivo</option>
-            </select>
-          </div>
-          <div className="form-group">
-            <label>📅 Semana</label>
-            <select value={form.semana} onChange={e => setForm(p => ({ ...p, semana: e.target.value }))}>
-              <option value="">-- Sin asignar --</option>
-              {['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5','Semana 6'].map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
-          </div>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-            <strong>Preguntas ({form.preguntas.length})</strong>
-            <button className="btn btn-ghost btn-sm" onClick={addPregunta}>➕ Agregar pregunta</button>
-          </div>
-          {form.preguntas.map((q, i) => (
-            <div key={i} className="question-card" style={{marginBottom:12}}>
-              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-                <strong style={{fontSize:'0.82rem'}}>Pregunta {i + 1}</strong>
-                <button className="btn btn-danger btn-sm" onClick={() => remPregunta(i)}>✕</button>
-              </div>
-              <input style={{marginBottom:8}} placeholder="Texto de la pregunta" value={q.texto} onChange={e => updPregunta(i, 'texto', e.target.value)} />
-              {q.opciones.map((op, k) => (
-                <div key={k} style={{display:'flex',gap:8,alignItems:'center',marginBottom:6}}>
-                  <input type="radio" name={`q${i}`} checked={q.correcta === k} onChange={() => updPregunta(i, 'correcta', k)} />
-                  <input placeholder={`Opción ${k + 1}`} value={op} onChange={e => updOpcion(i, k, e.target.value)} />
-                  {q.correcta === k && <span style={{color:'var(--success)',fontSize:'0.8rem'}}>✓ Correcta</span>}
+
+      {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Agregá un link de Google Forms para empezar." /> : (
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {evals.map(ev => {
+            const vencida = isVencida(ev);
+            const proxVencer = isProxVencer(ev);
+            return (
+              <div key={ev.id} className="card" style={{opacity: !ev.visible ? 0.6 : 1, borderLeft: `4px solid ${vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--accent)'}`}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
+                      <div style={{fontWeight:700,fontSize:'1rem'}}>{ev.titulo}</div>
+                      {ev.tema && <span className="chip chip-blue">{ev.tema}</span>}
+                      {vencida && <span className="chip chip-red">⏰ Vencida</span>}
+                      {proxVencer && !vencida && <span className="chip chip-yellow">⚠️ Vence pronto</span>}
+                      {!ev.visible && <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>👁️ Oculta</span>}
+                    </div>
+                    {ev.descripcion && <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:8}}>{ev.descripcion}</div>}
+                    <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+                      <a href={ev.link_google} target="_blank" rel="noreferrer" style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>
+                        🔗 Ver formulario
+                      </a>
+                      {ev.fecha_limite && (
+                        <span style={{fontSize:'0.82rem',color: vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--text2)',display:'flex',alignItems:'center',gap:4}}>
+                          📅 Fecha límite: <strong>{new Date(ev.fecha_limite+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+                    <div onClick={() => toggleVisible(ev.id, ev.visible)} style={{width:40,height:22,borderRadius:11,background:ev.visible!==false?'var(--success)':'var(--border)',cursor:'pointer',position:'relative',transition:'background 0.3s'}} title={ev.visible!==false?'Visible para alumnos':'Oculta para alumnos'}>
+                      <div style={{position:'absolute',top:3,left:ev.visible!==false?21:3,width:16,height:16,borderRadius:'50%',background:'white',transition:'left 0.3s'}} />
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(ev)}>✏️</button>
+                    <button className="btn btn-danger btn-sm" onClick={() => remove(ev.id)}>🗑️</button>
+                  </div>
                 </div>
-              ))}
-            </div>
-          ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modal && (
+        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
+          <div className="form-group">
+            <label>Título</label>
+            <input placeholder="Ej: Parcial 1 — Unidad 1 y 2" value={form.titulo} onChange={e => setForm(p=>({...p,titulo:e.target.value}))} />
+          </div>
+          <div className="form-group">
+            <label>Descripción (opcional)</label>
+            <textarea placeholder="Instrucciones, temas que entran, puntaje..." value={form.descripcion} onChange={e => setForm(p=>({...p,descripcion:e.target.value}))} style={{minHeight:70}} />
+          </div>
+          <div className="form-group">
+            <label>Tema / Unidad (opcional)</label>
+            <input placeholder="Ej: Unidad 1, Parcial 1..." value={form.tema} onChange={e => setForm(p=>({...p,tema:e.target.value}))} />
+          </div>
+          <div className="form-group">
+            <label>🔗 Link de Google Forms</label>
+            <input type="url" placeholder="https://docs.google.com/forms/d/..." value={form.link_google} onChange={e => setForm(p=>({...p,link_google:e.target.value}))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Pegá el link del formulario de Google Forms</div>
+          </div>
+          <div className="form-group">
+            <label>📅 Fecha límite (opcional)</label>
+            <input type="date" value={form.fecha_limite} onChange={e => setForm(p=>({...p,fecha_limite:e.target.value}))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha el link se mostrará como vencido para los alumnos</div>
+          </div>
+          <div className="form-group">
+            <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={form.visible} onChange={e => setForm(p=>({...p,visible:e.target.checked}))} style={{width:'auto'}} />
+              Visible para los alumnos
+            </label>
+          </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
           </div>
-        </Modal>
-      )}
-      {viewModal && (
-        <Modal title={`📝 ${viewModal.titulo}`} onClose={() => setViewModal(null)}>
-          {(viewModal.preguntas || []).map((q, i) => (
-            <div key={i} className="question-card" style={{marginBottom:10}}>
-              <div style={{fontWeight:600,marginBottom:8}}>P{i+1}: {q.texto}</div>
-              {q.opciones.map((op, k) => (
-                <div key={k} style={{fontSize:'0.84rem',padding:'4px 0',color: q.correcta === k ? 'var(--success)' : 'var(--text2)'}}>
-                  {q.correcta === k ? '✅' : '○'} {op}
-                </div>
-              ))}
-            </div>
-          ))}
         </Modal>
       )}
     </div>
   );
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// ALUMNO PAGES
-// ═══════════════════════════════════════════════════════════════════════
 
 // ─── ALUMNO VIDEOS ────────────────────────────────────────────────────
 function AlumnoVideos({ alumno, user }) {
@@ -2318,22 +2329,16 @@ function AlumnoVideos({ alumno, user }) {
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
+  const MAX_ACCESOS = 2;
+  const [accesoError, setAccesoError] = useState(null);
 
   useEffect(() => {
     Promise.all([
       supabase.from('temas_videos').select('*').order('orden'),
       supabase.from('videos').select('*').order('orden'),
     ]).then(([{ data: tData }, { data: vData }]) => {
-      setTemas(tData || []);
-      setVideos(vData || []);
-      setLoading(false);
-      if (vData?.length) {
-        setCurrent(vData[0]);
-        // registrar vista del primer video
-        setTimeout(() => {
-          supabase.from('visualizaciones').insert({ video_id: vData[0].id, alumno_id: null });
-        }, 2000);
-      }
+      setTemas(tData || []); setVideos(vData || []); setLoading(false);
+      if (vData?.length) { setCurrent(vData[0]); }
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
@@ -2341,29 +2346,23 @@ function AlumnoVideos({ alumno, user }) {
     });
   }, []);
 
-  const getEmbedUrl = (v) => {
+  const getEmbedUrl = v => {
     const bid = v.bunny_id || v.bunny_video_id;
     if (bid) return `https://iframe.mediadelivery.net/embed/${BUNNY_LIBRARY}/${bid}?autoplay=false&loop=false&muted=false&preload=false`;
     if (v.url_externa) {
-      const url = v.url_externa;
-      const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
-      if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}`;
-      const vmMatch = url.match(/vimeo\.com\/(\d+)/);
-      if (vmMatch) return `https://player.vimeo.com/video/${vmMatch[1]}`;
-      return url;
+      const ytM = v.url_externa.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)+([\w-]+)/);
+      if (ytM) return `https://www.youtube.com/embed/${ytM[1]}`;
+      const vmM = v.url_externa.match(/vimeo\.com\/(\d+)/);
+      if (vmM) return `https://player.vimeo.com/video/${vmM[1]}`;
+      return v.url_externa;
     }
     return null;
   };
 
   const toggleTema = id => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
 
-  const MAX_ACCESOS = 2;
-  const [accesosBloqueados, setAccesosBloqueados] = useState({});
-  const [accesoError, setAccesoError] = useState(null);
-
   const registrarVista = async (video) => {
     if (!video?.id) return;
-    // Verificar si ya registró una vista en los últimos 5 minutos para este video
     const cincoMinAtras = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const { count } = await supabase
       .from('visualizaciones')
@@ -2371,24 +2370,19 @@ function AlumnoVideos({ alumno, user }) {
       .eq('video_id', video.id)
       .eq('alumno_id', alumno?.id || '00000000-0000-0000-0000-000000000000')
       .gte('created_at', cincoMinAtras);
-    if (count > 0) return; // Ya registró una vista hace menos de 5 minutos
+    if (count > 0) return;
     await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumno?.id || null });
   };
 
   const seleccionarVideo = async (v) => {
     setAccesoError(null);
     if (alumno?.id) {
-      // Contar cuántas veces este alumno vio este video
       const { count } = await supabase
         .from('visualizaciones')
         .select('id', { count: 'exact', head: true })
         .eq('video_id', v.id)
         .eq('alumno_id', alumno.id);
-
-      if (count >= MAX_ACCESOS) {
-        setAccesoError({ video: v, count });
-        return;
-      }
+      if (count >= MAX_ACCESOS) { setAccesoError({ video: v, count }); return; }
     }
     setCurrent(v);
     registrarVista(v);
@@ -2405,7 +2399,6 @@ function AlumnoVideos({ alumno, user }) {
           : <div style={{width:58,height:36,borderRadius:5,background:'var(--surface2)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>🎬</div>}
         <div style={{overflow:'hidden',flex:1}}>
           <div style={{fontSize:'0.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:current?.id===v.id?'var(--accent)':'var(--text)'}}>{v.titulo}</div>
-          {v.descripcion && <div style={{fontSize:'0.7rem',color:'var(--text2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v.descripcion}</div>}
         </div>
       </div>
     );
@@ -2415,20 +2408,15 @@ function AlumnoVideos({ alumno, user }) {
   return (
     <div className="page-content fade-in">
       <div className="page-header">
-        <div>
-          <div className="page-title">🎬 Mis Videos</div>
-          <div className="page-subtitle">{videos.length} videos disponibles</div>
-        </div>
+        <div><div className="page-title">🎬 Mis Videos</div><div className="page-subtitle">{videos.length} videos disponibles</div></div>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:20}}>
-        {/* Player */}
         <div>
           {current ? (
             <>
               <div className="video-container" style={{marginBottom:16}}>
-                {embedUrl ? (
-                  <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
-                ) : <Empty icon="🎬" text="Video no disponible" />}
+                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
+                  : <Empty icon="🎬" text="Video no disponible" />}
                 <div className="video-watermark">
                   <div className="video-watermark-text">{watermarkName}</div>
                   <div className="video-watermark-sub">{alumno?.email || user?.email || ''}</div>
@@ -2441,7 +2429,6 @@ function AlumnoVideos({ alumno, user }) {
             </>
           ) : <Empty icon="🎬" text="No hay videos disponibles" />}
         </div>
-        {/* Sidebar */}
         <div>
           <div style={{fontWeight:700,marginBottom:10,color:'var(--text2)',fontSize:'0.75rem',textTransform:'uppercase',letterSpacing:'0.08em'}}>Contenido</div>
           {temas.map(t => {
@@ -2458,7 +2445,7 @@ function AlumnoVideos({ alumno, user }) {
               </div>
             );
           })}
-          {videos.filter(v => !v.tema_id).length > 0 && (
+          {videos.filter(v=>!v.tema_id).length > 0 && (
             <div style={{marginBottom:8}}>
               <div onClick={() => toggleTema('sin-tema')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer',padding:'8px 10px',borderRadius:8,background:'var(--surface2)',marginBottom:expandedTemas['sin-tema']?4:0}}>
                 <span style={{fontSize:'0.8rem',fontWeight:700,color:'var(--text2)'}}>Videos generales</span>
@@ -2467,24 +2454,18 @@ function AlumnoVideos({ alumno, user }) {
               {expandedTemas['sin-tema'] && videos.filter(v=>!v.tema_id).map(v => <VideoItem key={v.id} v={v} />)}
             </div>
           )}
-          {videos.length === 0 && <Empty icon="🎬" text="No hay videos" />}
         </div>
       </div>
-      {/* Modal acceso bloqueado */}
       {accesoError && (
         <div className="modal-overlay" onClick={() => setAccesoError(null)}>
           <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:'3rem',marginBottom:12}}>🔒</div>
             <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Acceso limitado</div>
-            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:6}}>
-              Ya accediste a <strong style={{color:'var(--text)'}}>{accesoError.video.titulo}</strong> el máximo de veces permitidas.
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>Ya accediste a <strong style={{color:'var(--text)'}}>{accesoError.video.titulo}</strong> el máximo de veces permitidas.</div>
+            <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
+              Límite: {MAX_ACCESOS} accesos · Usados: {accesoError.count}
             </div>
-            <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',margin:'16px 0',fontSize:'0.85rem',color:'var(--danger)'}}>
-              Límite: {MAX_ACCESOS} acceso{MAX_ACCESOS!==1?'s':''} por video · Usados: {accesoError.count}
-            </div>
-            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>
-              Si necesitás acceso adicional, contactá al docente.
-            </div>
+            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso adicional.</div>
             <button className="btn btn-ghost" onClick={() => setAccesoError(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
           </div>
         </div>
@@ -2495,9 +2476,7 @@ function AlumnoVideos({ alumno, user }) {
 
 // ─── ALUMNO MATERIALES ────────────────────────────────────────────────
 function AlumnoMateriales() {
-  const TIPO_INFO = {
-    pdf:'📕', word:'📘', excel:'📗', link:'🔗', video:'🎬', imagen:'🖼️', doc:'📝', otro:'📦'
-  };
+  const TIPO_INFO = { pdf:'📕', word:'📘', excel:'📗', link:'🔗', video:'🎬', imagen:'🖼️', doc:'📝', otro:'📦' };
   const [temas, setTemas] = useState([]);
   const [mats, setMats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2536,7 +2515,7 @@ function AlumnoMateriales() {
     const icon = TIPO_INFO[m.tipo] || '📦';
     const puedeDescargar = m.permite_descarga !== false;
     return (
-      <div className="card card-hover" style={{display:'flex',flexDirection:'column',gap:0}}>
+      <div className="card card-hover">
         <div style={{display:'flex',gap:14,alignItems:'flex-start'}}>
           <div style={{fontSize:'2.2rem',lineHeight:1,flexShrink:0}}>{icon}</div>
           <div style={{flex:1,minWidth:0}}>
@@ -2549,15 +2528,9 @@ function AlumnoMateriales() {
           </div>
         </div>
         <div style={{display:'flex',gap:8,marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
-          {['pdf','imagen','video','link'].includes(m.tipo) && (
-            <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => setPreview(m)}>👁️ Visualizar</button>
-          )}
-          {puedeDescargar && (
-            <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>
-          )}
-          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && (
-            <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>
-          )}
+          {['pdf','imagen','video','link'].includes(m.tipo) && <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => setPreview(m)}>👁️ Visualizar</button>}
+          {puedeDescargar && <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>}
+          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>}
         </div>
       </div>
     );
@@ -2587,29 +2560,21 @@ function AlumnoMateriales() {
                 <span style={{color:'var(--text2)',fontSize:'1rem'}}>{isOpen?'▲':'▼'}</span>
               </div>
             </div>
-            {isOpen && (
-              <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-                <div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div>
-              </div>
-            )}
+            {isOpen && <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}><div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div></div>}
           </div>
         );
       })}
-      {mats.filter(m => !m.tema_id).length > 0 && (
+      {mats.filter(m=>!m.tema_id).length > 0 && (
         <div style={{marginBottom:14}}>
           <div onClick={() => toggleTema('sin-tema')} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 18px',borderRadius:expanded['sin-tema']?'12px 12px 0 0':'12px',background:'var(--surface)',border:'1px solid var(--border)',borderLeft:'4px solid var(--border)',cursor:'pointer'}}>
             <div style={{fontWeight:600,color:'var(--text2)'}}>📁 Otros materiales</div>
             <span style={{color:'var(--text2)',fontSize:'1rem'}}>{expanded['sin-tema']?'▲':'▼'}</span>
           </div>
-          {expanded['sin-tema'] && (
-            <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-              <div className="grid-2">{mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}</div>
-            </div>
-          )}
+          {expanded['sin-tema'] && <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}><div className="grid-2">{mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}</div></div>}
         </div>
       )}
       {preview && (
-        <div className="modal-overlay" onClick={e => e.target===e.currentTarget&&setPreview(null)}>
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setPreview(null)}>
           <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:18,width:'90vw',maxWidth:900,height:'85vh',display:'flex',flexDirection:'column'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 22px',borderBottom:'1px solid var(--border)'}}>
               <div style={{fontWeight:700}}>{preview.unidad||preview.titulo}</div>
@@ -2619,10 +2584,10 @@ function AlumnoMateriales() {
               </div>
             </div>
             <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px'}}>
-              {preview.tipo==='pdf' ? <iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
-              : preview.tipo==='imagen' ? <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}><img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} /></div>
-              : preview.tipo==='link' ? <div style={{textAlign:'center',padding:40}}><a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a></div>
-              : null}
+              {preview.tipo==='pdf'?<iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
+              :preview.tipo==='imagen'?<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}><img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} /></div>
+              :preview.tipo==='link'?<div style={{textAlign:'center',padding:40}}><a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a></div>
+              :null}
             </div>
           </div>
         </div>
@@ -2631,104 +2596,69 @@ function AlumnoMateriales() {
   );
 }
 
-// ─── ALUMNO EVALUACIONES ─────────────────────────────────────────────
 function AlumnoEvaluaciones({ alumno }) {
   const [evals, setEvals] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState(null);
-  const [answers, setAnswers] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  const [score, setScore] = useState(null);
-  const toast = useToast();
+  const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
-    supabase.from('evaluaciones').select('*').order('created_at').then(({ data }) => { setEvals(data || []); setLoading(false); });
+    supabase.from('evaluaciones').select('*')
+      .eq('visible', true)
+      .order('created_at', { ascending: false })
+      .then(({ data }) => { setEvals(data || []); setLoading(false); });
   }, []);
 
-  const startEval = ev => { setActive(ev); setAnswers({}); setSubmitted(false); setScore(null); };
-
-  const submit = async () => {
-    const preguntas = active.preguntas || [];
-    let correct = 0;
-    preguntas.forEach((q, i) => { if (answers[i] === q.correcta) correct++; });
-    const pct = preguntas.length ? Math.round((correct / preguntas.length) * 100) : 0;
-    setScore({ correct, total: preguntas.length, pct });
-    setSubmitted(true);
-    await supabase.from('resultados_evaluaciones').insert({ evaluacion_id: active.id, alumno_id: alumno?.id, respuestas: answers, puntaje: pct });
-    toast(`Evaluación enviada — ${pct}% ✅`, 'success');
-  };
+  const isVencida = ev => ev.fecha_limite && ev.fecha_limite < today;
+  const isProxVencer = ev => ev.fecha_limite && ev.fecha_limite >= today && ev.fecha_limite <= new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
 
   if (loading) return <Loading />;
-  if (active) {
-    const preguntas = active.preguntas || [];
-    return (
-      <div className="page-content fade-in">
-        <div className="page-header">
-          <div>
-            <div className="page-title">📝 {active.titulo}</div>
-            <div className="page-subtitle">{preguntas.length} preguntas</div>
-          </div>
-          <button className="btn btn-ghost" onClick={() => setActive(null)}>← Volver</button>
-        </div>
-        {submitted && score && (
-          <div className="card" style={{marginBottom:20,background: score.pct >= 60 ? 'rgba(67,233,123,0.1)' : 'rgba(255,71,87,0.1)',border:`1px solid ${score.pct >= 60 ? 'var(--success)' : 'var(--danger)'}`}}>
-            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>{score.pct >= 60 ? '🎉 ¡Aprobado!' : '😔 No aprobado'}</div>
-            <div style={{fontSize:'2rem',fontFamily:'Space Mono',fontWeight:700,color: score.pct >= 60 ? 'var(--success)' : 'var(--danger)'}}>{score.pct}%</div>
-            <div style={{color:'var(--text2)',marginTop:6}}>{score.correct} de {score.total} correctas</div>
-            <div style={{marginTop:12}}><div className="progress-bar"><div className="progress-fill" style={{width:`${score.pct}%`,background: score.pct >= 60 ? 'var(--success)' : 'var(--danger)'}} /></div></div>
-          </div>
-        )}
-        {preguntas.map((q, i) => (
-          <div key={i} className="question-card">
-            <div style={{fontWeight:600,marginBottom:12}}>P{i+1}: {q.texto}</div>
-            {q.opciones.map((op, k) => {
-              let cls = 'option-item';
-              if (submitted) {
-                if (k === q.correcta) cls += ' correct';
-                else if (answers[i] === k && k !== q.correcta) cls += ' incorrect';
-              } else if (answers[i] === k) cls += ' selected';
-              return (
-                <div key={k} className={cls} onClick={() => !submitted && setAnswers(a => ({ ...a, [i]: k }))}>
-                  <span style={{width:22,height:22,borderRadius:'50%',border:'2px solid',borderColor:'currentColor',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.7rem',flexShrink:0}}>
-                    {submitted && k === q.correcta ? '✓' : submitted && answers[i] === k && k !== q.correcta ? '✗' : String.fromCharCode(65+k)}
-                  </span>
-                  {op}
-                </div>
-              );
-            })}
-          </div>
-        ))}
-        {!submitted && (
-          <button className="btn btn-primary" style={{marginTop:8}} onClick={submit} disabled={Object.keys(answers).length < preguntas.length}>
-            🚀 Enviar respuestas ({Object.keys(answers).length}/{preguntas.length})
-          </button>
-        )}
-      </div>
-    );
-  }
-
   return (
     <div className="page-content fade-in">
-      <div className="page-header"><div><div className="page-title">📝 Evaluaciones</div></div></div>
+      <div className="page-header"><div><div className="page-title">📝 Evaluaciones</div><div className="page-subtitle">{evals.filter(e=>!isVencida(e)).length} disponibles</div></div></div>
+
       {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones disponibles" /> : (
-        <div className="grid-2">
-          {evals.map(ev => (
-            <div key={ev.id} className="card card-hover">
-              <div style={{fontWeight:700,fontSize:'1rem',marginBottom:4}}>{ev.titulo}</div>
-              {ev.meta && <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:10}}>{ev.meta}</div>}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span className="chip chip-blue">{(ev.preguntas || []).length} preguntas</span>
-                <button className="btn btn-primary btn-sm" onClick={() => startEval(ev)}>📝 Comenzar</button>
+        <div style={{display:'flex',flexDirection:'column',gap:14}}>
+          {evals.map(ev => {
+            const vencida = isVencida(ev);
+            const proxVencer = isProxVencer(ev);
+            return (
+              <div key={ev.id} className="card" style={{borderLeft:`4px solid ${vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--accent)'}`,opacity:vencida?0.7:1}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,flexWrap:'wrap'}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
+                      <div style={{fontWeight:700,fontSize:'1rem'}}>{ev.titulo}</div>
+                      {ev.tema && <span className="chip chip-blue">{ev.tema}</span>}
+                      {vencida && <span className="chip chip-red">⏰ Vencida</span>}
+                      {proxVencer && !vencida && <span className="chip chip-yellow">⚠️ Vence pronto</span>}
+                    </div>
+                    {ev.descripcion && <div style={{fontSize:'0.88rem',color:'var(--text2)',marginBottom:10,lineHeight:1.5}}>{ev.descripcion}</div>}
+                    {ev.fecha_limite && (
+                      <div style={{fontSize:'0.82rem',color:vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--text2)',marginBottom:10}}>
+                        📅 {vencida ? 'Venció el' : 'Disponible hasta'}: <strong>{new Date(ev.fecha_limite+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{flexShrink:0}}>
+                    {vencida ? (
+                      <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>
+                        ⏰ Plazo vencido
+                      </div>
+                    ) : (
+                      <a href={ev.link_google} target="_blank" rel="noreferrer" className="btn btn-primary" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:8}}>
+                        📋 Ir a la evaluación
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
 }
 
-// ─── ALUMNO PAGOS ─────────────────────────────────────────────────────
 function AlumnoPagos({ alumno }) {
   const [pagos, setPagos] = useState([]);
   const [loading, setLoading] = useState(true);
