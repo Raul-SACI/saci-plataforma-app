@@ -238,6 +238,9 @@ const BUNNY_API_KEY = '31ebdf0b-51c7-4388-8d3e0f3cdc7f-dad7-49dd';
 const ADMIN_EMAIL = 'admin@saci.com';
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  auth: { autoRefreshToken: false, persistSession: false }
+});
 
 // ─── CONTEXT ─────────────────────────────────────────────────────────
 const AppCtx = createContext(null);
@@ -821,24 +824,14 @@ function AdminAlumnos() {
         if (error) throw new Error(error.message);
         toast('Alumno actualizado ✏️', 'success');
       } else {
-        // Usar Admin API con service role key — sin rate limit ni validación de email
-        const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': SUPABASE_SERVICE_KEY,
-            'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
-          },
-          body: JSON.stringify({
-            email: form.email,
-            password: form.password,
-            email_confirm: true,
-            user_metadata: { nombre: form.nombre },
-          }),
+        const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+          email: form.email,
+          password: form.password,
+          email_confirm: true,
+          user_metadata: { nombre: form.nombre },
         });
-        const authData = await res.json();
-        if (!res.ok) throw new Error(authData.message || authData.error_description || 'Error al crear usuario');
-        // Insertar en tabla alumnos
+        if (authError) throw new Error(authError.message);
+
         const insertPayload = { nombre: form.nombre, email: form.email, estado: form.estado || 'activo' };
         if (form.telefono) insertPayload.telefono = form.telefono;
         const { error: dbError } = await supabase.from('alumnos').insert(insertPayload);
@@ -855,19 +848,12 @@ function AdminAlumnos() {
     if (!newPw || newPw.length < 6) return toast('Mínimo 6 caracteres', 'error');
     setSaving(true);
     try {
-      // Buscar el user_id en Auth por email usando Admin API
-      const resSearch = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?email=${encodeURIComponent(pwModal.email)}`, {
-        headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
-      });
-      const searchData = await resSearch.json();
-      const userId = searchData.users?.[0]?.id;
-      if (!userId) throw new Error('Usuario no encontrado en Auth');
-      const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${userId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
-        body: JSON.stringify({ password: newPw }),
-      });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Error al cambiar contraseña'); }
+      const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
+      if (listError) throw new Error(listError.message);
+      const user = usersData?.users?.find(u => u.email === pwModal.email);
+      if (!user) throw new Error('Usuario no encontrado en Auth');
+      const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password: newPw });
+      if (error) throw new Error(error.message);
       toast('Contraseña actualizada 🔑', 'success');
       setPwModal(null); setNewPw('');
     } catch (err) { toast(err.message, 'error'); }
