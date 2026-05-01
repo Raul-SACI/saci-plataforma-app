@@ -2195,6 +2195,7 @@ function AdminEvaluaciones() {
 
   const load = async () => {
     const { data, error } = await supabase.from('evaluaciones').select('*').order('created_at', { ascending: false });
+    console.log('EVALUACIONES DATA:', data, 'ERROR:', error);
     if (error) console.error('eval error:', error);
     setEvals(data || []); setLoading(false);
   };
