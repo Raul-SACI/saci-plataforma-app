@@ -2351,7 +2351,11 @@ function AlumnoVideos({ alumno, user }) {
       supabase.from('videos').select('*').order('orden'),
     ]).then(([{ data: tData }, { data: vData }]) => {
       setTemas(tData || []); setVideos(vData || []); setLoading(false);
-      if (vData?.length) { setCurrent(vData[0]); }
+      if (vData?.length) {
+        setCurrent(vData[0]);
+        // Registrar vista del primer video al cargar
+        setTimeout(() => registrarVista(vData[0]), 2000);
+      }
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
@@ -2374,16 +2378,13 @@ function AlumnoVideos({ alumno, user }) {
 
   const toggleTema = id => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
 
-  const registrarVista = async (video) => {
-    if (!video?.id) return;
-    // Usar id del alumno o del usuario autenticado
-    const alumnoId = alumno?.id || null;
-    if (!alumnoId) {
-      console.warn('No alumno id found, skipping vista registration');
+  const registrarVista = async (video, alumnoData) => {
+    const alumnoId = (alumnoData || alumno)?.id || null;
+    if (!video?.id || !alumnoId) {
+      console.warn('No se puede registrar vista - video:', video?.id, 'alumno:', alumnoId);
       return;
     }
-    console.log('Registrando vista:', video.titulo, 'alumno:', alumnoId);
-    // Solo evitar duplicado si vio el mismo video en el último minuto
+    console.log('Registrando vista:', video.titulo, 'alumno id:', alumnoId);
     const unMinAtras = new Date(Date.now() - 60 * 1000).toISOString();
     const { count } = await supabase
       .from('visualizaciones')
@@ -2395,7 +2396,7 @@ function AlumnoVideos({ alumno, user }) {
     if (count > 0) return;
     const { error } = await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumnoId });
     if (error) console.error('Error registrando vista:', error);
-    else console.log('Vista registrada OK');
+    else console.log('Vista registrada OK ✅');
   };
 
   const seleccionarVideo = async (v) => {
