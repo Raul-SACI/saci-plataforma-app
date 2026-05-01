@@ -2203,9 +2203,10 @@ function AdminEvaluaciones() {
   const save = async () => {
     if (!form.titulo) return toast('El título es requerido', 'error');
     if (!form.link_google) return toast('El link de Google Forms es requerido', 'error');
+    const payload = { ...form, estado: 'disponible' };
     const { error } = editing
-      ? await supabase.from('evaluaciones').update(form).eq('id', editing)
-      : await supabase.from('evaluaciones').insert(form);
+      ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
+      : await supabase.from('evaluaciones').insert(payload);
     if (error) return toast(error.message, 'error');
     toast(editing ? 'Evaluación actualizada ✏️' : 'Evaluación agregada ✅', 'success');
     setModal(false); setEditing(null); setForm(emptyForm); load();
