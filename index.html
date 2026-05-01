@@ -2188,25 +2188,35 @@ function AdminEvaluaciones() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true };
+  const emptyForm = { titulo: '', descripcion: '', enlace_google: '', fecha_limite: '', tema: '', visible: true };
   const [form, setForm] = useState(emptyForm);
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
   const load = async () => {
-    const { data, error } = await supabase.from('evaluaciones').select('*').order('created_at', { ascending: false });
-    console.log('EVALUACIONES DATA:', data, 'ERROR:', error);
-    if (error) console.error('eval error:', error);
+    const { data, error } = await supabase
+      .from('evaluaciones')
+      .select('identificacion, titulo, descripcion, enlace_google, fecha_limite, tema, visible, estado')
+      .order('identificacion', { ascending: false });
+    console.log('EVAL:', data, error);
     setEvals(data || []); setLoading(false);
   };
   useEffect(() => { load(); }, []);
 
   const save = async () => {
     if (!form.titulo) return toast('El título es requerido', 'error');
-    if (!form.link_google) return toast('El link de Google Forms es requerido', 'error');
-    const payload = { ...form, estado: 'disponible' };
+    if (!form.enlace_google) return toast('El link de Google Forms es requerido', 'error');
+    const payload = { 
+      titulo: form.titulo,
+      descripcion: form.descripcion || null,
+      enlace_google: form.enlace_google || null,
+      fecha_limite: form.fecha_limite || null,
+      tema: form.tema || null,
+      visible: form.visible,
+      estado: 'disponible'
+    };
     const { error } = editing
-      ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
+      ? await supabase.from('evaluaciones').update(payload).eq('identificacion', editing)
       : await supabase.from('evaluaciones').insert(payload);
     if (error) return toast(error.message, 'error');
     toast(editing ? 'Evaluación actualizada ✏️' : 'Evaluación agregada ✅', 'success');
@@ -2215,13 +2225,13 @@ function AdminEvaluaciones() {
 
   const remove = async id => {
     if (!confirm('¿Eliminar esta evaluación?')) return;
-    await supabase.from('evaluaciones').delete().eq('id', id);
+    await supabase.from('evaluaciones').delete().eq('identificacion', id);
     toast('Evaluación eliminada', 'info'); load();
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false });
-    setEditing(ev.id); setModal(true);
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', enlace_google: ev.enlace_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false });
+    setEditing(ev.identificacion); setModal(true);
   };
 
   const toggleVisible = async (id, visible) => {
@@ -2249,7 +2259,7 @@ function AdminEvaluaciones() {
             const vencida = isVencida(ev);
             const proxVencer = isProxVencer(ev);
             return (
-              <div key={ev.id} className="card" style={{opacity: !ev.visible ? 0.6 : 1, borderLeft: `4px solid ${vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--accent)'}`}}>
+              <div key={ev.identificacion} className="card" style={{opacity: !ev.visible ? 0.6 : 1, borderLeft: `4px solid ${vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--accent)'}`}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16}}>
                   <div style={{flex:1}}>
                     <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
@@ -2261,7 +2271,7 @@ function AdminEvaluaciones() {
                     </div>
                     {ev.descripcion && <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:8}}>{ev.descripcion}</div>}
                     <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                      <a href={ev.link_google} target="_blank" rel="noreferrer" style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>
+                      <a href={ev.enlace_google} target="_blank" rel="noreferrer" style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>
                         🔗 Ver formulario
                       </a>
                       {ev.fecha_limite && (
@@ -2301,7 +2311,7 @@ function AdminEvaluaciones() {
           </div>
           <div className="form-group">
             <label>🔗 Link de Google Forms</label>
-            <input type="url" placeholder="https://docs.google.com/forms/d/..." value={form.link_google} onChange={e => setForm(p=>({...p,link_google:e.target.value}))} />
+            <input type="url" placeholder="https://docs.google.com/forms/d/..." value={form.enlace_google} onChange={e => setForm(p=>({...p,enlace_google:e.target.value}))} />
             <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Pegá el link del formulario de Google Forms</div>
           </div>
           <div className="form-group">
@@ -2625,7 +2635,7 @@ function AlumnoEvaluaciones({ alumno }) {
             const vencida = isVencida(ev);
             const proxVencer = isProxVencer(ev);
             return (
-              <div key={ev.id} className="card" style={{borderLeft:`4px solid ${vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--accent)'}`,opacity:vencida?0.7:1}}>
+              <div key={ev.identificacion} className="card" style={{borderLeft:`4px solid ${vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--accent)'}`,opacity:vencida?0.7:1}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,flexWrap:'wrap'}}>
                   <div style={{flex:1}}>
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
@@ -2647,7 +2657,7 @@ function AlumnoEvaluaciones({ alumno }) {
                         ⏰ Plazo vencido
                       </div>
                     ) : (
-                      <a href={ev.link_google} target="_blank" rel="noreferrer" className="btn btn-primary" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:8}}>
+                      <a href={ev.enlace_google} target="_blank" rel="noreferrer" className="btn btn-primary" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:8}}>
                         📋 Ir a la evaluación
                       </a>
                     )}
