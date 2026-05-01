@@ -2194,7 +2194,8 @@ function AdminEvaluaciones() {
   const today = new Date().toISOString().split('T')[0];
 
   const load = async () => {
-    const { data } = await supabase.from('evaluaciones').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('evaluaciones').select('*').order('created_at', { ascending: false });
+    if (error) console.error('eval error:', error);
     setEvals(data || []); setLoading(false);
   };
   useEffect(() => { load(); }, []);
