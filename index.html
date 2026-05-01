@@ -2363,10 +2363,15 @@ function AlumnoVideos({ alumno, user }) {
 
   const registrarVista = async (video) => {
     if (!video?.id) return;
-    const key = `vis_${video.id}`;
-    const last = parseInt(sessionStorage.getItem(key) || '0');
-    if (Date.now() - last < 30000) return;
-    sessionStorage.setItem(key, Date.now().toString());
+    // Verificar si ya registró una vista en los últimos 5 minutos para este video
+    const cincoMinAtras = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { count } = await supabase
+      .from('visualizaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('video_id', video.id)
+      .eq('alumno_id', alumno?.id || '00000000-0000-0000-0000-000000000000')
+      .gte('created_at', cincoMinAtras);
+    if (count > 0) return; // Ya registró una vista hace menos de 5 minutos
     await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumno?.id || null });
   };
 
