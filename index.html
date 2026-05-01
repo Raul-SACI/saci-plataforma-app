@@ -238,7 +238,6 @@ const BUNNY_API_KEY = '31ebdf0b-51c7-4388-8d3e0f3cdc7f-dad7-49dd';
 const ADMIN_EMAIL = 'admin@saci.com';
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const supabaseAdmin = window.supabase.createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // ─── CONTEXT ─────────────────────────────────────────────────────────
 const AppCtx = createContext(null);
@@ -849,13 +848,7 @@ function AdminAlumnos() {
     if (!newPw || newPw.length < 6) return toast('Mínimo 6 caracteres', 'error');
     setSaving(true);
     try {
-      const { data: usersData, error: listError } = await supabaseAdmin.auth.admin.listUsers();
-      if (listError) throw new Error(listError.message);
-      const user = usersData?.users?.find(u => u.email === pwModal.email);
-      if (!user) throw new Error('Usuario no encontrado en Auth');
-      const { error } = await supabaseAdmin.auth.admin.updateUserById(user.id, { password: newPw });
-      if (error) throw new Error(error.message);
-      toast('Contraseña actualizada 🔑', 'success');
+      toast('Para cambiar la contraseña de un alumno, hacelo desde Supabase → Authentication → Users → click en el usuario → Change password', 'info');
       setPwModal(null); setNewPw('');
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
