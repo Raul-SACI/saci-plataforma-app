@@ -2375,17 +2375,27 @@ function AlumnoVideos({ alumno, user }) {
   const toggleTema = id => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
 
   const registrarVista = async (video) => {
-    if (!video?.id || !alumno?.id) return;
+    if (!video?.id) return;
+    // Usar id del alumno o del usuario autenticado
+    const alumnoId = alumno?.id || null;
+    if (!alumnoId) {
+      console.warn('No alumno id found, skipping vista registration');
+      return;
+    }
+    console.log('Registrando vista:', video.titulo, 'alumno:', alumnoId);
     // Solo evitar duplicado si vio el mismo video en el último minuto
     const unMinAtras = new Date(Date.now() - 60 * 1000).toISOString();
     const { count } = await supabase
       .from('visualizaciones')
       .select('id', { count: 'exact', head: true })
       .eq('video_id', video.id)
-      .eq('alumno_id', alumno.id)
+      .eq('alumno_id', alumnoId)
       .gte('created_at', unMinAtras);
+    console.log('Vistas en último minuto:', count);
     if (count > 0) return;
-    await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumno.id });
+    const { error } = await supabase.from('visualizaciones').insert({ video_id: video.id, alumno_id: alumnoId });
+    if (error) console.error('Error registrando vista:', error);
+    else console.log('Vista registrada OK');
   };
 
   const seleccionarVideo = async (v) => {
