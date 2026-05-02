@@ -2417,6 +2417,22 @@ function AlumnoVideos({ alumno, user }) {
   const [expandedTemas, setExpandedTemas] = useState({});
   const MAX_ACCESOS = 2;
   const [accesoError, setAccesoError] = useState(null);
+  const [contadoresVistas, setContadoresVistas] = useState({});
+
+  const cargarContadores = async (videoIds, alumnoId) => {
+    if (!alumnoId || !videoIds.length) return {};
+    const { data } = await supabase
+      .from('visualizaciones')
+      .select('video_id')
+      .eq('alumno_id', alumnoId)
+      .in('video_id', videoIds);
+    const contadores = {};
+    (data || []).forEach(v => {
+      contadores[v.video_id] = (contadores[v.video_id] || 0) + 1;
+    });
+    setContadoresVistas(contadores);
+    return contadores;
+  };
 
   useEffect(() => {
     Promise.all([
@@ -2424,30 +2440,26 @@ function AlumnoVideos({ alumno, user }) {
       supabase.from('videos').select('*').order('orden'),
     ]).then(async ([{ data: tData }, { data: vData }]) => {
       setTemas(tData || []); setVideos(vData || []); setLoading(false);
-      if (vData?.length) {
-        const firstVideo = vData[0];
-        if (alumno?.id) {
-          const { count } = await supabase
-            .from('visualizaciones')
-            .select('id', { count: 'exact', head: true })
-            .eq('video_id', firstVideo.id)
-            .eq('alumno_id', alumno.id);
-          if (count >= MAX_ACCESOS) {
-            // Ya superó el límite — mostrar bloqueo directamente
-            setAccesoError({ video: firstVideo, count });
-            // No cargar ningún video
-          } else {
-            setCurrent(firstVideo);
-            registrarVista(firstVideo);
-          }
-        } else {
-          setCurrent(firstVideo);
-        }
-      }
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
       setExpandedTemas(exp);
+
+      if (vData?.length) {
+        // Cargar contadores de todos los videos del alumno de una sola query
+        const videoIds = vData.map(v => v.id);
+        const contadores = await cargarContadores(videoIds, alumno?.id);
+
+        // Cargar el primer video que el alumno pueda ver
+        const primerDisponible = vData.find(v => (contadores[v.id] || 0) < MAX_ACCESOS);
+        if (primerDisponible) {
+          setCurrent(primerDisponible);
+          registrarVista(primerDisponible);
+        } else if (vData[0]) {
+          // Todos bloqueados — mostrar error del primero
+          setAccesoError({ video: vData[0], count: contadores[vData[0].id] || 0 });
+        }
+      }
     });
   }, []);
 
@@ -2490,12 +2502,21 @@ function AlumnoVideos({ alumno, user }) {
   const seleccionarVideo = async (v) => {
     setAccesoError(null);
     if (alumno?.id) {
-      const { count } = await supabase
-        .from('visualizaciones')
-        .select('id', { count: 'exact', head: true })
-        .eq('video_id', v.id)
-        .eq('alumno_id', alumno.id);
-      if (count >= MAX_ACCESOS) { setAccesoError({ video: v, count }); return; }
+      // Usar contador ya cargado, o consultar si no está
+      let vistas = contadoresVistas[v.id];
+      if (vistas === undefined) {
+        const { count } = await supabase
+          .from('visualizaciones')
+          .select('id', { count: 'exact', head: true })
+          .eq('video_id', v.id)
+          .eq('alumno_id', alumno.id);
+        vistas = count || 0;
+        setContadoresVistas(p => ({ ...p, [v.id]: vistas }));
+      }
+      if (vistas >= MAX_ACCESOS) {
+        setAccesoError({ video: v, count: vistas });
+        return;
+      }
     }
     setCurrent(v);
     registrarVista(v);
@@ -2588,7 +2609,7 @@ function AlumnoVideos({ alumno, user }) {
 }
 
 // ─── ALUMNO MATERIALES ────────────────────────────────────────────────
-function AlumnoMateriales() {
+function AlumnoMateriales({ alumno, user }) {
   const TIPO_INFO = { pdf:'📕', word:'📘', excel:'📗', link:'🔗', video:'🎬', imagen:'🖼️', doc:'📝', otro:'📦' };
   const [temas, setTemas] = useState([]);
   const [mats, setMats] = useState([]);
@@ -2596,6 +2617,16 @@ function AlumnoMateriales() {
   const [preview, setPreview] = useState(null);
   const [expanded, setExpanded] = useState({});
   const toast = useToast();
+  const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
+  const watermarkEmail = alumno?.email || user?.email || '';
+
+  const registrarVistaMaterial = async (mat) => {
+    if (!mat?.id || !alumno?.id) return;
+    const key = `mat_${mat.id}_${alumno.id}`;
+    if (sessionStorage.getItem(key)) return;
+    await supabase.from('visualizaciones_materiales').insert({ material_id: mat.id, alumno_id: alumno.id });
+    sessionStorage.setItem(key, '1');
+  };
 
   useEffect(() => {
     Promise.all([
@@ -2641,7 +2672,7 @@ function AlumnoMateriales() {
           </div>
         </div>
         <div style={{display:'flex',gap:8,marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
-          {['pdf','imagen','video','link'].includes(m.tipo) && <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => setPreview(m)}>👁️ Visualizar</button>}
+          {['pdf','imagen','video','link'].includes(m.tipo) && <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => { setPreview(m); registrarVistaMaterial(m); }}>👁️ Visualizar</button>}
           {puedeDescargar && <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>}
           {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>}
         </div>
@@ -2697,7 +2728,23 @@ function AlumnoMateriales() {
               </div>
             </div>
             <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px'}}>
-              {preview.tipo==='pdf'?<iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
+              {preview.tipo==='pdf'?
+                <div style={{position:'relative',width:'100%',height:'100%'}}>
+                  <iframe
+                    src={preview.permite_descarga !== false
+                      ? preview.url
+                      : `https://docs.google.com/viewer?url=${encodeURIComponent(preview.url)}&embedded=true`}
+                    style={{width:'100%',height:'100%',border:'none'}}
+                  />
+                  {preview.permite_descarga === false && (
+                    <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                      <div style={{transform:'rotate(-35deg)',textAlign:'center',opacity:0.12,userSelect:'none'}}>
+                        <div style={{fontSize:'clamp(14px,2.5vw,28px)',fontWeight:700,color:'#ff6584',letterSpacing:'0.05em',whiteSpace:'nowrap'}}>{watermarkName}</div>
+                        <div style={{fontSize:'clamp(10px,1.8vw,20px)',color:'#6c63ff',marginTop:4,whiteSpace:'nowrap'}}>{watermarkEmail}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               :preview.tipo==='imagen'?<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}><img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} /></div>
               :preview.tipo==='link'?<div style={{textAlign:'center',padding:40}}><a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a></div>
               :null}
@@ -2917,7 +2964,7 @@ function App() {
     evaluaciones: <AdminEvaluaciones />,
     'mis-gantt': <div className="page-content fade-in"><GanttChart isAdmin={false} /></div>,
     'mis-videos': <AlumnoVideos alumno={alumno} user={user} />,
-    'mis-materiales': <AlumnoMateriales />,
+    'mis-materiales': <AlumnoMateriales alumno={alumno} user={user} />,
     'mis-evaluaciones': <AlumnoEvaluaciones alumno={alumno} />,
     'mis-pagos': <AlumnoPagos alumno={alumno} />,
   };
