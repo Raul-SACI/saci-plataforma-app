@@ -2662,6 +2662,11 @@ function AlumnoMateriales({ alumno, user }) {
     } catch { toast('Error al descargar', 'error'); }
   };
 
+  const abrirPreview = m => {
+    setPreview(m);
+    registrarVistaMaterial(m);
+  };
+
   const MatCard = ({ m }) => {
     const icon = TIPO_INFO[m.tipo] || '📦';
     const puedeDescargar = m.permite_descarga !== false;
@@ -2679,9 +2684,15 @@ function AlumnoMateriales({ alumno, user }) {
           </div>
         </div>
         <div style={{display:'flex',gap:8,marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
-          {['pdf','imagen','video','link'].includes(m.tipo) && <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => { setPreview(m); registrarVistaMaterial(m); }}>👁️ Visualizar</button>}
-          {puedeDescargar && <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>}
-          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>}
+          {['pdf','imagen','video','link'].includes(m.tipo) && (
+            <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => abrirPreview(m)}>👁️ Visualizar</button>
+          )}
+          {puedeDescargar && (
+            <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>
+          )}
+          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && (
+            <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>
+          )}
         </div>
       </div>
     );
@@ -2711,7 +2722,11 @@ function AlumnoMateriales({ alumno, user }) {
                 <span style={{color:'var(--text2)',fontSize:'1rem'}}>{isOpen?'▲':'▼'}</span>
               </div>
             </div>
-            {isOpen && <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}><div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div></div>}
+            {isOpen && (
+              <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
+                <div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div>
+              </div>
+            )}
           </div>
         );
       })}
@@ -2721,40 +2736,53 @@ function AlumnoMateriales({ alumno, user }) {
             <div style={{fontWeight:600,color:'var(--text2)'}}>📁 Otros materiales</div>
             <span style={{color:'var(--text2)',fontSize:'1rem'}}>{expanded['sin-tema']?'▲':'▼'}</span>
           </div>
-          {expanded['sin-tema'] && <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}><div className="grid-2">{mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}</div></div>}
+          {expanded['sin-tema'] && (
+            <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
+              <div className="grid-2">{mats.filter(m=>!m.tema_id).map(m => <MatCard key={m.id} m={m} />)}</div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* Preview modal - sin opción de descarga cuando está bloqueado */}
       {preview && (
-        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&setPreview(null)}>
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setPreview(null)}>
           <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:18,width:'90vw',maxWidth:900,height:'85vh',display:'flex',flexDirection:'column'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 22px',borderBottom:'1px solid var(--border)'}}>
               <div style={{fontWeight:700}}>{preview.unidad||preview.titulo}</div>
-              <div style={{display:'flex',gap:8}}>
-                {preview.permite_descarga!==false && <button className="btn btn-success btn-sm" onClick={() => download(preview)}>⬇️ Descargar</button>}
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                {preview.permite_descarga !== false && (
+                  <button className="btn btn-success btn-sm" onClick={() => download(preview)}>⬇️ Descargar</button>
+                )}
                 <button className="modal-close" onClick={() => setPreview(null)}>✕</button>
               </div>
             </div>
-            <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px'}}>
-              {preview.tipo==='pdf'?
-                <div style={{position:'relative',width:'100%',height:'100%'}}>
+            <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px',position:'relative'}}>
+              {preview.tipo === 'pdf' && preview.permite_descarga === false ? (
+                <>
                   <iframe
-                    src={preview.permite_descarga !== false
-                      ? preview.url
-                      : `https://docs.google.com/viewer?url=${encodeURIComponent(preview.url)}&embedded=true`}
+                    src={`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(preview.url)}#toolbar=0&navpanes=0`}
                     style={{width:'100%',height:'100%',border:'none'}}
+                    sandbox="allow-scripts allow-same-origin"
                   />
-                  {preview.permite_descarga === false && (
-                    <div style={{position:'absolute',inset:0,pointerEvents:'none',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center'}}>
-                      <div style={{transform:'rotate(-35deg)',textAlign:'center',opacity:0.12,userSelect:'none'}}>
-                        <div style={{fontSize:'clamp(14px,2.5vw,28px)',fontWeight:700,color:'#ff6584',letterSpacing:'0.05em',whiteSpace:'nowrap'}}>{watermarkName}</div>
-                        <div style={{fontSize:'clamp(10px,1.8vw,20px)',color:'#6c63ff',marginTop:4,whiteSpace:'nowrap'}}>{watermarkEmail}</div>
-                      </div>
+                  <div style={{position:'absolute',inset:0,pointerEvents:'none',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                    <div style={{transform:'rotate(-35deg)',textAlign:'center',opacity:0.15,userSelect:'none'}}>
+                      <div style={{fontSize:'clamp(14px,2.5vw,26px)',fontWeight:700,color:'#ff6584',whiteSpace:'nowrap'}}>{watermarkName}</div>
+                      <div style={{fontSize:'clamp(10px,1.8vw,18px)',color:'#6c63ff',marginTop:4,whiteSpace:'nowrap'}}>{watermarkEmail}</div>
                     </div>
-                  )}
+                  </div>
+                </>
+              ) : preview.tipo === 'pdf' ? (
+                <iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
+              ) : preview.tipo === 'imagen' ? (
+                <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}>
+                  <img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} alt={preview.titulo} />
                 </div>
-              :preview.tipo==='imagen'?<div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}><img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} /></div>
-              :preview.tipo==='link'?<div style={{textAlign:'center',padding:40}}><a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a></div>
-              :null}
+              ) : preview.tipo === 'link' ? (
+                <div style={{textAlign:'center',padding:40}}>
+                  <a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
