@@ -304,6 +304,30 @@
     .mobile-menu-btn { display: flex; align-items: center; }
     .mobile-overlay.active { display: block; }
   }
+
+  /* Bottom nav for mobile */
+  .bottom-nav {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    z-index: 998;
+    padding-bottom: env(safe-area-inset-bottom, 4px);
+  }
+  .bottom-nav-items { display: flex; justify-content: space-around; }
+  .bottom-nav-item {
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+    padding: 8px 4px; cursor: pointer; border: none; background: none;
+    color: var(--text2); font-size: 0.58rem; font-family: inherit;
+    min-width: 44px; transition: color 0.2s;
+  }
+  .bottom-nav-item.active { color: var(--accent); }
+  .bottom-nav-item .bnav-icon { font-size: 1.25rem; line-height: 1; }
+  @media (max-width: 768px) {
+    .bottom-nav { display: block; }
+    .main-content { padding-bottom: 65px !important; }
+  }
 </style>
 </head>
 <body>
@@ -3034,6 +3058,19 @@ function App() {
   };
   const [title, subtitle] = titles[page] || ['SACi', ''];
 
+  const bottomNav = auth && !auth.isAdmin ? [
+    { id: 'mis-videos', icon: '🎬', label: 'Videos' },
+    { id: 'mis-materiales', icon: '📄', label: 'Materiales' },
+    { id: 'mis-evaluaciones', icon: '📝', label: 'Evaluaciones' },
+    { id: 'mis-pagos', icon: '💳', label: 'Pagos' },
+  ] : auth && auth.isAdmin ? [
+    { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+    { id: 'alumnos', icon: '👥', label: 'Alumnos' },
+    { id: 'videos', icon: '🎬', label: 'Videos' },
+    { id: 'materiales', icon: '📄', label: 'Materiales' },
+    { id: 'evaluaciones', icon: '📝', label: 'Eval.' },
+  ] : [];
+
   return (
     <div className="app-shell">
       <div className={`mobile-overlay ${sidebarOpen ? 'active' : ''}`} onClick={() => setSidebarOpen(false)} />
@@ -3042,6 +3079,18 @@ function App() {
         <Topbar title={title} subtitle={subtitle} onMenuToggle={() => setSidebarOpen(p => !p)} />
         {PAGE_MAP[page] || <Empty icon="🔍" text="Página no encontrada" />}
       </div>
+      {auth && (
+        <nav className="bottom-nav">
+          <div className="bottom-nav-items">
+            {bottomNav.map(item => (
+              <button key={item.id} className={`bottom-nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}>
+                <span className="bnav-icon">{item.icon}</span>
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }
