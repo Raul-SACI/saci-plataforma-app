@@ -1459,7 +1459,7 @@ function AdminVideos() {
   const [statsModal, setStatsModal] = useState(null); // video seleccionado para ver stats
   const [statsData, setStatsData] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, semana: '', tema_id: '' });
+  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, semana: '', tema_id: '', max_vistas: '' });
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
   const [editingTema, setEditingTema] = useState(null);
@@ -1541,14 +1541,14 @@ function AdminVideos() {
     if (tab === 'bunny' && !bunny_id) return toast('Seleccioná un video de Bunny', 'error');
     if (tab === 'url' && !url_externa) return toast('Ingresá una URL', 'error');
 
-    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, semana: form.semana, tema_id: form.tema_id || null };
+    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, semana: form.semana, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null };
     const { error } = editing
       ? await supabase.from('videos').update(payload).eq('id', editing)
       : await supabase.from('videos').insert(payload);
     if (error) return toast(error.message, 'error');
     toast(editing ? 'Video actualizado ✏️' : 'Video agregado 🎬', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
-    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, semana: '', tema_id: '' }); load();
+    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, semana: '', tema_id: '', max_vistas: '' }); load();
   };
 
   const saveTema = async () => {
@@ -1581,7 +1581,7 @@ function AdminVideos() {
   };
 
   const openEdit = v => {
-    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, semana: v.semana || '', tema_id: v.tema_id || '' });
+    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, semana: v.semana || '', tema_id: v.tema_id || '', max_vistas: v.max_vistas != null ? String(v.max_vistas) : '' });
     setEditing(v.id); setSelectedFile(null);
     setTab(v.url_externa ? 'url' : 'bunny');
     setModal(true);
@@ -1873,6 +1873,11 @@ function AdminVideos() {
             </div>
           )}
           <div className="form-group"><label>Orden</label><input type="number" value={form.orden} onChange={e => setForm(p => ({ ...p, orden: parseInt(e.target.value) || 0 }))} /></div>
+          <div className="form-group">
+            <label>👁️ Vistas máximas por alumno</label>
+            <input type="number" min="1" placeholder="Sin límite" value={form.max_vistas} onChange={e => setForm(p => ({ ...p, max_vistas: e.target.value }))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Dejá vacío para permitir vistas ilimitadas</div>
+          </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => setModal(false)} disabled={uploading}>Cancelar</button>
             <button className="btn btn-primary" onClick={save} disabled={uploading}>{uploading ? '⏳ Subiendo...' : '💾 Guardar'}</button>
@@ -1903,7 +1908,7 @@ function AdminMateriales() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
-  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '' });
+  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
   const [editingTema, setEditingTema] = useState(null);
@@ -1965,6 +1970,7 @@ function AdminMateriales() {
       permite_descarga: form.permite_descarga,
       semana: form.semana || null,
       tema_id: form.tema_id || null,
+      max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
     };
     const { error } = editing
       ? await supabase.from('materiales').update(payload).eq('id', editing)
@@ -1972,7 +1978,7 @@ function AdminMateriales() {
     if (error) return toast(error.message, 'error');
     toast(editing ? 'Material actualizado ✏️' : 'Material guardado ✅', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
-    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '' });
+    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
     load();
   };
 
@@ -2006,7 +2012,7 @@ function AdminMateriales() {
   };
 
   const openEdit = m => {
-    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '' });
+    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '' });
     setEditing(m.id); setSelectedFile(null); setModal(true);
   };
 
@@ -2318,6 +2324,11 @@ function AdminMateriales() {
               <input type="checkbox" checked={form.permite_descarga} onChange={e => setForm(p=>({...p,permite_descarga:e.target.checked}))} style={{width:'auto'}} />
               Permitir descarga por el alumno
             </label>
+          </div>
+          <div className="form-group">
+            <label>👁️ Vistas máximas por alumno</label>
+            <input type="number" min="1" placeholder="Sin límite" value={form.max_vistas} onChange={e => setForm(p=>({...p,max_vistas:e.target.value}))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Dejá vacío para permitir vistas ilimitadas</div>
           </div>
           {uploading && <div className="progress-bar" style={{marginBottom:8}}><div className="progress-fill" style={{width:`${uploadPct}%`}} /></div>}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
