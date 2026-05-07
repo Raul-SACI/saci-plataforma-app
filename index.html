@@ -2502,7 +2502,6 @@ function AlumnoVideos({ alumno, user }) {
   const [loading, setLoading] = useState(true);
   const [current, setCurrent] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
-  const MAX_ACCESOS = 2;
   const [accesoError, setAccesoError] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
 
@@ -2538,11 +2537,11 @@ function AlumnoVideos({ alumno, user }) {
         const contadores = await cargarContadores(videoIds, alumno?.id);
 
         // Cargar el primer video que el alumno pueda ver
-        const primerDisponible = vData.find(v => (contadores[v.id] || 0) < MAX_ACCESOS);
+        const primerDisponible = vData.find(v => v.max_vistas == null || (contadores[v.id] || 0) < v.max_vistas);
         if (primerDisponible) {
           setCurrent(primerDisponible);
           registrarVista(primerDisponible);
-        } else if (vData[0]) {
+        } else if (vData[0] && vData[0].max_vistas != null) {
           // Todos bloqueados — mostrar error del primero
           setAccesoError({ video: vData[0], count: contadores[vData[0].id] || 0 });
         }
@@ -2582,27 +2581,31 @@ function AlumnoVideos({ alumno, user }) {
     if (error) console.error('Error registrando vista:', error);
     else {
       sessionStorage.setItem(key, '1');
+      setContadoresVistas(p => ({ ...p, [video.id]: (p[video.id] || 0) + 1 }));
       console.log('Vista registrada OK ✅');
     }
   };
 
   const seleccionarVideo = async (v) => {
     setAccesoError(null);
-    if (alumno?.id) {
-      // Usar contador ya cargado, o consultar si no está
-      let vistas = contadoresVistas[v.id];
-      if (vistas === undefined) {
-        const { count } = await supabase
-          .from('visualizaciones')
-          .select('id', { count: 'exact', head: true })
-          .eq('video_id', v.id)
-          .eq('alumno_id', alumno.id);
-        vistas = count || 0;
-        setContadoresVistas(p => ({ ...p, [v.id]: vistas }));
-      }
-      if (vistas >= MAX_ACCESOS) {
-        setAccesoError({ video: v, count: vistas });
-        return;
+    if (alumno?.id && v.max_vistas != null) {
+      const sessionKey = `vista_${v.id}_${alumno.id}`;
+      const yaRegistradoEstaSesion = !!sessionStorage.getItem(sessionKey);
+      if (!yaRegistradoEstaSesion) {
+        let vistas = contadoresVistas[v.id];
+        if (vistas === undefined) {
+          const { count } = await supabase
+            .from('visualizaciones')
+            .select('id', { count: 'exact', head: true })
+            .eq('video_id', v.id)
+            .eq('alumno_id', alumno.id);
+          vistas = count || 0;
+          setContadoresVistas(p => ({ ...p, [v.id]: vistas }));
+        }
+        if (vistas >= v.max_vistas) {
+          setAccesoError({ video: v, count: vistas });
+          return;
+        }
       }
     }
     setCurrent(v);
@@ -2645,6 +2648,15 @@ function AlumnoVideos({ alumno, user }) {
               </div>
               <div className="card">
                 <div style={{fontWeight:700,fontSize:'1.1rem',marginBottom:6}}>{current.titulo}</div>
+                {current.max_vistas != null && alumno?.id && (() => {
+                  const vistas = contadoresVistas[current.id] || 0;
+                  const restantes = Math.max(0, current.max_vistas - vistas);
+                  return (
+                    <div style={{fontSize:'0.82rem',color:restantes===0?'var(--danger)':'var(--text2)',marginBottom:6}}>
+                      {restantes === 0 ? `Llegaste al límite de ${current.max_vistas} vistas` : `Te quedan ${restantes} intentos de los ${current.max_vistas} posibles`}
+                    </div>
+                  );
+                })()}
                 {current.descripcion && <div style={{color:'var(--text2)',fontSize:'0.88rem'}}>{current.descripcion}</div>}
               </div>
             </>
@@ -2684,7 +2696,7 @@ function AlumnoVideos({ alumno, user }) {
             <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Acceso limitado</div>
             <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>Ya accediste a <strong style={{color:'var(--text)'}}>{accesoError.video.titulo}</strong> el máximo de veces permitidas.</div>
             <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
-              Límite: {MAX_ACCESOS} accesos · Usados: {accesoError.count}
+              Límite: {accesoError.video.max_vistas} accesos · Usados: {accesoError.count}
             </div>
             <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso adicional.</div>
             <button className="btn btn-ghost" onClick={() => setAccesoError(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
@@ -2703,6 +2715,8 @@ function AlumnoMateriales({ alumno, user }) {
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [contadoresVistasMat, setContadoresVistasMat] = useState({});
+  const [accesoErrorMat, setAccesoErrorMat] = useState(null);
   const toast = useToast();
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
   const watermarkEmail = alumno?.email || user?.email || '';
@@ -2713,18 +2727,34 @@ function AlumnoMateriales({ alumno, user }) {
     if (sessionStorage.getItem(key)) return;
     await supabase.from('visualizaciones_materiales').insert({ material_id: mat.id, alumno_id: alumno.id });
     sessionStorage.setItem(key, '1');
+    if (mat.max_vistas != null) {
+      setContadoresVistasMat(p => ({ ...p, [mat.id]: (p[mat.id] || 0) + 1 }));
+    }
   };
 
   useEffect(() => {
     Promise.all([
       supabase.from('temas_materiales').select('*').order('orden'),
       supabase.from('materiales').select('*').order('orden'),
-    ]).then(([{ data: tData }, { data: mData }]) => {
+    ]).then(async ([{ data: tData }, { data: mData }]) => {
       setTemas(tData || []); setMats(mData || []); setLoading(false);
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
       setExpanded(exp);
+      if (mData?.length && alumno?.id) {
+        const matIds = (mData || []).filter(m => m.max_vistas != null).map(m => m.id);
+        if (matIds.length) {
+          const { data: vData } = await supabase
+            .from('visualizaciones_materiales')
+            .select('material_id')
+            .eq('alumno_id', alumno.id)
+            .in('material_id', matIds);
+          const contadores = {};
+          (vData || []).forEach(v => { contadores[v.material_id] = (contadores[v.material_id] || 0) + 1; });
+          setContadoresVistasMat(contadores);
+        }
+      }
     });
   }, []);
 
@@ -2742,7 +2772,28 @@ function AlumnoMateriales({ alumno, user }) {
     } catch { toast('Error al descargar', 'error'); }
   };
 
-  const abrirPreview = m => {
+  const abrirPreview = async (m) => {
+    setAccesoErrorMat(null);
+    if (alumno?.id && m.max_vistas != null) {
+      const sessionKey = `mat_${m.id}_${alumno.id}`;
+      const yaRegistradoEstaSesion = !!sessionStorage.getItem(sessionKey);
+      if (!yaRegistradoEstaSesion) {
+        let vistas = contadoresVistasMat[m.id];
+        if (vistas === undefined) {
+          const { count } = await supabase
+            .from('visualizaciones_materiales')
+            .select('id', { count: 'exact', head: true })
+            .eq('material_id', m.id)
+            .eq('alumno_id', alumno.id);
+          vistas = count || 0;
+          setContadoresVistasMat(p => ({ ...p, [m.id]: vistas }));
+        }
+        if (vistas >= m.max_vistas) {
+          setAccesoErrorMat({ mat: m, count: vistas });
+          return;
+        }
+      }
+    }
     setPreview(m);
     registrarVistaMaterial(m);
   };
@@ -2757,6 +2808,15 @@ function AlumnoMateriales({ alumno, user }) {
           <div style={{flex:1,minWidth:0}}>
             <div style={{fontWeight:700,fontSize:'0.95rem'}}>{m.unidad || m.titulo}</div>
             {m.descripcion && <div style={{fontSize:'0.8rem',color:'var(--text2)',marginTop:3}}>{m.descripcion}</div>}
+            {m.max_vistas != null && alumno?.id && (() => {
+              const vistas = contadoresVistasMat[m.id] || 0;
+              const restantes = Math.max(0, m.max_vistas - vistas);
+              return (
+                <div style={{fontSize:'0.75rem',color:restantes===0?'var(--danger)':'var(--text2)',marginTop:4}}>
+                  {restantes === 0 ? `Llegaste al límite de ${m.max_vistas} vistas` : `Te quedan ${restantes} intentos de los ${m.max_vistas} posibles`}
+                </div>
+              );
+            })()}
             <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap'}}>
               <span className="chip chip-blue">{m.tipo?.toUpperCase()}</span>
               {!puedeDescargar && <span className="chip chip-yellow" style={{fontSize:'0.68rem'}}>🔒 Solo visualización</span>}
@@ -2864,6 +2924,20 @@ function AlumnoMateriales({ alumno, user }) {
                 </div>
               ) : null}
             </div>
+          </div>
+        </div>
+      )}
+      {accesoErrorMat && (
+        <div className="modal-overlay" onClick={() => setAccesoErrorMat(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'3rem',marginBottom:12}}>🔒</div>
+            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Acceso limitado</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>Ya accediste a <strong style={{color:'var(--text)'}}>{accesoErrorMat.mat.unidad||accesoErrorMat.mat.titulo}</strong> el máximo de veces permitidas.</div>
+            <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
+              Límite: {accesoErrorMat.mat.max_vistas} accesos · Usados: {accesoErrorMat.count}
+            </div>
+            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso adicional.</div>
+            <button className="btn btn-ghost" onClick={() => setAccesoErrorMat(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
           </div>
         </div>
       )}

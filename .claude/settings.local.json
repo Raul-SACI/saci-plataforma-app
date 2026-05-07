@@ -4,7 +4,8 @@
       "Bash(Get-ChildItem -Path C:\\\\Users\\\\Usuario\\\\Desktop\\\\saci-plataforma-app -Recurse -Filter \"*.json\" -ErrorAction SilentlyContinue)",
       "Bash(Select-Object -First 5)",
       "Bash(git ls-tree *)",
-      "Bash(grep -E \"\\\\.\\(tsx?|jsx?|vue\\)$\")"
+      "Bash(grep -E \"\\\\.\\(tsx?|jsx?|vue\\)$\")",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\Usuario\\\\Desktop\\\\saci-plataforma-app\\\\index.html\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }
