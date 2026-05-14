@@ -577,6 +577,305 @@ function Empty({ icon = '📭', text = 'Sin datos' }) {
 
 
 // ─── GANTT CHART ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// ADMIN PLANIFICACIÓN MENSUAL
+// ═══════════════════════════════════════════════════════════════════════
+function AdminPlanificacion() {
+  const today = new Date();
+  const [mes, setMes] = useState(today.getMonth());
+  const [año, setAño] = useState(today.getFullYear());
+  const [planDocente, setPlanDocente] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const DIAS = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
+
+  const load = async () => {
+    setLoading(true);
+    const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
+    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+    const { data } = await supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta);
+    const map = {};
+    (data||[]).forEach(d => { map[d.fecha] = d; });
+    setPlanDocente(map);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, [mes, año]);
+
+  const diasEnMes = (m,y) => new Date(y, m+1, 0).getDate();
+  const primerDia = (m,y) => { const d = new Date(y,m,1).getDay(); return d===0?6:d-1; };
+  const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  const navMes = dir => { let m=mes+dir,y=año; if(m<0){m=11;y--;} if(m>11){m=0;y++;} setMes(m);setAño(y); };
+
+  const openDay = fecha => {
+    const ex = planDocente[fecha];
+    setModal({ fecha, id: ex?.id||null });
+    setForm(ex?.contenido||'');
+  };
+
+  const save = async () => {
+    setSaving(true);
+    if (!form.trim()) {
+      if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
+      setSaving(false); setModal(null); load(); return;
+    }
+    const payload = { fecha: modal.fecha, contenido: form.trim() };
+    const { error } = modal.id
+      ? await supabase.from('planificacion_docente').update(payload).eq('id',modal.id)
+      : await supabase.from('planificacion_docente').insert(payload);
+    if (error) { toast(error.message,'error'); setSaving(false); return; }
+    toast('Guardado ✅','success'); setSaving(false); setModal(null); load();
+  };
+
+  const cells = [];
+  for (let i=0; i<primerDia(mes,año); i++) cells.push(null);
+  for (let d=1; d<=diasEnMes(mes,año); d++) cells.push(d);
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header">
+        <div><div className="page-title">📅 Planificación</div><div className="page-subtitle">Cronograma mensual del curso</div></div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
+        <button className="btn btn-ghost" onClick={() => navMes(-1)}>◀</button>
+        <div style={{fontWeight:700,fontSize:'1.15rem',minWidth:200,textAlign:'center'}}>{MESES[mes]} {año}</div>
+        <button className="btn btn-ghost" onClick={() => navMes(1)}>▶</button>
+      </div>
+      <div style={{overflowX:'auto'}}>
+        <div style={{minWidth:560}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
+            {DIAS.map(d => <div key={d} style={{textAlign:'center',fontSize:'0.7rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.06em',padding:'6px 0'}}>{d}</div>)}
+          </div>
+          {loading ? <Loading /> : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+              {cells.map((d,i) => {
+                if (!d) return <div key={`e-${i}`} />;
+                const fecha = fmtFecha(d);
+                const plan = planDocente[fecha];
+                const isToday = fecha === todayStr;
+                return (
+                  <div key={fecha} onClick={() => openDay(fecha)}
+                    style={{minHeight:90,borderRadius:10,border:isToday?'2px solid var(--accent)':'1px solid var(--border)',background:plan?'rgba(108,99,255,0.09)':'var(--surface)',padding:'8px 10px',cursor:'pointer',transition:'background 0.15s'}}
+                    onMouseOver={e=>e.currentTarget.style.background=plan?'rgba(108,99,255,0.18)':'var(--surface2)'}
+                    onMouseOut={e=>e.currentTarget.style.background=plan?'rgba(108,99,255,0.09)':'var(--surface)'}
+                  >
+                    <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':'var(--text)',marginBottom:4}}>{d}</div>
+                    {plan
+                      ? <div style={{fontSize:'0.68rem',color:'var(--text2)',lineHeight:1.4,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:3,WebkitBoxOrient:'vertical'}}>{plan.contenido}</div>
+                      : <div style={{fontSize:'0.8rem',color:'var(--border)',textAlign:'center',marginTop:12}}>+</div>
+                    }
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+      {modal && (
+        <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${MESES[mes]} ${año}`} onClose={() => setModal(null)}>
+          <div className="form-group">
+            <label>Planificación sugerida para este día</label>
+            <textarea value={form} onChange={e=>setForm(e.target.value)} placeholder="Ej: Leer capítulo 3, ver video de introducción, completar ejercicios 1-5..." style={{minHeight:120}} autoFocus />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Dejá vacío para eliminar la planificación de este día.</div>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'⏳...':'💾 Guardar'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ALUMNO PLANIFICACIÓN MENSUAL
+// ═══════════════════════════════════════════════════════════════════════
+function AlumnoPlanificacion({ alumno }) {
+  const today = new Date();
+  const [mes, setMes] = useState(today.getMonth());
+  const [año, setAño] = useState(today.getFullYear());
+  const [planDocente, setPlanDocente] = useState({});
+  const [planAlumno, setPlanAlumno] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  const DIAS = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
+
+  const load = async () => {
+    setLoading(true);
+    const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
+    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+    const [{ data: docData }, { data: alumData }] = await Promise.all([
+      supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta),
+      alumno?.id
+        ? supabase.from('planificacion_alumnos').select('*').eq('alumno_id',alumno.id).gte('fecha',desde).lte('fecha',hasta)
+        : { data: [] },
+    ]);
+    const dMap={}, aMap={};
+    (docData||[]).forEach(d=>{ dMap[d.fecha]=d; });
+    (alumData||[]).forEach(d=>{ aMap[d.fecha]=d; });
+    setPlanDocente(dMap); setPlanAlumno(aMap); setLoading(false);
+  };
+  useEffect(() => { load(); }, [mes, año]);
+
+  const diasEnMes = (m,y) => new Date(y, m+1, 0).getDate();
+  const primerDia = (m,y) => { const d = new Date(y,m,1).getDay(); return d===0?6:d-1; };
+  const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const navMes = dir => { let m=mes+dir,y=año; if(m<0){m=11;y--;} if(m>11){m=0;y++;} setMes(m);setAño(y); };
+
+  const openDay = fecha => {
+    const ex = planAlumno[fecha];
+    setModal({ fecha, id: ex?.id||null, completado: ex?.completado||false });
+    setForm(ex?.contenido||'');
+  };
+
+  const save = async () => {
+    if (!alumno?.id) return toast('No se encontró tu perfil','error');
+    setSaving(true);
+    if (!form.trim()) {
+      if (modal.id) { await supabase.from('planificacion_alumnos').delete().eq('id',modal.id); toast('Plan eliminado','info'); }
+      setSaving(false); setModal(null); load(); return;
+    }
+    const payload = { alumno_id: alumno.id, fecha: modal.fecha, contenido: form.trim(), completado: modal.completado };
+    const { error } = modal.id
+      ? await supabase.from('planificacion_alumnos').update(payload).eq('id',modal.id)
+      : await supabase.from('planificacion_alumnos').insert(payload);
+    if (error) { toast(error.message,'error'); setSaving(false); return; }
+    toast('Plan guardado ✅','success'); setSaving(false); setModal(null); load();
+  };
+
+  const toggleCompletado = async (fecha, e) => {
+    e.stopPropagation();
+    if (!alumno?.id) return;
+    const ex = planAlumno[fecha];
+    if (!ex) return;
+    const val = !ex.completado;
+    await supabase.from('planificacion_alumnos').update({ completado: val }).eq('id',ex.id);
+    setPlanAlumno(p => ({ ...p, [fecha]: { ...p[fecha], completado: val } }));
+  };
+
+  const cells = [];
+  for (let i=0; i<primerDia(mes,año); i++) cells.push(null);
+  for (let d=1; d<=diasEnMes(mes,año); d++) cells.push(d);
+
+  const totalPlan = Object.keys(planAlumno).length;
+  const cumplidos = Object.values(planAlumno).filter(p=>p.completado).length;
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header">
+        <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes</div></div>
+      </div>
+
+      {totalPlan > 0 && (
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
+          <div className="card" style={{textAlign:'center',padding:'14px 10px'}}>
+            <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.5rem',color:'var(--accent)'}}>{totalPlan}</div>
+            <div style={{fontSize:'0.7rem',color:'var(--text2)',marginTop:2}}>Días planificados</div>
+          </div>
+          <div className="card" style={{textAlign:'center',padding:'14px 10px'}}>
+            <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.5rem',color:'var(--success)'}}>{cumplidos}</div>
+            <div style={{fontSize:'0.7rem',color:'var(--text2)',marginTop:2}}>Cumplidos ✅</div>
+          </div>
+          <div className="card" style={{textAlign:'center',padding:'14px 10px'}}>
+            <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.5rem',color:'var(--accent2)'}}>{totalPlan-cumplidos}</div>
+            <div style={{fontSize:'0.7rem',color:'var(--text2)',marginTop:2}}>Pendientes</div>
+          </div>
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:16,flexWrap:'wrap',marginBottom:14,fontSize:'0.73rem',color:'var(--text2)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:11,height:11,borderRadius:3,background:'rgba(108,99,255,0.15)',border:'1px solid var(--accent)'}} /> Sugerido por docente</div>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:11,height:11,borderRadius:3,background:'rgba(67,233,123,0.12)',border:'1px solid var(--success)'}} /> Mi plan</div>
+        <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:11,height:11,borderRadius:3,background:'rgba(67,233,123,0.35)',border:'1px solid var(--success)'}} /> Completado ✅</div>
+      </div>
+
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
+        <button className="btn btn-ghost" onClick={()=>navMes(-1)}>◀</button>
+        <div style={{fontWeight:700,fontSize:'1.1rem',minWidth:200,textAlign:'center'}}>{MESES[mes]} {año}</div>
+        <button className="btn btn-ghost" onClick={()=>navMes(1)}>▶</button>
+      </div>
+
+      <div style={{overflowX:'auto'}}>
+        <div style={{minWidth:560}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
+            {DIAS.map(d => <div key={d} style={{textAlign:'center',fontSize:'0.7rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.06em',padding:'6px 0'}}>{d}</div>)}
+          </div>
+          {loading ? <Loading /> : (
+            <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4}}>
+              {cells.map((d,i) => {
+                if (!d) return <div key={`e-${i}`} />;
+                const fecha = fmtFecha(d);
+                const doc = planDocente[fecha];
+                const alumDay = planAlumno[fecha];
+                const isToday = fecha === todayStr;
+                const isPast = fecha < todayStr;
+                let bg='var(--surface)', bdr='var(--border)';
+                if (alumDay?.completado){ bg='rgba(67,233,123,0.22)'; bdr='var(--success)'; }
+                else if (alumDay){ bg='rgba(67,233,123,0.09)'; bdr='var(--success)'; }
+                else if (doc){ bg='rgba(108,99,255,0.09)'; bdr='var(--accent)'; }
+                return (
+                  <div key={fecha} onClick={()=>openDay(fecha)}
+                    style={{minHeight:90,borderRadius:10,border:isToday?`2px solid ${bdr}`:`1px solid ${bdr}`,background:bg,padding:'6px 8px',cursor:'pointer',transition:'background 0.15s',opacity:isPast&&!alumDay&&!doc?0.45:1}}
+                  >
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:3}}>
+                      <span style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':isPast?'var(--text2)':'var(--text)'}}>{d}</span>
+                      {alumDay && (
+                        <span onClick={e=>toggleCompletado(fecha,e)} title={alumDay.completado?'Desmarcar':'Marcar como cumplido'}
+                          style={{fontSize:'0.85rem',cursor:'pointer',filter:alumDay.completado?'none':'grayscale(1) opacity(0.4)'}}>✅</span>
+                      )}
+                    </div>
+                    {doc && <div style={{fontSize:'0.63rem',color:'var(--accent)',lineHeight:1.3,marginBottom:2,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical'}}>{doc.contenido}</div>}
+                    {alumDay && <div style={{fontSize:'0.63rem',color:'var(--success)',lineHeight:1.3,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',textDecoration:alumDay.completado?'line-through':'none',opacity:alumDay.completado?0.65:1}}>{alumDay.contenido}</div>}
+                    {!doc && !alumDay && <div style={{fontSize:'0.75rem',color:'var(--border)',textAlign:'center',marginTop:10}}>+</div>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {modal && (
+        <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${MESES[mes]} ${año}`} onClose={()=>setModal(null)}>
+          {planDocente[modal.fecha] && (
+            <div style={{background:'rgba(108,99,255,0.08)',border:'1px solid var(--accent)',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--accent)',marginBottom:5}}>📌 Sugerido por el docente:</div>
+              <div style={{fontSize:'0.85rem',color:'var(--text)',lineHeight:1.5}}>{planDocente[modal.fecha].contenido}</div>
+            </div>
+          )}
+          <div className="form-group">
+            <label>Mi plan para este día</label>
+            <textarea value={form} onChange={e=>setForm(e.target.value)} placeholder="¿Qué vas a estudiar hoy? Anotá tu plan personal..." style={{minHeight:100}} autoFocus />
+            {modal.id && (
+              <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',textTransform:'none',letterSpacing:0,marginTop:10}}>
+                <input type="checkbox" checked={modal.completado} onChange={e=>setModal(p=>({...p,completado:e.target.checked}))} style={{width:'auto',margin:0,accentColor:'var(--success)'}} />
+                <span style={{fontWeight:600,color:'var(--success)'}}>✅ Cumplí con este plan</span>
+              </label>
+            )}
+            <div style={{fontSize:'0.74rem',color:'var(--text2)',marginTop:8}}>Dejá vacío para eliminar tu plan de este día.</div>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'⏳...':'💾 Guardar'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── LEGACY (conservado por compatibilidad) ───────────────────────────
 function GanttChart({ isAdmin }) {
   const SEMANAS = ['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5','Semana 6'];
   const COLORS = {
@@ -3528,13 +3827,13 @@ function App() {
   const PAGE_MAP = {
     dashboard: <AdminDashboard setPage={setPage} />,
     'novedades-admin': <AdminNovedades />,
-    gantt: <div className="page-content fade-in"><GanttChart isAdmin={true} /></div>,
+    gantt: <AdminPlanificacion />,
     alumnos: <AdminAlumnos />,
     pagos: <AdminPagos />,
     videos: <AdminVideos />,
     materiales: <AdminMateriales />,
     evaluaciones: <AdminEvaluaciones />,
-    'mis-gantt': <div className="page-content fade-in"><GanttChart isAdmin={false} /></div>,
+    'mis-gantt': <AlumnoPlanificacion alumno={alumno} />,
     'mis-videos': <AlumnoVideos alumno={alumno} user={user} />,
     'mis-materiales': <AlumnoMateriales alumno={alumno} user={user} />,
     'mis-evaluaciones': <AlumnoEvaluaciones alumno={alumno} />,
@@ -3545,8 +3844,8 @@ function App() {
   const titles = {
     dashboard: ['📊 Dashboard', 'Resumen general'],
     'novedades-admin': ['📢 Novedades', 'Gestión de novedades'],
-    gantt: ['📅 Planificación', 'Diagrama de Gantt'],
-    'mis-gantt': ['📅 Planificación', 'Cronograma del curso'],
+    gantt: ['📅 Planificación', 'Cronograma mensual del curso'],
+    'mis-gantt': ['📅 Mi Planificación', 'Tu cronograma personal'],
     alumnos: ['👥 Alumnos', 'Gestión de alumnos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
     videos: ['🎬 Videos', 'Biblioteca de videos'],
