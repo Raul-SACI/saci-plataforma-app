@@ -631,7 +631,7 @@ function AdminPlanificacion() {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
     }
-    const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null };
+    const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
     const { error } = modal.id
       ? await supabase.from('planificacion_docente').update(payload).eq('id',modal.id)
       : await supabase.from('planificacion_docente').insert(payload);
