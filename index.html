@@ -1063,74 +1063,81 @@ function GanttChart({ isAdmin }) {
 
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────
 function AdminDashboard({ setPage }) {
+  const _today = new Date();
   const [stats, setStats] = useState({ alumnos: 0, pagos: 0, videos: 0, materiales: 0, vistas: 0 });
   const [topVideos, setTopVideos] = useState([]);
   const [ultimasVistas, setUltimasVistas] = useState([]);
-  const [planStats, setPlanStats] = useState([]);
+  const [alumnosList, setAlumnosList] = useState([]);
+  const [planFiltro, setPlanFiltro] = useState({ alumno_id: '', mes: _today.getMonth(), año: _today.getFullYear() });
+  const [planRows, setPlanRows] = useState([]);
+  const [planLoading, setPlanLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const [a, p, v, m, vis] = await Promise.all([
+      const [a, p, v, m, vis, als] = await Promise.all([
         supabase.from('alumnos').select('id', { count: 'exact', head: true }),
         supabase.from('pagos').select('monto'),
         supabase.from('videos').select('id', { count: 'exact', head: true }),
         supabase.from('materiales').select('id', { count: 'exact', head: true }),
         supabase.from('visualizaciones').select('id', { count: 'exact', head: true }),
+        supabase.from('alumnos').select('id, nombre').eq('estado','activo').order('nombre'),
       ]);
       const totalPagos = p.data?.reduce((s, r) => s + (parseFloat(r.monto) || 0), 0) || 0;
       setStats({ alumnos: a.count || 0, pagos: totalPagos, videos: v.count || 0, materiales: m.count || 0, vistas: vis.count || 0 });
+      setAlumnosList(als.data || []);
 
-      // Top 5 videos más vistos
       const { data: visData } = await supabase
         .from('visualizaciones')
         .select('video_id, videos(titulo, bunny_id, bunny_video_id)')
         .order('created_at', { ascending: false });
-
       if (visData) {
-        // Contar por video
-        const counts = {};
-        const videoInfo = {};
+        const counts = {}, videoInfo = {};
         visData.forEach(v => {
           if (!v.video_id) return;
           counts[v.video_id] = (counts[v.video_id] || 0) + 1;
           if (v.videos) videoInfo[v.video_id] = v.videos;
         });
-        const sorted = Object.entries(counts)
-          .sort((a, b) => b[1] - a[1])
-          .slice(0, 5)
-          .map(([id, count]) => ({ id, count, video: videoInfo[id] }));
-        setTopVideos(sorted);
+        setTopVideos(Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,count])=>({id,count,video:videoInfo[id]})));
       }
 
-      // Últimas 8 visualizaciones
       const { data: ultimas } = await supabase
         .from('visualizaciones')
         .select('*, videos(titulo), alumnos(nombre, email)')
         .order('created_at', { ascending: false })
         .limit(8);
       setUltimasVistas(ultimas || []);
-
-      // Planificación cumplida por alumno
-      const { data: planData } = await supabase
-        .from('planificacion_alumnos')
-        .select('alumno_id, videos_ok, material_ok, prueba_ok, ejercicio_ok, otros_ok, alumnos(nombre)');
-      if (planData) {
-        const map = {};
-        planData.forEach(r => {
-          if (!map[r.alumno_id]) map[r.alumno_id] = { nombre: r.alumnos?.nombre||'—', videos:0, material:0, prueba:0, ejercicio:0, otros:0 };
-          if (r.videos_ok)    map[r.alumno_id].videos++;
-          if (r.material_ok)  map[r.alumno_id].material++;
-          if (r.prueba_ok)    map[r.alumno_id].prueba++;
-          if (r.ejercicio_ok) map[r.alumno_id].ejercicio++;
-          if (r.otros_ok)     map[r.alumno_id].otros++;
-        });
-        setPlanStats(Object.values(map).sort((a,b) => a.nombre.localeCompare(b.nombre)));
-      }
-
       setLoading(false);
     })();
   }, []);
+
+  useEffect(() => {
+    const loadPlan = async () => {
+      setPlanLoading(true);
+      const { mes, año, alumno_id } = planFiltro;
+      const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
+      const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+      const [{ data: docDays }, { data: alumDays }, { data: allAlumnos }] = await Promise.all([
+        supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta).order('fecha'),
+        (() => { let q = supabase.from('planificacion_alumnos').select('*').gte('fecha',desde).lte('fecha',hasta); if (alumno_id) q=q.eq('alumno_id',alumno_id); return q; })(),
+        supabase.from('alumnos').select('id, nombre').eq('estado','activo').order('nombre'),
+      ]);
+      const docMap = {};
+      (docDays||[]).forEach(d => { docMap[d.fecha] = d; });
+      const alumMap = {};
+      (alumDays||[]).forEach(r => { if (!alumMap[r.alumno_id]) alumMap[r.alumno_id]={}; alumMap[r.alumno_id][r.fecha]=r; });
+      const alumnosToShow = alumno_id ? (allAlumnos||[]).filter(a=>a.id===alumno_id) : (allAlumnos||[]);
+      const rows = [];
+      (docDays||[]).forEach(doc => {
+        alumnosToShow.forEach(al => {
+          rows.push({ fecha: doc.fecha, alumno: al.nombre, doc, plan: alumMap[al.id]?.[doc.fecha]||null });
+        });
+      });
+      setPlanRows(rows);
+      setPlanLoading(false);
+    };
+    loadPlan();
+  }, [planFiltro]);
 
   const quickActions = [
     { label: 'Agregar alumno', page: 'alumnos', icon: '👥' },
@@ -1252,45 +1259,79 @@ function AdminDashboard({ setPage }) {
       </div>
 
       {/* Planificación cumplida por alumno */}
-      {planStats.length > 0 && (
-        <div className="card" style={{marginTop:20}}>
-          <div style={{fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:8}}>
-            📅 Planificación cumplida por alumno
-          </div>
-          <div style={{overflowX:'auto'}}>
-            <table style={{width:'100%',borderCollapse:'collapse'}}>
-              <thead>
-                <tr style={{background:'var(--surface2)'}}>
-                  {['Alumno','🎬 Videos','📖 Material','📝 Prueba','✏️ Ejercicio','📌 Otros','Total'].map(h => (
-                    <th key={h} style={{padding:'10px 14px',textAlign: h==='Alumno'?'left':'center',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text2)',whiteSpace:'nowrap'}}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {planStats.map((s,i) => {
-                  const total = s.videos + s.material + s.prueba + s.ejercicio + s.otros;
-                  return (
-                    <tr key={i} style={{borderTop:'1px solid var(--border)'}}>
-                      <td style={{padding:'10px 14px',fontWeight:600,fontSize:'0.86rem'}}>{s.nombre}</td>
-                      {[s.videos, s.material, s.prueba, s.ejercicio, s.otros].map((v,j) => (
-                        <td key={j} style={{padding:'10px 14px',textAlign:'center'}}>
-                          {v > 0
-                            ? <span style={{background:'rgba(67,233,123,0.15)',color:'var(--success)',fontWeight:700,fontSize:'0.82rem',padding:'2px 10px',borderRadius:20}}>{v}</span>
-                            : <span style={{color:'var(--border)',fontSize:'0.82rem'}}>—</span>
-                          }
-                        </td>
-                      ))}
-                      <td style={{padding:'10px 14px',textAlign:'center'}}>
-                        <span style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'0.88rem',color:'var(--accent)'}}>{total}</span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <div className="card" style={{marginTop:20}}>
+        <div style={{fontWeight:700,marginBottom:16,display:'flex',alignItems:'center',gap:8}}>
+          📅 Planificación cumplida por alumno
+        </div>
+        {/* Filtros */}
+        <div style={{display:'flex',flexWrap:'wrap',gap:10,marginBottom:16,alignItems:'center'}}>
+          <select
+            value={planFiltro.alumno_id}
+            onChange={e => setPlanFiltro(f => ({...f, alumno_id: e.target.value}))}
+            style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--text)',fontSize:'0.85rem',minWidth:160}}
+          >
+            <option value="">Todos los alumnos</option>
+            {alumnosList.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+          </select>
+          <div style={{display:'flex',alignItems:'center',gap:6}}>
+            <button onClick={() => setPlanFiltro(f => { const d = new Date(f.año, f.mes-1, 1); return {...f, mes: d.getMonth(), año: d.getFullYear()}; })}
+              style={{background:'none',border:'1px solid var(--border)',borderRadius:6,padding:'4px 10px',cursor:'pointer',color:'var(--text)',fontSize:'0.9rem'}}>◀</button>
+            <span style={{fontWeight:600,fontSize:'0.9rem',minWidth:120,textAlign:'center'}}>{PLAN_MESES[planFiltro.mes]} {planFiltro.año}</span>
+            <button onClick={() => setPlanFiltro(f => { const d = new Date(f.año, f.mes+1, 1); return {...f, mes: d.getMonth(), año: d.getFullYear()}; })}
+              style={{background:'none',border:'1px solid var(--border)',borderRadius:6,padding:'4px 10px',cursor:'pointer',color:'var(--text)',fontSize:'0.9rem'}}>▶</button>
           </div>
         </div>
-      )}
+        {planLoading
+          ? <div style={{textAlign:'center',padding:32,color:'var(--text2)'}}>Cargando...</div>
+          : planRows.length === 0
+            ? <div style={{textAlign:'center',padding:24,color:'var(--text2)',fontSize:'0.88rem'}}>No hay planificación docente para este período.</div>
+            : <div style={{overflowX:'auto'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'0.82rem'}}>
+                  <thead>
+                    <tr style={{background:'var(--surface2)'}}>
+                      <th style={{padding:'8px 12px',textAlign:'left',color:'var(--text2)',whiteSpace:'nowrap',fontWeight:600}}>Fecha</th>
+                      {!planFiltro.alumno_id && <th style={{padding:'8px 12px',textAlign:'left',color:'var(--text2)',fontWeight:600}}>Alumno</th>}
+                      {PLAN_CAMPOS.map(c => (
+                        <th key={c.key} style={{padding:'8px 12px',textAlign:'center',color:'var(--text2)',whiteSpace:'nowrap',fontWeight:600}}>{c.icon}</th>
+                      ))}
+                      <th style={{padding:'8px 12px',textAlign:'left',color:'var(--text2)',fontWeight:600}}>Pendiente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planRows.map((row, i) => {
+                      const pendientes = PLAN_CAMPOS.filter(c => row.doc?.[c.key] && !row.plan?.[c.okKey]);
+                      return (
+                        <tr key={i} style={{borderTop:'1px solid var(--border)',background: pendientes.length > 0 ? 'rgba(255,80,80,0.04)' : 'transparent'}}>
+                          <td style={{padding:'8px 12px',whiteSpace:'nowrap',color:'var(--text2)'}}>{row.fecha}</td>
+                          {!planFiltro.alumno_id && <td style={{padding:'8px 12px',fontWeight:600}}>{row.alumno}</td>}
+                          {PLAN_CAMPOS.map(c => {
+                            const docVal = row.doc?.[c.key];
+                            const alumOk = row.plan?.[c.okKey];
+                            return (
+                              <td key={c.key} style={{padding:'8px 12px',textAlign:'center'}}>
+                                {!docVal
+                                  ? <span style={{color:'var(--border)'}}>—</span>
+                                  : alumOk
+                                    ? <span title={docVal}>✅</span>
+                                    : <span title={docVal} style={{opacity:0.4}}>{c.icon}</span>
+                                }
+                              </td>
+                            );
+                          })}
+                          <td style={{padding:'8px 12px'}}>
+                            {pendientes.length === 0
+                              ? <span style={{color:'var(--success)',fontSize:'0.78rem'}}>Completo</span>
+                              : <span style={{color:'var(--error,#f87171)',fontSize:'0.78rem'}}>{pendientes.map(c => c.label).join(', ')}</span>
+                            }
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+        }
+      </div>
     </div>
   );
 }
