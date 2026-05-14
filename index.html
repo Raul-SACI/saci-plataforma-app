@@ -599,7 +599,7 @@ function AdminPlanificacion() {
   const [planDocente, setPlanDocente] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ videos:'', material:'', prueba:'', ejercicio:'' });
+  const [form, setForm] = useState({ videos:'', material:'', prueba:'', ejercicio:'', otros:'' });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -621,7 +621,7 @@ function AdminPlanificacion() {
   const openDay = fecha => {
     const ex = planDocente[fecha];
     setModal({ fecha, id: ex?.id||null });
-    setForm({ videos: ex?.videos||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'' });
+    setForm({ videos: ex?.videos||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'' });
   };
 
   const save = async () => {
