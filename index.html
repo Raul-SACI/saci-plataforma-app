@@ -1916,6 +1916,8 @@ function AdminMateriales() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
   const [vistaTab, setVistaTab] = useState('temas');
+  const [dragTema, setDragTema] = useState(null);
+  const [dragOverTema, setDragOverTema] = useState(null);
   const fileRef = useRef();
   const toast = useToast();
 
@@ -2006,6 +2008,20 @@ function AdminMateriales() {
   };
 
   const toggleTema = id => setExpandedTemas(p => ({ ...p, [id]: !p[id] }));
+
+  const reorderTemas = async (fromId, toId) => {
+    if (fromId === toId) return;
+    const fromIdx = temas.findIndex(t => t.id === fromId);
+    const toIdx = temas.findIndex(t => t.id === toId);
+    const newOrder = [...temas];
+    const [moved] = newOrder.splice(fromIdx, 1);
+    newOrder.splice(toIdx, 0, moved);
+    setTemas(newOrder);
+    await Promise.all(newOrder.map((t, i) =>
+      supabase.from('temas_materiales').update({ orden: i }).eq('id', t.id)
+    ));
+  };
+
   const toggleDescarga = async (id, val) => {
     await supabase.from('materiales').update({ permite_descarga: val }).eq('id', id);
     load();
@@ -2058,10 +2074,21 @@ function AdminMateriales() {
           {temas.map(t => {
             const tMats = mats.filter(m => m.tema_id === t.id);
             const isOpen = expandedTemas[t.id];
+            const isDragging = dragTema === t.id;
+            const isDragOver = dragOverTema === t.id && dragTema !== t.id;
             return (
-              <div key={t.id} style={{marginBottom:14}}>
+              <div
+                key={t.id}
+                draggable
+                onDragStart={() => setDragTema(t.id)}
+                onDragOver={e => { e.preventDefault(); setDragOverTema(t.id); }}
+                onDragEnd={() => { setDragTema(null); setDragOverTema(null); }}
+                onDrop={e => { e.preventDefault(); if (dragTema) reorderTemas(dragTema, t.id); setDragTema(null); setDragOverTema(null); }}
+                style={{marginBottom:14,opacity:isDragging?0.4:1,outline:isDragOver?'2px dashed var(--accent)':'2px solid transparent',borderRadius:12,transition:'opacity 0.15s, outline 0.1s'}}
+              >
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'12px 16px',borderRadius:isOpen?'12px 12px 0 0':'12px',background:'var(--surface)',border:'1px solid var(--border)',borderLeft:`4px solid ${t.color||'var(--accent)'}`,cursor:'pointer'}} onClick={() => toggleTema(t.id)}>
                   <div style={{display:'flex',alignItems:'center',gap:12}}>
+                    <span style={{fontSize:'1rem',color:'var(--text2)',cursor:'grab',userSelect:'none'}} title="Arrastrar para reordenar">⠿</span>
                     <span style={{fontSize:'1.2rem'}}>📂</span>
                     <div>
                       <div style={{fontWeight:700,color:t.color||'var(--accent)'}}>{t.nombre}</div>
@@ -3108,7 +3135,7 @@ function AdminNovedades() {
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false });
+  const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
   const toast = useToast();
 
   const TIPOS = {
@@ -3134,13 +3161,13 @@ function AdminNovedades() {
     if (!form.contenido.trim()) return toast('El contenido es requerido', 'error');
     setSaving(true);
     try {
-      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado };
+      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado, link: form.link.trim() || null };
       const { error } = editing
         ? await supabase.from('novedades').update(payload).eq('id', editing)
         : await supabase.from('novedades').insert(payload);
       if (error) throw new Error(error.message);
       toast(editing ? 'Novedad actualizada ✏️' : 'Novedad publicada 📢', 'success');
-      setModal(false); setEditing(null); setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false });
+      setModal(false); setEditing(null); setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
       load();
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
@@ -3153,7 +3180,7 @@ function AdminNovedades() {
   };
 
   const openEdit = n => {
-    setForm({ titulo: n.titulo, contenido: n.contenido, tipo: n.tipo || 'info', destacado: n.destacado || false });
+    setForm({ titulo: n.titulo, contenido: n.contenido, tipo: n.tipo || 'info', destacado: n.destacado || false, link: n.link || '' });
     setEditing(n.id); setModal(true);
   };
 
@@ -3198,7 +3225,12 @@ function AdminNovedades() {
                   </div>
                 </div>
               </div>
-              <div style={{ color: 'var(--text2)', fontSize: '0.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: 12 }}>{n.contenido}</div>
+              <div style={{ color: 'var(--text2)', fontSize: '0.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: n.link ? 10 : 12 }}>{n.contenido}</div>
+              {n.link && (
+                <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:'0.82rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'5px 12px', borderRadius:20, marginBottom:12, border:`1px solid ${cfg.color}`, fontWeight:600 }}>
+                  🔗 Ver enlace
+                </a>
+              )}
               <div style={{ display: 'flex', gap: 8, borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => openEdit(n)}>✏️ Editar</button>
                 <button className="btn btn-danger btn-sm" onClick={() => remove(n.id)}>🗑️ Eliminar</button>
@@ -3228,6 +3260,10 @@ function AdminNovedades() {
           <div className="form-group">
             <label>Contenido</label>
             <textarea value={form.contenido} onChange={e => setForm(p => ({ ...p, contenido: e.target.value }))} placeholder="Escribí el mensaje para los alumnos..." style={{ minHeight: 120 }} />
+          </div>
+          <div className="form-group">
+            <label>🔗 Enlace (opcional)</label>
+            <input type="url" value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} placeholder="https://... (los alumnos podrán hacer clic para abrir)" />
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
@@ -3376,9 +3412,21 @@ function AlumnoMuro({ alumno }) {
               </div>
 
               {/* Contenido */}
-              <div style={{ color: 'var(--text)', fontSize: '0.9rem', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 16, paddingLeft: 56 }}>
+              <div style={{ color: 'var(--text)', fontSize: '0.9rem', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: n.link ? 10 : 16, paddingLeft: 56 }}>
                 {n.contenido}
               </div>
+
+              {/* Enlace */}
+              {n.link && (
+                <div style={{ paddingLeft: 56, marginBottom: 16 }}>
+                  <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:'0.88rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'8px 16px', borderRadius:20, border:`1.5px solid ${cfg.color}`, fontWeight:700, transition:'opacity 0.15s' }}
+                    onMouseOver={e => e.currentTarget.style.opacity='0.8'}
+                    onMouseOut={e => e.currentTarget.style.opacity='1'}
+                  >
+                    🔗 Ver enlace
+                  </a>
+                </div>
+              )}
 
               {/* Footer con like */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingTop: 12, borderTop: '1px solid var(--border)', paddingLeft: 56 }}>

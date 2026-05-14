@@ -5,7 +5,8 @@
       "Bash(Select-Object -First 5)",
       "Bash(git ls-tree *)",
       "Bash(grep -E \"\\\\.\\(tsx?|jsx?|vue\\)$\")",
-      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\Usuario\\\\Desktop\\\\saci-plataforma-app\\\\index.html\" | Measure-Object -Line\\).Lines)"
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\Usuario\\\\Desktop\\\\saci-plataforma-app\\\\index.html\" | Measure-Object -Line\\).Lines)",
+      "Bash(git add *)"
     ]
   }
 }
