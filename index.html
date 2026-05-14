@@ -626,7 +626,7 @@ function AdminPlanificacion() {
 
   const save = async () => {
     setSaving(true);
-    const isEmpty = !form.videos.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim();
+    const isEmpty = !form.videos.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
     if (isEmpty) {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
