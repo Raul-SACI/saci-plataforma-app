@@ -17,6 +17,13 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script>
+  (function() {
+    var t = localStorage.getItem('saci-theme');
+    if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+    if (t === 'light') document.documentElement.classList.add('light');
+  })();
+</script>
 <style>
   :root {
     --bg: #0a0a0f;
@@ -34,9 +41,31 @@
     --warning: #ffa502;
     --radius: 14px;
     --shadow: 0 8px 32px rgba(0,0,0,0.4);
+    --topbar-bg: rgba(19,19,26,0.85);
+    --table-hover: rgba(255,255,255,0.02);
+    --tab-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  }
+  html.light {
+    --bg: #f4f6fb;
+    --surface: #ffffff;
+    --surface2: #eef1f8;
+    --border: #d0d8ec;
+    --accent: #6c63ff;
+    --accent2: #e05175;
+    --accent3: #2eb86e;
+    --gold: #c48a00;
+    --text: #0d1b3e;
+    --text2: #5a6a8a;
+    --danger: #d94f2b;
+    --success: #2eb86e;
+    --warning: #b86e00;
+    --shadow: 0 8px 32px rgba(0,0,0,0.1);
+    --topbar-bg: rgba(255,255,255,0.92);
+    --table-hover: rgba(0,0,0,0.02);
+    --tab-shadow: 0 2px 8px rgba(0,0,0,0.1);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; transition: background 0.3s, color 0.3s; }
   
   @keyframes fadeIn { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes fadeInScale { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
@@ -58,7 +87,7 @@
   .app-shell { display: flex; min-height: 100vh; }
   .sidebar { width: 240px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; height: 100vh; z-index: 100; transition: transform 0.3s; }
   .main-content { margin-left: 240px; flex: 1; min-height: 100vh; }
-  .topbar { height: 64px; background: rgba(19,19,26,0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 50; }
+  .topbar { height: 64px; background: var(--topbar-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 28px; position: sticky; top: 0; z-index: 50; transition: background 0.3s; }
   .page-content { padding: 28px; animation: fadeIn 0.4s ease; }
 
   /* Logo */
@@ -118,7 +147,7 @@
   th { background: var(--surface2); padding: 12px 16px; text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text2); border-bottom: 1px solid var(--border); }
   td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
   tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
+  tr:hover td { background: var(--table-hover); }
 
   /* Forms */
   .form-group { margin-bottom: 16px; }
@@ -190,7 +219,7 @@
   /* Tabs */
   .tabs { display: flex; gap: 4px; background: var(--surface2); border-radius: 12px; padding: 4px; margin-bottom: 22px; width: fit-content; }
   .tab { padding: 7px 16px; border-radius: 9px; font-size: 0.84rem; font-weight: 600; cursor: pointer; transition: all 0.2s; color: var(--text2); border: none; background: none; font-family: inherit; }
-  .tab.active { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(0,0,0,0.3); }
+  .tab.active { background: var(--surface); color: var(--text); box-shadow: var(--tab-shadow); }
 
   /* Progress */
   .progress-bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
@@ -376,6 +405,28 @@ const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
    create policy "Alumnos gestionan sus likes" on likes_novedades for all using (true);
 ──────────────────────────────────────────────────────────────────── */
 
+// ─── THEME ───────────────────────────────────────────────────────────
+const ThemeCtx = createContext(null);
+const useTheme = () => useContext(ThemeCtx);
+
+function ThemeProvider({ children }) {
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem('saci-theme');
+    if (saved) return saved;
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', theme === 'light');
+    localStorage.setItem('saci-theme', theme);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) metaTheme.content = theme === 'light' ? '#6c63ff' : '#6c63ff';
+  }, [theme]);
+
+  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  return <ThemeCtx.Provider value={{ theme, toggle }}>{children}</ThemeCtx.Provider>;
+}
+
 // ─── CONTEXT ─────────────────────────────────────────────────────────
 const AppCtx = createContext(null);
 const useApp = () => useContext(AppCtx);
@@ -538,6 +589,7 @@ function Sidebar({ page, setPage, isAdmin, user, alumno, onLogout, className }) 
 
 // ─── TOPBAR ───────────────────────────────────────────────────────────
 function Topbar({ title, subtitle, onMenuToggle }) {
+  const { theme, toggle } = useTheme();
   return (
     <div className="topbar">
       <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -548,9 +600,19 @@ function Topbar({ title, subtitle, onMenuToggle }) {
         </div>
       </div>
       <div className="topbar-right">
-        <div style={{fontSize:'0.8rem',color:'var(--text2)',fontFamily:'Space Mono'}}>
+        <div className="topbar-date" style={{fontSize:'0.8rem',color:'var(--text2)',fontFamily:'Space Mono'}}>
           {new Date().toLocaleDateString('es-AR', {day:'2-digit',month:'short',year:'numeric'})}
         </div>
+        <button
+          onClick={toggle}
+          title={theme === 'dark' ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          style={{background:'none',border:'1px solid var(--border)',cursor:'pointer',color:'var(--text2)',fontSize:'1rem',padding:'6px 10px',borderRadius:'8px',transition:'all 0.2s',lineHeight:1,display:'flex',alignItems:'center',gap:6}}
+          onMouseEnter={e => { e.currentTarget.style.background='var(--surface2)'; e.currentTarget.style.color='var(--text)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background='none'; e.currentTarget.style.color='var(--text2)'; }}
+        >
+          {theme === 'dark' ? '☀️' : '🌙'}
+          <span style={{fontSize:'0.75rem',fontWeight:600}}>{theme === 'dark' ? 'Claro' : 'Oscuro'}</span>
+        </button>
       </div>
     </div>
   );
@@ -4020,7 +4082,7 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ToastProvider><App /></ToastProvider>
+  <ThemeProvider><ToastProvider><App /></ToastProvider></ThemeProvider>
 );
 </script>
 
