@@ -789,7 +789,9 @@ function AlumnoPlanificacion({ alumno }) {
   const [planAlumno, setPlanAlumno] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
+  // modal = { fecha, items: [{campo, okKey, icon, label, texto, fechaOriginal, ok, nuevaFecha}] }
   const [saving, setSaving] = useState(false);
+  const [moviendo, setMoviendo] = useState(null); // "campo-fechaOriginal" key
   const toast = useToast();
 
   const load = async () => {
@@ -804,7 +806,7 @@ function AlumnoPlanificacion({ alumno }) {
     ]);
     const dMap={}, aMap={};
     (docData||[]).forEach(d=>{ dMap[d.fecha]=d; });
-    (alumData||[]).forEach(d=>{ aMap[d.fecha]=d; });
+    (alumData||[]).forEach(d=>{ aMap[d.fecha]={...d, reasignaciones: d.reasignaciones||{}}; });
     setPlanDocente(dMap); setPlanAlumno(aMap); setLoading(false);
   };
   useEffect(() => { load(); }, [mes, año]);
@@ -812,28 +814,70 @@ function AlumnoPlanificacion({ alumno }) {
   const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   const navMes = dir => { let m=mes+dir,y=año; if(m<0){m=11;y--;} if(m>11){m=0;y++;} setMes(m);setAño(y); };
+  const diasMes = Array.from({length: planDiasEnMes(mes,año)}, (_,i) => i+1);
+
+  // Build personal view: maps each date to items the student assigned there
+  const buildPersonalView = () => {
+    const view = {};
+    Object.entries(planDocente).forEach(([fecha, doc]) => {
+      const alumRow = planAlumno[fecha];
+      const reasig = alumRow?.reasignaciones || {};
+      PLAN_CAMPOS.forEach(c => {
+        if (!doc[c.key]) return;
+        const dest = reasig[c.key] || fecha;
+        if (!view[dest]) view[dest] = [];
+        view[dest].push({
+          campo: c.key, okKey: c.okKey, icon: c.icon, label: c.label,
+          texto: doc[c.key], fechaOriginal: fecha,
+          ok: !!(alumRow?.[c.okKey]),
+          reasignada: !!reasig[c.key],
+        });
+      });
+    });
+    return view;
+  };
+  const personalView = buildPersonalView();
 
   const openDay = fecha => {
-    const ex = planAlumno[fecha];
+    const items = personalView[fecha];
+    if (!items?.length) return;
     setModal({
-      fecha, id: ex?.id||null,
-      videos_ok: ex?.videos_ok||false,
-      material_ok: ex?.material_ok||false,
-      prueba_ok: ex?.prueba_ok||false,
-      ejercicio_ok: ex?.ejercicio_ok||false,
-      otros_ok: ex?.otros_ok||false,
+      fecha,
+      items: items.map(it => ({
+        ...it,
+        nuevaFecha: it.reasignada ? fecha : null,
+      })),
     });
+    setMoviendo(null);
   };
 
   const save = async () => {
     if (!alumno?.id) return toast('No se encontró tu perfil','error');
     setSaving(true);
-    const { fecha, id, ...checks } = modal;
-    const payload = { alumno_id: alumno.id, fecha, ...checks };
-    const { error } = id
-      ? await supabase.from('planificacion_alumnos').update(payload).eq('id',id)
-      : await supabase.from('planificacion_alumnos').insert(payload);
-    if (error) { toast(error.message,'error'); setSaving(false); return; }
+    // Group items by fechaOriginal (each group = one DB row)
+    const byOrig = {};
+    modal.items.forEach(item => {
+      if (!byOrig[item.fechaOriginal]) byOrig[item.fechaOriginal] = [];
+      byOrig[item.fechaOriginal].push(item);
+    });
+    for (const [fechaOrig, items] of Object.entries(byOrig)) {
+      const existing = planAlumno[fechaOrig];
+      const reasig = { ...(existing?.reasignaciones||{}) };
+      items.forEach(item => {
+        if (item.nuevaFecha && item.nuevaFecha !== fechaOrig) reasig[item.campo] = item.nuevaFecha;
+        else delete reasig[item.campo];
+      });
+      const okFlags = {};
+      PLAN_CAMPOS.forEach(c => {
+        const mi = items.find(i=>i.campo===c.key);
+        okFlags[c.okKey] = mi ? mi.ok : (existing?.[c.okKey]||false);
+      });
+      const payload = { alumno_id: alumno.id, fecha: fechaOrig, reasignaciones: reasig, ...okFlags };
+      const { error } = existing?.id
+        ? await supabase.from('planificacion_alumnos').update(payload).eq('id',existing.id)
+        : await supabase.from('planificacion_alumnos').insert(payload);
+      if (error) { toast(error.message,'error'); setSaving(false); return; }
+    }
     toast('Guardado ✅','success'); setSaving(false); setModal(null); load();
   };
 
@@ -841,14 +885,13 @@ function AlumnoPlanificacion({ alumno }) {
   for (let i=0; i<planPrimerDia(mes,año); i++) cells.push(null);
   for (let d=1; d<=planDiasEnMes(mes,año); d++) cells.push(d);
 
-  // Stats: count total teacher fields this month and how many student marked ok
   const totalCampos = Object.values(planDocente).reduce((acc,d) => acc + PLAN_CAMPOS.filter(c=>d[c.key]).length, 0);
   const cumplidos = Object.values(planAlumno).reduce((acc,a) => acc + PLAN_CAMPOS.filter(c=>a[c.okKey]).length, 0);
 
   return (
     <div className="page-content fade-in">
       <div className="page-header">
-        <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes</div></div>
+        <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes · Tocá un día para ver o reorganizar tareas</div></div>
       </div>
 
       {totalCampos > 0 && (
@@ -884,33 +927,31 @@ function AlumnoPlanificacion({ alumno }) {
               {cells.map((d,i) => {
                 if (!d) return <div key={`e-${i}`} />;
                 const fecha = fmtFecha(d);
-                const doc = planDocente[fecha];
-                const alumDay = planAlumno[fecha];
+                const items = personalView[fecha] || [];
                 const isToday = fecha === todayStr;
                 const isPast = fecha < todayStr;
-                const camposDoc = doc ? PLAN_CAMPOS.filter(c=>doc[c.key]) : [];
-                const allDone = camposDoc.length > 0 && alumDay && camposDoc.every(c=>alumDay[c.okKey]);
-                const someDone = alumDay && camposDoc.some(c=>alumDay[c.okKey]);
+                const allDone = items.length > 0 && items.every(it=>it.ok);
+                const someDone = items.some(it=>it.ok);
                 let bg='var(--surface)', bdr='var(--border)';
                 if (allDone){ bg='rgba(67,233,123,0.2)'; bdr='var(--success)'; }
                 else if (someDone){ bg='rgba(67,233,123,0.08)'; bdr='var(--success)'; }
-                else if (doc){ bg='rgba(108,99,255,0.08)'; bdr='var(--accent)'; }
+                else if (items.length){ bg='rgba(108,99,255,0.08)'; bdr='var(--accent)'; }
                 return (
-                  <div key={fecha} onClick={()=>doc && openDay(fecha)}
-                    style={{minHeight:96,borderRadius:10,border:isToday?`2px solid ${bdr}`:`1px solid ${bdr}`,background:bg,padding:'6px 8px',cursor:doc?'pointer':'default',transition:'background 0.15s',opacity:isPast&&!doc?0.4:1}}
+                  <div key={fecha} onClick={()=>items.length && openDay(fecha)}
+                    style={{minHeight:96,borderRadius:10,border:isToday?`2px solid ${bdr}`:`1px solid ${bdr}`,background:bg,padding:'6px 8px',cursor:items.length?'pointer':'default',transition:'background 0.15s',opacity:isPast&&!items.length?0.4:1}}
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':isPast?'var(--text2)':'var(--text)',marginBottom:5}}>{d}</div>
-                    {camposDoc.length > 0 && (
+                    {items.length > 0 && (
                       <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                        {camposDoc.map(c => {
-                          const ok = !!alumDay?.[c.okKey];
-                          return (
-                            <div key={c.key} style={{display:'flex',alignItems:'center',gap:3}}>
-                              <span style={{fontSize:'0.62rem',filter:ok?'none':'grayscale(0.5) opacity(0.6)'}}>{ok?'✅':c.icon}</span>
-                              <span style={{fontSize:'0.58rem',color:ok?'var(--success)':'var(--text2)',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:'90%',textDecoration:ok?'line-through':'none',opacity:ok?0.7:1}}>{doc[c.key].slice(0,16)}{doc[c.key].length>16?'…':''}</span>
-                            </div>
-                          );
-                        })}
+                        {items.map((it,idx) => (
+                          <div key={`${it.campo}-${it.fechaOriginal}-${idx}`} style={{display:'flex',alignItems:'center',gap:3}}>
+                            <span style={{fontSize:'0.62rem',filter:it.ok?'none':'grayscale(0.5) opacity(0.6)'}}>{it.ok?'✅':it.icon}</span>
+                            <span style={{fontSize:'0.58rem',color:it.ok?'var(--success)':'var(--text2)',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:'85%',textDecoration:it.ok?'line-through':'none',opacity:it.ok?0.7:1}}>
+                              {it.texto.slice(0,14)}{it.texto.length>14?'…':''}
+                            </span>
+                            {it.reasignada && <span style={{fontSize:'0.55rem',color:'var(--accent)',flexShrink:0}}>↩</span>}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -921,35 +962,90 @@ function AlumnoPlanificacion({ alumno }) {
         </div>
       </div>
 
-      {modal && (() => {
-        const doc = planDocente[modal.fecha];
-        if (!doc) return null;
-        const camposDoc = PLAN_CAMPOS.filter(c=>doc[c.key]);
-        return (
-          <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${PLAN_MESES[mes]} ${año}`} onClose={()=>setModal(null)}>
-            <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16}}>
-              {camposDoc.map(c => (
-                <div key={c.key} style={{background:'var(--surface2)',borderRadius:10,padding:'12px 14px',border:`1px solid ${modal[c.okKey]?'var(--success)':'var(--border)'}`,transition:'border 0.15s'}}>
+      {modal && (
+        <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${PLAN_MESES[mes]} ${año}`} onClose={()=>setModal(null)}>
+          <div style={{fontSize:'0.78rem',color:'var(--text2)',marginBottom:14,lineHeight:1.5}}>
+            Marcá lo que ya hiciste o usá <strong>↔ Mover</strong> para reorganizar una tarea a otro día del mes.
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+            {modal.items.map((item, idx) => {
+              const mKey = `${item.campo}-${item.fechaOriginal}`;
+              const estaMoviendo = moviendo === mKey;
+              const movido = item.nuevaFecha && item.nuevaFecha !== item.fechaOriginal;
+              return (
+                <div key={mKey} style={{background:'var(--surface2)',borderRadius:10,padding:'12px 14px',border:`1px solid ${item.ok?'var(--success)':movido?'var(--accent)':'var(--border)'}`,transition:'border 0.15s'}}>
                   <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text2)',marginBottom:4}}>{c.icon} {c.label}</div>
-                      <div style={{fontSize:'0.88rem',color:'var(--text)',lineHeight:1.5,textDecoration:modal[c.okKey]?'line-through':'none',opacity:modal[c.okKey]?0.6:1}}>{doc[c.key]}</div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4,flexWrap:'wrap'}}>
+                        <span style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text2)'}}>{item.icon} {item.label}</span>
+                        {item.reasignada && !movido && (
+                          <span style={{fontSize:'0.62rem',color:'var(--accent)',background:'rgba(108,99,255,0.1)',padding:'1px 7px',borderRadius:20,whiteSpace:'nowrap'}}>
+                            del día {parseInt(item.fechaOriginal.split('-')[2])}
+                          </span>
+                        )}
+                        {movido && (
+                          <span style={{fontSize:'0.62rem',color:'var(--accent)',background:'rgba(108,99,255,0.1)',padding:'1px 7px',borderRadius:20,whiteSpace:'nowrap'}}>
+                            → día {parseInt(item.nuevaFecha.split('-')[2])}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{fontSize:'0.88rem',color:'var(--text)',lineHeight:1.5,textDecoration:item.ok?'line-through':'none',opacity:item.ok?0.55:1,marginBottom:8,wordBreak:'break-word'}}>
+                        {item.texto}
+                      </div>
+                      {estaMoviendo ? (
+                        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                          <span style={{fontSize:'0.75rem',color:'var(--text2)',whiteSpace:'nowrap'}}>Mover al día:</span>
+                          <select
+                            value={item.nuevaFecha || item.fechaOriginal}
+                            onChange={e => {
+                              const val = e.target.value;
+                              setModal(p => ({...p, items: p.items.map((it,i2) =>
+                                i2===idx ? {...it, nuevaFecha: val===it.fechaOriginal ? null : val} : it
+                              )}));
+                            }}
+                            style={{padding:'4px 8px',borderRadius:6,fontSize:'0.82rem',flex:1,minWidth:0}}
+                          >
+                            {diasMes.map(d => {
+                              const f = fmtFecha(d);
+                              return <option key={f} value={f}>Día {d}{f===item.fechaOriginal?' (original)':''}</option>;
+                            })}
+                          </select>
+                          <div style={{display:'flex',gap:6}}>
+                            <button className="btn btn-sm btn-primary" onClick={()=>setMoviendo(null)}>✓ Listo</button>
+                            {movido && (
+                              <button className="btn btn-sm btn-ghost" style={{fontSize:'0.72rem'}} onClick={()=>{
+                                setModal(p=>({...p,items:p.items.map((it,i2)=>i2===idx?{...it,nuevaFecha:null}:it)}));
+                                setMoviendo(null);
+                              }}>Restaurar</button>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={()=>setMoviendo(mKey)}
+                          style={{fontSize:'0.72rem',color:movido?'var(--accent)':'var(--text2)',background:movido?'rgba(108,99,255,0.1)':'var(--surface)',border:`1px solid ${movido?'rgba(108,99,255,0.3)':'var(--border)'}`,borderRadius:6,padding:'3px 10px',cursor:'pointer',fontFamily:'inherit',fontWeight:600,transition:'all 0.15s'}}
+                        >
+                          ↔ {movido ? `Movido al día ${parseInt(item.nuevaFecha.split('-')[2])}` : 'Mover a otro día'}
+                        </button>
+                      )}
                     </div>
-                    <label style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,cursor:'pointer',flexShrink:0}}>
-                      <input type="checkbox" checked={modal[c.okKey]} onChange={e=>setModal(p=>({...p,[c.okKey]:e.target.checked}))} style={{width:'auto',margin:0,accentColor:'var(--success)',transform:'scale(1.3)'}} />
-                      <span style={{fontSize:'0.6rem',color:modal[c.okKey]?'var(--success)':'var(--text2)',fontWeight:600}}>{modal[c.okKey]?'✓ Cumplí':'Marcar'}</span>
+                    <label style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,cursor:'pointer',flexShrink:0,marginLeft:4}}>
+                      <input type="checkbox" checked={item.ok}
+                        onChange={e=>setModal(p=>({...p,items:p.items.map((it,i2)=>i2===idx?{...it,ok:e.target.checked}:it)}))}
+                        style={{width:'auto',margin:0,accentColor:'var(--success)',transform:'scale(1.3)'}} />
+                      <span style={{fontSize:'0.6rem',color:item.ok?'var(--success)':'var(--text2)',fontWeight:600,whiteSpace:'nowrap'}}>{item.ok?'✓ Hecho':'Marcar'}</span>
                     </label>
                   </div>
                 </div>
-              ))}
-            </div>
-            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
-              <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'⏳...':'💾 Guardar'}</button>
-            </div>
-          </Modal>
-        );
-      })()}
+              );
+            })}
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+            <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={save} disabled={saving}>{saving?'⏳...':'💾 Guardar'}</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
