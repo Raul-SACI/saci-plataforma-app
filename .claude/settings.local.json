@@ -11,7 +11,8 @@
       "Bash(git push *)",
       "Bash(curl *)",
       "Bash(grep -E \"\\\\.\\(ts|tsx|jsx|js|css|json\\)$\")",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(npx --yes web-push generate-vapid-keys)"
     ]
   }
 }

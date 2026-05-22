@@ -376,6 +376,48 @@ const ADMIN_EMAIL = 'admin@saci.com';
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────
+const VAPID_PUBLIC_KEY = 'BHA09lSq0Tq6MjW9biEuU3ImC8evdv2TH0hYV7FLYPw-ILBSXEGRusGeVPGj9ZbPI18ViqrOxNB6HBDfuLDr9GY';
+const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/send-push`;
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function subscribirPush(alumnoId) {
+  try {
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return;
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') return;
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+      });
+    }
+    const { endpoint, keys } = sub.toJSON();
+    await supabase.from('push_subscriptions').upsert(
+      { alumno_id: alumnoId, endpoint, p256dh: keys.p256dh, auth: keys.auth },
+      { onConflict: 'endpoint' }
+    );
+  } catch {}
+}
+
+async function notificarAlumnos(titulo, cuerpo) {
+  try {
+    await fetch(EDGE_FN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
+      body: JSON.stringify({ titulo, cuerpo }),
+    });
+  } catch {}
+}
+
 /* ── SQL necesario en Supabase para el Muro de Novedades ──────────────
    Ejecutar UNA VEZ en SQL Editor de Supabase:
 
@@ -2196,6 +2238,7 @@ function AdminVideos() {
       ? await supabase.from('videos').update(payload).eq('id', editing)
       : await supabase.from('videos').insert(payload);
     if (error) return toast(error.message, 'error');
+    if (!editing) notificarAlumnos('🎬 Nuevo video disponible', form.titulo);
     toast(editing ? 'Video actualizado ✏️' : 'Video agregado 🎬', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
     setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '' }); load();
@@ -2641,6 +2684,7 @@ function AdminMateriales() {
       ? await supabase.from('materiales').update(payload).eq('id', editing)
       : await supabase.from('materiales').insert(payload);
     if (error) return toast(error.message, 'error');
+    if (!editing) notificarAlumnos('📄 Nuevo material disponible', form.unidad || form.titulo);
     toast(editing ? 'Material actualizado ✏️' : 'Material guardado ✅', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
     setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
@@ -3832,6 +3876,7 @@ function AdminNovedades() {
         ? await supabase.from('novedades').update(payload).eq('id', editing)
         : await supabase.from('novedades').insert(payload);
       if (error) throw new Error(error.message);
+      if (!editing) notificarAlumnos(`📢 ${form.titulo}`, form.contenido.slice(0, 100));
       toast(editing ? 'Novedad actualizada ✏️' : 'Novedad publicada 📢', 'success');
       setModal(false); setEditing(null); setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
       load();
@@ -4164,12 +4209,17 @@ function App() {
         const a = { user: u, isAdmin, alumno };
         setAuth(a);
         setPage(isAdmin ? 'dashboard' : 'muro');
+        if (!isAdmin && alumno?.id) subscribirPush(alumno.id);
       }
       setLoading(false);
     });
   }, []);
 
-  const handleLogin = a => { setAuth(a); setPage(a.isAdmin ? 'dashboard' : 'muro'); };
+  const handleLogin = a => {
+    setAuth(a);
+    setPage(a.isAdmin ? 'dashboard' : 'muro');
+    if (!a.isAdmin && a.alumno?.id) subscribirPush(a.alumno.id);
+  };
   const handleLogout = async () => { await supabase.auth.signOut(); setAuth(null); setPage(null); toast('Sesión cerrada 👋', 'info'); };
 
   if (loading) return (
