@@ -3398,6 +3398,13 @@ function AlumnoVideos({ alumno, user }) {
 }
 
 // ─── ALUMNO MATERIALES ────────────────────────────────────────────────
+function WatermarkOverlay({ name, email }) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="280" height="110"><text x="50%" y="38%" text-anchor="middle" dominant-baseline="middle" transform="rotate(-35,140,42)" font-size="16" font-weight="700" font-family="monospace" fill="#ff6584" opacity="0.22">${name}</text><text x="50%" y="65%" text-anchor="middle" dominant-baseline="middle" transform="rotate(-35,140,72)" font-size="11" font-family="monospace" fill="#6c63ff" opacity="0.18">${email}</text></svg>`;
+  return (
+    <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:10,userSelect:'none',backgroundImage:`url("data:image/svg+xml,${encodeURIComponent(svg)}")`,backgroundRepeat:'repeat'}} />
+  );
+}
+
 function AlumnoMateriales({ alumno, user }) {
   const TIPO_INFO = { pdf:'📕', word:'📘', excel:'📗', link:'🔗', video:'🎬', imagen:'🖼️', doc:'📝', otro:'📦' };
   const [temas, setTemas] = useState([]);
@@ -3588,25 +3595,21 @@ function AlumnoMateriales({ alumno, user }) {
               </div>
             </div>
             <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px',position:'relative'}}>
-              {preview.tipo === 'pdf' && preview.permite_descarga === false ? (
+              {preview.tipo === 'pdf' ? (
                 <>
                   <iframe
-                    src={`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(preview.url)}#toolbar=0&navpanes=0`}
+                    src={preview.permite_descarga === false
+                      ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(preview.url)}#toolbar=0&navpanes=0`
+                      : preview.url}
                     style={{width:'100%',height:'100%',border:'none'}}
-                    sandbox="allow-scripts allow-same-origin"
+                    {...(preview.permite_descarga === false ? {sandbox:'allow-scripts allow-same-origin'} : {})}
                   />
-                  <div style={{position:'absolute',inset:0,pointerEvents:'none',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
-                    <div style={{transform:'rotate(-35deg)',textAlign:'center',opacity:0.15,userSelect:'none'}}>
-                      <div style={{fontSize:'clamp(14px,2.5vw,26px)',fontWeight:700,color:'#ff6584',whiteSpace:'nowrap'}}>{watermarkName}</div>
-                      <div style={{fontSize:'clamp(10px,1.8vw,18px)',color:'#6c63ff',marginTop:4,whiteSpace:'nowrap'}}>{watermarkEmail}</div>
-                    </div>
-                  </div>
+                  <WatermarkOverlay name={watermarkName} email={watermarkEmail} />
                 </>
-              ) : preview.tipo === 'pdf' ? (
-                <iframe src={preview.url} style={{width:'100%',height:'100%',border:'none'}} />
               ) : preview.tipo === 'imagen' ? (
-                <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000'}}>
+                <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:'#000',position:'relative'}}>
                   <img src={preview.url} style={{maxWidth:'100%',maxHeight:'100%',objectFit:'contain'}} alt={preview.titulo} />
+                  <WatermarkOverlay name={watermarkName} email={watermarkEmail} />
                 </div>
               ) : preview.tipo === 'link' ? (
                 <div style={{textAlign:'center',padding:40}}>
@@ -4139,6 +4142,14 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toast = useToast();
+
+  // Deshabilitar clic derecho para alumnos
+  useEffect(() => {
+    if (!auth || auth.isAdmin) return;
+    const block = e => e.preventDefault();
+    document.addEventListener('contextmenu', block);
+    return () => document.removeEventListener('contextmenu', block);
+  }, [auth]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
