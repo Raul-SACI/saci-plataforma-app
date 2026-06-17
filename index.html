@@ -704,7 +704,8 @@ function AdminPlanificacion() {
   const [planDocente, setPlanDocente] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'' });
+  const PLAN_COLORES = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4'];
+  const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'', color:'' });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -726,17 +727,17 @@ function AdminPlanificacion() {
   const openDay = fecha => {
     const ex = planDocente[fecha];
     setModal({ fecha, id: ex?.id||null });
-    setForm({ videos: ex?.videos||'', videos_grabados: ex?.videos_grabados||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'' });
+    setForm({ videos: ex?.videos||'', videos_grabados: ex?.videos_grabados||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'', color: ex?.color||'' });
   };
 
   const save = async () => {
     setSaving(true);
-    const isEmpty = !form.videos.trim() && !form.videos_grabados.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
+    const isEmpty = !form.color && !form.videos.trim() && !form.videos_grabados.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
     if (isEmpty) {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
     }
-    const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
+    const payload = { fecha: modal.fecha, color: form.color||null, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
     const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).maybeSingle();
     const { error } = existing
       ? await supabase.from('planificacion_docente').update(payload).eq('id', existing.id)
@@ -772,11 +773,15 @@ function AdminPlanificacion() {
                 const plan = planDocente[fecha];
                 const hasContent = plan && PLAN_CAMPOS.some(c => plan[c.key]);
                 const isToday = fecha === todayStr;
+                const cellColor = plan?.color;
+                const cellBg = cellColor ? cellColor+'28' : hasContent ? 'rgba(108,99,255,0.09)' : 'var(--surface)';
+                const cellBgHover = cellColor ? cellColor+'55' : hasContent ? 'rgba(108,99,255,0.18)' : 'var(--surface2)';
+                const cellBorder = cellColor ? `2px solid ${cellColor}` : isToday ? '2px solid var(--accent)' : '1px solid var(--border)';
                 return (
                   <div key={fecha} onClick={() => openDay(fecha)}
-                    style={{minHeight:96,borderRadius:10,border:isToday?'2px solid var(--accent)':'1px solid var(--border)',background:hasContent?'rgba(108,99,255,0.09)':'var(--surface)',padding:'8px 8px',cursor:'pointer',transition:'background 0.15s'}}
-                    onMouseOver={e=>e.currentTarget.style.background=hasContent?'rgba(108,99,255,0.18)':'var(--surface2)'}
-                    onMouseOut={e=>e.currentTarget.style.background=hasContent?'rgba(108,99,255,0.09)':'var(--surface)'}
+                    style={{minHeight:96,borderRadius:10,border:cellBorder,background:cellBg,padding:'8px 8px',cursor:'pointer',transition:'background 0.15s'}}
+                    onMouseOver={e=>e.currentTarget.style.background=cellBgHover}
+                    onMouseOut={e=>e.currentTarget.style.background=cellBg}
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':'var(--text)',marginBottom:6}}>{d}</div>
                     {hasContent ? (
@@ -811,6 +816,19 @@ function AdminPlanificacion() {
               />
             </div>
           ))}
+          <div className="form-group">
+            <label>🎨 Color del día</label>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <button onClick={()=>setForm(p=>({...p,color:''}))}
+                style={{width:28,height:28,borderRadius:'50%',border:!form.color?'3px solid var(--text)':'2px solid var(--border)',background:'var(--surface2)',cursor:'pointer',fontSize:'0.7rem',color:'var(--text2)',display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+              {PLAN_COLORES.map(c=>(
+                <button key={c} onClick={()=>setForm(p=>({...p,color:p.color===c?'':c}))}
+                  style={{width:28,height:28,borderRadius:'50%',border:form.color===c?'3px solid var(--text)':'2px solid transparent',background:c,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.25)'}}>
+                  {form.color===c&&<span style={{fontSize:'0.7rem',color:'#fff',fontWeight:700,textShadow:'0 1px 2px rgba(0,0,0,0.5)'}}>✓</span>}
+                </button>
+              ))}
+            </div>
+          </div>
           <div style={{fontSize:'0.74rem',color:'var(--text2)',marginTop:2,marginBottom:8}}>Dejá todos los campos vacíos para eliminar la planificación de este día.</div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
             <button className="btn btn-ghost" onClick={()=>setModal(null)}>Cancelar</button>
@@ -997,11 +1015,13 @@ function AlumnoPlanificacion({ alumno }) {
                 const allDone = items.length > 0 && items.every(it=>it.ok) && notas.every(n=>n.ok);
                 const someDone = items.some(it=>it.ok) || notas.some(n=>n.ok);
                 const hasContent = items.length > 0 || notas.length > 0;
+                const docenteColor = planDocente[fecha]?.color;
                 let bg='var(--surface)', bdr='var(--border)';
                 if (allDone && hasContent){ bg='rgba(67,233,123,0.2)'; bdr='var(--success)'; }
                 else if (someDone){ bg='rgba(67,233,123,0.08)'; bdr='var(--success)'; }
                 else if (items.length){ bg='rgba(108,99,255,0.08)'; bdr='var(--accent)'; }
                 else if (notas.length){ bg='rgba(249,202,36,0.07)'; bdr='var(--gold)'; }
+                if (docenteColor){ bg=docenteColor+'28'; bdr=docenteColor; }
                 return (
                   <div key={fecha} onClick={()=>openDay(fecha)}
                     style={{minHeight:96,borderRadius:10,border:isToday?`2px solid ${bdr}`:`1px solid ${bdr}`,background:bg,padding:'6px 8px',cursor:'pointer',transition:'background 0.15s',opacity:isPast&&!hasContent?0.4:1}}
