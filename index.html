@@ -710,7 +710,7 @@ function AdminPlanificacion() {
   const load = async () => {
     setLoading(true);
     const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
-    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
     const { data } = await supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta);
     const map = {};
     (data||[]).forEach(d => { map[d.fecha] = d; });
@@ -840,7 +840,7 @@ function AlumnoPlanificacion({ alumno }) {
   const load = async () => {
     setLoading(true);
     const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
-    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+    const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
     const [{ data: docData }, { data: alumData }] = await Promise.all([
       supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta),
       alumno?.id
@@ -1392,7 +1392,7 @@ function AdminDashboard({ setPage }) {
       setPlanLoading(true);
       const { mes, año, alumno_id } = planFiltro;
       const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
-      const hasta = `${año}-${String(mes+1).padStart(2,'0')}-31`;
+      const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
       const [{ data: docDays }, { data: alumDays }, { data: allAlumnos }] = await Promise.all([
         supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta).order('fecha'),
         (() => { let q = supabase.from('planificacion_alumnos').select('*').gte('fecha',desde).lte('fecha',hasta); if (alumno_id) q=q.eq('alumno_id',alumno_id); return q; })(),
