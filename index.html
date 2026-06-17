@@ -685,11 +685,12 @@ function Empty({ icon = '📭', text = 'Sin datos' }) {
 // ADMIN PLANIFICACIÓN MENSUAL
 // ═══════════════════════════════════════════════════════════════════════
 const PLAN_CAMPOS = [
-  { key: 'videos',    okKey: 'videos_ok',    icon: '🎬', label: 'Videos' },
-  { key: 'material',  okKey: 'material_ok',  icon: '📖', label: 'Material Teórico' },
-  { key: 'prueba',    okKey: 'prueba_ok',    icon: '📝', label: 'Prueba Virtual' },
-  { key: 'ejercicio', okKey: 'ejercicio_ok', icon: '✏️', label: 'Ejercicio' },
-  { key: 'otros',     okKey: 'otros_ok',     icon: '📌', label: 'Otros' },
+  { key: 'videos',          okKey: 'videos_ok',          icon: '📡', label: 'Clase en Vivo' },
+  { key: 'videos_grabados', okKey: 'videos_grabados_ok', icon: '🎬', label: 'Videos Grabados' },
+  { key: 'material',        okKey: 'material_ok',        icon: '📖', label: 'Material Teórico' },
+  { key: 'prueba',          okKey: 'prueba_ok',          icon: '📝', label: 'Prueba Virtual' },
+  { key: 'ejercicio',       okKey: 'ejercicio_ok',       icon: '✏️', label: 'Ejercicio' },
+  { key: 'otros',           okKey: 'otros_ok',           icon: '📌', label: 'Otros' },
 ];
 const PLAN_MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const PLAN_DIAS  = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
@@ -703,7 +704,7 @@ function AdminPlanificacion() {
   const [planDocente, setPlanDocente] = useState({});
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
-  const [form, setForm] = useState({ videos:'', material:'', prueba:'', ejercicio:'', otros:'' });
+  const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'' });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -725,17 +726,17 @@ function AdminPlanificacion() {
   const openDay = fecha => {
     const ex = planDocente[fecha];
     setModal({ fecha, id: ex?.id||null });
-    setForm({ videos: ex?.videos||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'' });
+    setForm({ videos: ex?.videos||'', videos_grabados: ex?.videos_grabados||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'' });
   };
 
   const save = async () => {
     setSaving(true);
-    const isEmpty = !form.videos.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
+    const isEmpty = !form.videos.trim() && !form.videos_grabados.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
     if (isEmpty) {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
     }
-    const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
+    const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
     const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).maybeSingle();
     const { error } = existing
       ? await supabase.from('planificacion_docente').update(payload).eq('id', existing.id)
