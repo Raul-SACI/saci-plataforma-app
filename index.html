@@ -3884,7 +3884,8 @@ function AdminNovedades() {
     if (!form.contenido.trim()) return toast('El contenido es requerido', 'error');
     setSaving(true);
     try {
-      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado, link: form.link.trim() || null };
+      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado };
+      if (form.link.trim()) payload.link = form.link.trim();
       const { error } = editing
         ? await supabase.from('novedades').update(payload).eq('id', editing)
         : await supabase.from('novedades').insert(payload);
@@ -3987,7 +3988,7 @@ function AdminNovedades() {
           </div>
           <div className="form-group">
             <label>🔗 Enlace (opcional)</label>
-            <input type="url" value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} placeholder="https://... (los alumnos podrán hacer clic para abrir)" />
+            <input type="text" value={form.link} onChange={e => setForm(p => ({ ...p, link: e.target.value }))} placeholder="https://... (dejar vacío si no hay enlace)" />
           </div>
           <div className="form-group">
             <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', textTransform: 'none', letterSpacing: 0 }}>
