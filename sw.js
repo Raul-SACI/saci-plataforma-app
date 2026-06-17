@@ -1,4 +1,4 @@
-const CACHE_NAME = 'saci-v1';
+const CACHE_NAME = 'saci-v2';
 const urlsToCache = ['/'];
 
 self.addEventListener('install', event => {

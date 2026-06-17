@@ -736,7 +736,10 @@ function AdminPlanificacion() {
       setSaving(false); setModal(null); load(); return;
     }
     const payload = { fecha: modal.fecha, videos: form.videos.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
-    const { error } = await supabase.from('planificacion_docente').upsert(payload, { onConflict: 'fecha' });
+    const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).maybeSingle();
+    const { error } = existing
+      ? await supabase.from('planificacion_docente').update(payload).eq('id', existing.id)
+      : await supabase.from('planificacion_docente').insert(payload);
     if (error) { toast(error.message,'error'); setSaving(false); return; }
     toast('Guardado ✅','success'); setSaving(false); setModal(null); load();
   };
