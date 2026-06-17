@@ -2655,6 +2655,8 @@ function AdminMateriales() {
   const [editingTema, setEditingTema] = useState(null);
   const [dragOver, setDragOver] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
+  const [bulkProgress, setBulkProgress] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
   const [vistaTab, setVistaTab] = useState('temas');
   const [dragTema, setDragTema] = useState(null);
@@ -2721,7 +2723,50 @@ function AdminMateriales() {
     if (error) return toast(error.message, 'error');
     if (!editing) notificarAlumnos('📄 Nuevo material disponible', form.unidad || form.titulo);
     toast(editing ? 'Material actualizado ✏️' : 'Material guardado ✅', 'success');
-    setModal(false); setEditing(null); setSelectedFile(null);
+    setModal(false); setEditing(null); setSelectedFile(null); setSelectedFiles([]);
+    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
+    load();
+  };
+
+  const bulkSave = async () => {
+    if (!selectedFiles.length) return;
+    const prefix = form.unidad.trim();
+    let done = 0, errors = 0;
+    setBulkProgress({ current: 0, total: selectedFiles.length, name: '' });
+    for (const file of selectedFiles) {
+      setBulkProgress({ current: done + errors + 1, total: selectedFiles.length, name: file.name });
+      try {
+        const ext = file.name.split('.').pop().toLowerCase();
+        const path = `${Date.now()}_${Math.random().toString(36).slice(2,8)}_${file.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+        const { error: upErr } = await supabase.storage.from('materiales').upload(path, file);
+        if (upErr) throw upErr;
+        const { data: urlData } = supabase.storage.from('materiales').getPublicUrl(path);
+        let tipo = 'pdf';
+        if (['doc','docx'].includes(ext)) tipo = 'word';
+        else if (['xls','xlsx'].includes(ext)) tipo = 'excel';
+        else if (['jpg','jpeg','png','gif','webp'].includes(ext)) tipo = 'imagen';
+        else if (['mp4','webm','mov'].includes(ext)) tipo = 'video';
+        const cleanName = file.name.replace(/\.[^.]+$/, '');
+        const { error: dbErr } = await supabase.from('materiales').insert({
+          unidad: prefix ? `${prefix} - ${cleanName}` : cleanName,
+          descripcion: form.descripcion || null,
+          url: urlData.publicUrl,
+          tipo,
+          permite_descarga: form.permite_descarga,
+          semana: form.semana || null,
+          tema_id: form.tema_id || null,
+          max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
+        });
+        if (dbErr) throw dbErr;
+        done++;
+      } catch (err) {
+        errors++;
+        console.error(`Error subiendo ${file.name}:`, err);
+      }
+    }
+    setBulkProgress(null);
+    toast(errors > 0 ? `${done} subidos, ${errors} con error` : `✅ ${done} materiales subidos`, errors > 0 ? 'error' : 'success');
+    setModal(false); setSelectedFiles([]); setSelectedFile(null);
     setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
     load();
   };
@@ -2771,7 +2816,7 @@ function AdminMateriales() {
 
   const openEdit = m => {
     setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '' });
-    setEditing(m.id); setSelectedFile(null); setModal(true);
+    setEditing(m.id); setSelectedFile(null); setSelectedFiles([]); setModal(true);
   };
 
   const remove = async id => {
@@ -2801,7 +2846,7 @@ function AdminMateriales() {
         </div>
         <div style={{display:'flex',gap:10}}>
           <button className="btn btn-ghost" onClick={() => { setTemaForm({nombre:'',descripcion:'',color:'#6c63ff',orden:temas.length}); setEditingTema(null); setTemaModal(true); }}>📂 Nuevo tema</button>
-          <button className="btn btn-primary" onClick={() => { setForm({unidad:'',descripcion:'',url:'',tipo:'pdf',permite_descarga:true,semana:'',tema_id:''}); setEditing(null); setSelectedFile(null); setModal(true); }}>➕ Nuevo material</button>
+          <button className="btn btn-primary" onClick={() => { setForm({unidad:'',descripcion:'',url:'',tipo:'pdf',permite_descarga:true,semana:'',tema_id:''}); setEditing(null); setSelectedFile(null); setSelectedFiles([]); setModal(true); }}>➕ Nuevo material</button>
         </div>
       </div>
 
@@ -2849,7 +2894,7 @@ function AdminMateriales() {
                     {tMats.length === 0 ? (
                       <div style={{padding:'16px 20px',color:'var(--text2)',fontSize:'0.84rem',fontStyle:'italic',background:'var(--surface)',display:'flex',alignItems:'center',gap:12}}>
                         Sin materiales en este tema.
-                        <button className="btn btn-ghost btn-sm" onClick={() => { setForm({unidad:'',descripcion:'',url:'',tipo:'pdf',permite_descarga:true,semana:'',tema_id:t.id}); setEditing(null); setSelectedFile(null); setModal(true); }}>➕ Agregar</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setForm({unidad:'',descripcion:'',url:'',tipo:'pdf',permite_descarga:true,semana:'',tema_id:t.id}); setEditing(null); setSelectedFile(null); setSelectedFiles([]); setModal(true); }}>➕ Agregar</button>
                       </div>
                     ) : (
                       <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -3053,8 +3098,11 @@ function AdminMateriales() {
 
       {/* Modal nuevo/editar material */}
       {modal && (
-        <Modal title={editing ? '✏️ Editar material' : '➕ Nuevo material'} onClose={() => setModal(false)}>
-          <div className="form-group"><label>Título</label><input value={form.unidad} onChange={e => setForm(p=>({...p,unidad:e.target.value}))} placeholder="Nombre del material" /></div>
+        <Modal title={editing ? '✏️ Editar material' : selectedFiles.length > 1 ? `📦 Subir ${selectedFiles.length} archivos` : '➕ Nuevo material'} onClose={() => { setModal(false); setSelectedFiles([]); }}>
+          <div className="form-group">
+            <label>{selectedFiles.length > 1 ? 'Prefijo del título (opcional)' : 'Título'}</label>
+            <input value={form.unidad} onChange={e => setForm(p=>({...p,unidad:e.target.value}))} placeholder={selectedFiles.length > 1 ? 'Ej: Examenes 2025 → genera "Examenes 2025 - nombre_archivo"' : 'Nombre del material'} />
+          </div>
           <div className="form-group"><label>Descripción</label><textarea value={form.descripcion} onChange={e => setForm(p=>({...p,descripcion:e.target.value}))} placeholder="Opcional" /></div>
           <div className="form-group">
             <label>📂 Tema</label>
@@ -3070,24 +3118,50 @@ function AdminMateriales() {
               {['Semana 1','Semana 2','Semana 3','Semana 4','Semana 5','Semana 6'].map(s => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+          {selectedFiles.length <= 1 && (
+            <div className="form-group">
+              <label>Tipo de archivo</label>
+              <select value={form.tipo} onChange={e => setForm(p=>({...p,tipo:e.target.value}))}>
+                {Object.entries(TIPO_INFO).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
+              </select>
+            </div>
+          )}
           <div className="form-group">
-            <label>Tipo de archivo</label>
-            <select value={form.tipo} onChange={e => setForm(p=>({...p,tipo:e.target.value}))}>
-              {Object.entries(TIPO_INFO).map(([k,v]) => <option key={k} value={k}>{v.icon} {v.label}</option>)}
-            </select>
+            <label>📎 {selectedFiles.length > 1 ? `${selectedFiles.length} archivos seleccionados` : 'Subir archivo'}</label>
+            <input ref={fileRef} type="file" multiple style={{display:'none'}} accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.mp4,.webm"
+              onChange={e => {
+                const files = Array.from(e.target.files);
+                if (files.length > 1) { setSelectedFiles(files); setSelectedFile(null); setForm(p=>({...p,url:''})); }
+                else if (files.length === 1) { setSelectedFiles([]); uploadFile(files[0]); }
+              }} />
+            {selectedFiles.length > 1 ? (
+              <div>
+                <div style={{maxHeight:160,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,marginBottom:8}}>
+                  {selectedFiles.map((f,i) => (
+                    <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px',borderBottom:i<selectedFiles.length-1?'1px solid var(--border)':'none',fontSize:'0.82rem'}}>
+                      <span>{f.name.split('.').pop().toLowerCase()==='pdf'?'📕':['doc','docx'].includes(f.name.split('.').pop().toLowerCase())?'📘':['xls','xlsx'].includes(f.name.split('.').pop().toLowerCase())?'📗':'📄'}</span>
+                      <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:'var(--text)'}}>{f.name}</span>
+                      <span style={{color:'var(--text2)',flexShrink:0}}>{(f.size/1024).toFixed(0)} KB</span>
+                    </div>
+                  ))}
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setSelectedFiles([]); fileRef.current.value=''; }}>✕ Limpiar selección</button>
+              </div>
+            ) : (
+              <>
+                <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center',marginBottom:8}} onClick={() => fileRef.current.click()} disabled={uploading}>
+                  {uploading ? `⏳ Subiendo... ${uploadPct}%` : '📤 Seleccionar archivo(s)'}
+                </button>
+                {form.url && <div style={{fontSize:'0.78rem',color:'var(--success)',background:'rgba(67,233,123,0.1)',padding:'6px 10px',borderRadius:8}}>✅ {form.url.split('/').pop().slice(0,50)}</div>}
+              </>
+            )}
           </div>
-          <div className="form-group">
-            <label>📎 Subir archivo</label>
-            <input ref={fileRef} type="file" style={{display:'none'}} accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.mp4,.webm" onChange={e => { if(e.target.files[0]) uploadFile(e.target.files[0]); }} />
-            <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center',marginBottom:8}} onClick={() => fileRef.current.click()} disabled={uploading}>
-              {uploading ? `⏳ Subiendo... ${uploadPct}%` : '📤 Subir archivo'}
-            </button>
-            {form.url && <div style={{fontSize:'0.78rem',color:'var(--success)',background:'rgba(67,233,123,0.1)',padding:'6px 10px',borderRadius:8}}>✅ {form.url.split('/').pop().slice(0,50)}</div>}
-          </div>
-          <div className="form-group">
-            <label>O pegar URL externa</label>
-            <input type="url" placeholder="https://..." value={form.url} onChange={e => setForm(p=>({...p,url:e.target.value}))} />
-          </div>
+          {selectedFiles.length <= 1 && (
+            <div className="form-group">
+              <label>O pegar URL externa</label>
+              <input type="url" placeholder="https://..." value={form.url} onChange={e => setForm(p=>({...p,url:e.target.value}))} />
+            </div>
+          )}
           <div className="form-group">
             <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
               <input type="checkbox" checked={form.permite_descarga} onChange={e => setForm(p=>({...p,permite_descarga:e.target.checked}))} style={{width:'auto'}} />
@@ -3099,10 +3173,19 @@ function AdminMateriales() {
             <input type="number" min="1" placeholder="Sin límite" value={form.max_vistas} onChange={e => setForm(p=>({...p,max_vistas:e.target.value}))} />
             <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Dejá vacío para permitir vistas ilimitadas</div>
           </div>
+          {bulkProgress && (
+            <div style={{marginBottom:12}}>
+              <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:4}}>Subiendo {bulkProgress.current}/{bulkProgress.total}: <strong>{bulkProgress.name}</strong></div>
+              <div className="progress-bar"><div className="progress-fill" style={{width:`${Math.round(bulkProgress.current/bulkProgress.total*100)}%`}} /></div>
+            </div>
+          )}
           {uploading && <div className="progress-bar" style={{marginBottom:8}}><div className="progress-fill" style={{width:`${uploadPct}%`}} /></div>}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <button className="btn btn-ghost" onClick={() => setModal(false)} disabled={uploading}>Cancelar</button>
-            <button className="btn btn-primary" onClick={save} disabled={uploading}>{uploading ? '⏳ Subiendo...' : '💾 Guardar'}</button>
+            <button className="btn btn-ghost" onClick={() => { setModal(false); setSelectedFiles([]); }} disabled={uploading||!!bulkProgress}>Cancelar</button>
+            {selectedFiles.length > 1
+              ? <button className="btn btn-primary" onClick={bulkSave} disabled={!!bulkProgress}>{bulkProgress ? `⏳ ${bulkProgress.current}/${bulkProgress.total}...` : `📦 Subir ${selectedFiles.length} archivos`}</button>
+              : <button className="btn btn-primary" onClick={save} disabled={uploading}>{uploading ? '⏳ Subiendo...' : '💾 Guardar'}</button>
+            }
           </div>
         </Modal>
       )}
