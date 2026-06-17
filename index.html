@@ -2185,7 +2185,7 @@ function AdminVideos() {
   const [statsModal, setStatsModal] = useState(null); // video seleccionado para ver stats
   const [statsData, setStatsData] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '' });
+  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '' });
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
   const [editingTema, setEditingTema] = useState(null);
@@ -2268,7 +2268,7 @@ function AdminVideos() {
     if (tab === 'bunny' && !bunny_id) return toast('Seleccioná un video de Bunny', 'error');
     if (tab === 'url' && !url_externa) return toast('Ingresá una URL', 'error');
 
-    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null };
+    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null, publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null };
     const { error } = editing
       ? await supabase.from('videos').update(payload).eq('id', editing)
       : await supabase.from('videos').insert(payload);
@@ -2276,7 +2276,7 @@ function AdminVideos() {
     if (!editing) notificarAlumnos('🎬 Nuevo video disponible', form.titulo);
     toast(editing ? 'Video actualizado ✏️' : 'Video agregado 🎬', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
-    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '' }); load();
+    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '' }); load();
   };
 
   const saveTema = async () => {
@@ -2322,7 +2322,7 @@ function AdminVideos() {
   };
 
   const openEdit = v => {
-    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, tema_id: v.tema_id || '', max_vistas: v.max_vistas != null ? String(v.max_vistas) : '' });
+    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, tema_id: v.tema_id || '', max_vistas: v.max_vistas != null ? String(v.max_vistas) : '', publicar_en: v.publicar_en ? new Date(v.publicar_en).toISOString().slice(0,16) : '' });
     setEditing(v.id); setSelectedFile(null);
     setTab(v.url_externa ? 'url' : 'bunny');
     setModal(true);
@@ -2410,7 +2410,7 @@ function AdminVideos() {
                           {tVids.map(v => (
                             <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                               <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
-                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}</td>
+                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}</td>
                               <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={`https://${BUNNY_CDN}/${v.bunny_id||v.bunny_video_id}/thumbnail.jpg`} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
                               <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                             </tr>
@@ -2439,7 +2439,7 @@ function AdminVideos() {
                       {videos.filter(v=>!v.tema_id).map(v => (
                         <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                           <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
-                          <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong></td>
+                          <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                           <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={`https://${BUNNY_CDN}/${v.bunny_id||v.bunny_video_id}/thumbnail.jpg`} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
                           <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️ Asignar tema</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                         </tr>
@@ -2462,7 +2462,7 @@ function AdminVideos() {
                 {videos.map(v => (
                   <tr key={v.id}>
                     <td style={{fontFamily:'Space Mono',color:'var(--text2)'}}>{v.orden}</td>
-                    <td><strong>{v.titulo}</strong></td>
+                    <td><strong>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                     <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===v.tema_id)?.nombre||'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)?<span className="chip chip-blue">Bunny</span>:v.url_externa?<span className="chip chip-green">URL</span>:'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)&&<img src={`https://${BUNNY_CDN}/${v.bunny_id||v.bunny_video_id}/thumbnail.jpg`} style={{height:44,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
@@ -2619,6 +2619,18 @@ function AdminVideos() {
             <input type="number" min="1" placeholder="Sin límite" value={form.max_vistas} onChange={e => setForm(p => ({ ...p, max_vistas: e.target.value }))} />
             <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Dejá vacío para permitir vistas ilimitadas</div>
           </div>
+          <div className="form-group">
+            <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={!!form.publicar_en} onChange={e=>setForm(p=>({...p,publicar_en:e.target.checked?new Date(Date.now()+3600000).toISOString().slice(0,16):''}))} style={{width:'auto'}} />
+              ⏰ Programar publicación
+            </label>
+            {form.publicar_en && (
+              <div style={{marginTop:8}}>
+                <input type="datetime-local" value={form.publicar_en} min={new Date().toISOString().slice(0,16)} onChange={e=>setForm(p=>({...p,publicar_en:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>El contenido será visible para los alumnos a partir de esta fecha y hora</div>
+              </div>
+            )}
+          </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => setModal(false)} disabled={uploading}>Cancelar</button>
             <button className="btn btn-primary" onClick={save} disabled={uploading}>{uploading ? '⏳ Subiendo...' : '💾 Guardar'}</button>
@@ -2649,7 +2661,7 @@ function AdminMateriales() {
   const [statsLoading, setStatsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
-  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
+  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
   const [editingTema, setEditingTema] = useState(null);
@@ -2716,6 +2728,7 @@ function AdminMateriales() {
       semana: form.semana || null,
       tema_id: form.tema_id || null,
       max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
+      publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
     };
     const { error } = editing
       ? await supabase.from('materiales').update(payload).eq('id', editing)
@@ -2724,7 +2737,7 @@ function AdminMateriales() {
     if (!editing) notificarAlumnos('📄 Nuevo material disponible', form.unidad || form.titulo);
     toast(editing ? 'Material actualizado ✏️' : 'Material guardado ✅', 'success');
     setModal(false); setEditing(null); setSelectedFile(null); setSelectedFiles([]);
-    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
+    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
     load();
   };
 
@@ -2756,6 +2769,7 @@ function AdminMateriales() {
           semana: form.semana || null,
           tema_id: form.tema_id || null,
           max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
+          publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
         });
         if (dbErr) throw dbErr;
         done++;
@@ -2767,7 +2781,7 @@ function AdminMateriales() {
     setBulkProgress(null);
     toast(errors > 0 ? `${done} subidos, ${errors} con error` : `✅ ${done} materiales subidos`, errors > 0 ? 'error' : 'success');
     setModal(false); setSelectedFiles([]); setSelectedFile(null);
-    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '' });
+    setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
     load();
   };
 
@@ -2815,7 +2829,7 @@ function AdminMateriales() {
   };
 
   const openEdit = m => {
-    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '' });
+    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '', publicar_en: m.publicar_en ? new Date(m.publicar_en).toISOString().slice(0,16) : '' });
     setEditing(m.id); setSelectedFile(null); setSelectedFiles([]); setModal(true);
   };
 
@@ -2907,7 +2921,7 @@ function AdminMateriales() {
                             return (
                               <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                                 <td style={{padding:'10px 16px'}}><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
-                                <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{m.descripcion}</span></>}</td>
+                                <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{m.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{m.descripcion}</span></>}</td>
                                 <td style={{padding:'10px 16px'}}>
                                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                                     <div onClick={() => toggleDescarga(m.id,!m.permite_descarga)} style={{width:38,height:20,borderRadius:10,background:m.permite_descarga!==false?'var(--success)':'var(--border)',cursor:'pointer',position:'relative',transition:'background 0.3s',flexShrink:0}}>
@@ -2950,7 +2964,7 @@ function AdminMateriales() {
                         return (
                           <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                             <td style={{padding:'10px 16px'}}><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
-                            <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong></td>
+                            <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                             <td style={{padding:'10px 16px'}}>
                               <div style={{display:'flex',gap:6}}>
                                 <button className="btn btn-ghost btn-sm" onClick={() => verStats(m)}>📊</button>
@@ -2981,7 +2995,7 @@ function AdminMateriales() {
                   return (
                     <tr key={m.id}>
                       <td style={{fontSize:'1.3rem'}}>{ti.icon}</td>
-                      <td><strong>{m.unidad||m.titulo}</strong></td>
+                      <td><strong>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                       <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===m.tema_id)?.nombre||'—'}</td>
                       <td><span className={`chip ${m.permite_descarga!==false?'chip-green':'chip-red'}`}>{m.permite_descarga!==false?'🔓':'🔒'}</span></td>
                       <td>
@@ -3180,6 +3194,18 @@ function AdminMateriales() {
             </div>
           )}
           {uploading && <div className="progress-bar" style={{marginBottom:8}}><div className="progress-fill" style={{width:`${uploadPct}%`}} /></div>}
+          <div className="form-group">
+            <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={!!form.publicar_en} onChange={e=>setForm(p=>({...p,publicar_en:e.target.checked?new Date(Date.now()+3600000).toISOString().slice(0,16):''}))} style={{width:'auto'}} />
+              ⏰ Programar publicación
+            </label>
+            {form.publicar_en && (
+              <div style={{marginTop:8}}>
+                <input type="datetime-local" value={form.publicar_en} min={new Date().toISOString().slice(0,16)} onChange={e=>setForm(p=>({...p,publicar_en:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>El contenido será visible para los alumnos a partir de esta fecha y hora</div>
+              </div>
+            )}
+          </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => { setModal(false); setSelectedFiles([]); }} disabled={uploading||!!bulkProgress}>Cancelar</button>
             {selectedFiles.length > 1
@@ -3200,7 +3226,7 @@ function AdminEvaluaciones() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true };
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '' };
   const [form, setForm] = useState(emptyForm);
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
@@ -3208,7 +3234,7 @@ function AdminEvaluaciones() {
   const load = async () => {
     const { data, error } = await supabase
       .from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
       .order('id', { ascending: false });
     console.log('EVAL:', data, error);
     setEvals(data || []); setLoading(false);
@@ -3218,14 +3244,15 @@ function AdminEvaluaciones() {
   const save = async () => {
     if (!form.titulo) return toast('El título es requerido', 'error');
     if (!form.link_google) return toast('El link de Google Forms es requerido', 'error');
-    const payload = { 
+    const payload = {
       titulo: form.titulo,
       descripcion: form.descripcion || null,
       link_google: form.link_google || null,
       fecha_limite: form.fecha_limite || null,
       tema: form.tema || null,
       visible: form.visible,
-      estado: 'disponible'
+      estado: 'disponible',
+      publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
     };
     const { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
@@ -3242,7 +3269,7 @@ function AdminEvaluaciones() {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false, publicar_en: ev.publicar_en ? new Date(ev.publicar_en).toISOString().slice(0,16) : '' });
     setEditing(ev.id); setModal(true);
   };
 
@@ -3276,6 +3303,7 @@ function AdminEvaluaciones() {
                   <div style={{flex:1}}>
                     <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
                       <div style={{fontWeight:700,fontSize:'1rem'}}>{ev.titulo}</div>
+                      {ev.publicar_en && new Date(ev.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(ev.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(ev.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}
                       {ev.tema && <span className="chip chip-blue">{ev.tema}</span>}
                       {vencida && <span className="chip chip-red">⏰ Vencida</span>}
                       {proxVencer && !vencida && <span className="chip chip-yellow">⚠️ Vence pronto</span>}
@@ -3337,6 +3365,18 @@ function AdminEvaluaciones() {
               Visible para los alumnos
             </label>
           </div>
+          <div className="form-group">
+            <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={!!form.publicar_en} onChange={e=>setForm(p=>({...p,publicar_en:e.target.checked?new Date(Date.now()+3600000).toISOString().slice(0,16):''}))} style={{width:'auto'}} />
+              ⏰ Programar publicación
+            </label>
+            {form.publicar_en && (
+              <div style={{marginTop:8}}>
+                <input type="datetime-local" value={form.publicar_en} min={new Date().toISOString().slice(0,16)} onChange={e=>setForm(p=>({...p,publicar_en:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>El contenido será visible para los alumnos a partir de esta fecha y hora</div>
+              </div>
+            )}
+          </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
@@ -3377,7 +3417,9 @@ function AlumnoVideos({ alumno, user }) {
       supabase.from('temas_videos').select('*').order('orden'),
       supabase.from('videos').select('*').order('orden'),
     ]).then(async ([{ data: tData }, { data: vData }]) => {
-      setTemas(tData || []); setVideos(vData || []); setLoading(false);
+      const now = new Date().toISOString();
+      const vFiltered = (vData || []).filter(v => !v.publicar_en || v.publicar_en <= now);
+      setTemas(tData || []); setVideos(vFiltered); setLoading(false);
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
@@ -3596,7 +3638,9 @@ function AlumnoMateriales({ alumno, user }) {
       supabase.from('temas_materiales').select('*').order('orden'),
       supabase.from('materiales').select('*').order('orden'),
     ]).then(async ([{ data: tData }, { data: mData }]) => {
-      setTemas(tData || []); setMats(mData || []); setLoading(false);
+      const now = new Date().toISOString();
+      const mFiltered = (mData || []).filter(m => !m.publicar_en || m.publicar_en <= now);
+      setTemas(tData || []); setMats(mFiltered); setLoading(false);
       const exp = {};
       (tData || []).forEach(t => exp[t.id] = true);
       exp['sin-tema'] = true;
@@ -3807,10 +3851,14 @@ function AlumnoEvaluaciones({ alumno }) {
 
   useEffect(() => {
     supabase.from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
       .neq('visible', false)
       .order('id', { ascending: false })
-      .then(({ data }) => { setEvals(data || []); setLoading(false); });
+      .then(({ data }) => {
+        const now = new Date().toISOString();
+        setEvals((data || []).filter(ev => !ev.publicar_en || ev.publicar_en <= now));
+        setLoading(false);
+      });
   }, []);
 
   const isVencida = ev => ev.fecha_limite && ev.fecha_limite < today;
