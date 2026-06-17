@@ -1784,6 +1784,18 @@ function AdminAlumnos() {
     e.target.value = '';
   };
 
+  const downloadTemplate = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['nombre', 'email', 'telefono', 'estado', 'password'],
+      ['Juan Pérez', 'juan@ejemplo.com', '11-2345-6789', 'activo', 'clave123'],
+      ['María López', 'maria@ejemplo.com', '11-9876-5432', 'activo', 'clave456'],
+    ]);
+    ws['!cols'] = [{ wch: 25 }, { wch: 30 }, { wch: 18 }, { wch: 10 }, { wch: 15 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Alumnos');
+    XLSX.writeFile(wb, 'plantilla_alumnos.xlsx');
+  };
+
   const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '' }); setEditing(a.id); setModal(true); };
   const filtered = alumnos.filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()));
 
@@ -1797,6 +1809,7 @@ function AdminAlumnos() {
         </div>
         <div style={{display:'flex',gap:10}}>
           <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={importExcel} />
+          <button className="btn btn-ghost" onClick={downloadTemplate}>📋 Plantilla</button>
           <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📥 Importar Excel</button>
           <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
