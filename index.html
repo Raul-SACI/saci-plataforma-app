@@ -4038,7 +4038,7 @@ function AdminNovedades() {
     setSaving(true);
     try {
       const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado };
-      if (form.link.trim()) payload.link = form.link.trim();
+      if ((form.link || '').trim()) payload.link = form.link.trim();
       const { error } = editing
         ? await supabase.from('novedades').update(payload).eq('id', editing)
         : await supabase.from('novedades').insert(payload);
@@ -4076,7 +4076,7 @@ function AdminNovedades() {
           <div className="page-title">📢 Novedades</div>
           <div className="page-subtitle">Muro de comunicados y avisos</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false }); setEditing(null); setModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
           ➕ Nueva novedad
         </button>
       </div>
