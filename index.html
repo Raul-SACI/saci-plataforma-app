@@ -408,6 +408,13 @@ async function subscribirPush(alumnoId) {
   } catch {}
 }
 
+function normalizarUrl(url) {
+  if (!url) return url;
+  const u = url.trim();
+  if (/^https?:\/\//i.test(u)) return u;
+  return 'https://' + u;
+}
+
 async function notificarAlumnos(titulo, cuerpo) {
   try {
     await fetch(EDGE_FN_URL, {
@@ -4105,7 +4112,7 @@ function AdminNovedades() {
               </div>
               <div style={{ color: 'var(--text2)', fontSize: '0.88rem', lineHeight: 1.6, whiteSpace: 'pre-wrap', marginBottom: n.link ? 10 : 12 }}>{n.contenido}</div>
               {n.link && (
-                <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:'0.82rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'5px 12px', borderRadius:20, marginBottom:12, border:`1px solid ${cfg.color}`, fontWeight:600 }}>
+                <a href={normalizarUrl(n.link)} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, fontSize:'0.82rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'5px 12px', borderRadius:20, marginBottom:12, border:`1px solid ${cfg.color}`, fontWeight:600 }}>
                   🔗 Ver enlace
                 </a>
               )}
@@ -4297,7 +4304,7 @@ function AlumnoMuro({ alumno }) {
               {/* Enlace */}
               {n.link && (
                 <div style={{ paddingLeft: 56, marginBottom: 16 }}>
-                  <a href={n.link} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:'0.88rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'8px 16px', borderRadius:20, border:`1.5px solid ${cfg.color}`, fontWeight:700, transition:'opacity 0.15s' }}
+                  <a href={normalizarUrl(n.link)} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, fontSize:'0.88rem', color: cfg.color, textDecoration:'none', background: cfg.bg, padding:'8px 16px', borderRadius:20, border:`1.5px solid ${cfg.color}`, fontWeight:700, transition:'opacity 0.15s' }}
                     onMouseOver={e => e.currentTarget.style.opacity='0.8'}
                     onMouseOut={e => e.currentTarget.style.opacity='1'}
                   >
