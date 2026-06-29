@@ -3516,6 +3516,7 @@ function AlumnoVideos({ alumno, user }) {
   };
 
   const embedUrl = current ? getEmbedUrl(current) : null;
+  const esDrive = !!(embedUrl && embedUrl.includes('drive.google.com'));
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
 
   const VideoItem = ({ v }) => {
@@ -3544,6 +3545,9 @@ function AlumnoVideos({ alumno, user }) {
               <div className="video-container" style={{marginBottom:16}}>
                 {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
                   : <Empty icon="🎬" text="Video no disponible" />}
+                {esDrive && (
+                  <div style={{position:'absolute',top:0,right:0,width:64,height:64,background:'transparent',zIndex:11,cursor:'default'}} title="" onContextMenu={e=>e.preventDefault()} />
+                )}
                 <div className="video-watermark">
                   <div className="video-watermark-text">{watermarkName}</div>
                   <div className="video-watermark-sub">{alumno?.email || user?.email || ''}</div>
