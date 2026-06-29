@@ -323,7 +323,7 @@
     padding: 4px 8px;
     border-radius: 8px;
   }
-  .video-grid { grid-template-columns: 1fr 300px; }
+  .video-grid { grid-template-columns: 1fr; }
   @media (max-width: 768px) {
     .video-grid { grid-template-columns: 1fr !important; }
   }
@@ -3554,18 +3554,15 @@ function AlumnoVideos({ alumno, user }) {
       <div className="page-header">
         <div><div className="page-title">🎬 Mis Videos</div><div className="page-subtitle">{videos.length} videos disponibles</div></div>
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 300px',gap:20}} className="video-grid">
+      <div style={{display:'grid',gridTemplateColumns:'1fr',gap:20}} className="video-grid">
         <div>
           {current ? (
             <>
-              <div className="video-container" ref={videoContRef} style={{marginBottom:16}}>
-                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
+              <div className="video-container" ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
+                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive} />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 {esDrive && (
                   <div style={{position:'absolute',top:0,right:0,width:64,height:64,background:'transparent',zIndex:11,cursor:'default'}} title="" onContextMenu={e=>e.preventDefault()} />
-                )}
-                {esDrive && (
-                  <div style={{position:'absolute',bottom:0,right:0,width:70,height:48,background:'transparent',zIndex:11}} onContextMenu={e=>e.preventDefault()} />
                 )}
                 {esDrive && (
                   <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:6,right:6,zIndex:12,background:'#000',color:'#fff',border:'none',borderRadius:8,padding:'10px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>⛶ Pantalla completa</button>
