@@ -3408,6 +3408,16 @@ function AlumnoVideos({ alumno, user }) {
   const [accesoError, setAccesoError] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
 
+  // Al salir del módulo de videos (cambiar a otra sección), se limpian las marcas
+  // de sesión, de modo que al volver cuente como un acceso nuevo.
+  useEffect(() => {
+    return () => {
+      Object.keys(sessionStorage).forEach(k => {
+        if (k.startsWith('vista_')) sessionStorage.removeItem(k);
+      });
+    };
+  }, []);
+
   const cargarContadores = async (videoIds, alumnoId) => {
     if (!alumnoId || !videoIds.length) return {};
     const { data } = await supabase
