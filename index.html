@@ -3406,6 +3406,7 @@ function AlumnoVideos({ alumno, user }) {
   const [current, setCurrent] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
   const [accesoError, setAccesoError] = useState(null);
+  const [confirmVista, setConfirmVista] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
 
   // Al salir del módulo de videos (cambiar a otra sección), se limpian las marcas
@@ -3449,17 +3450,8 @@ function AlumnoVideos({ alumno, user }) {
       if (vData?.length) {
         // Cargar contadores de todos los videos del alumno de una sola query
         const videoIds = vData.map(v => v.id);
-        const contadores = await cargarContadores(videoIds, alumno?.id);
-
-        // Cargar el primer video que el alumno pueda ver
-        const primerDisponible = vData.find(v => v.max_vistas == null || (contadores[v.id] || 0) < v.max_vistas);
-        if (primerDisponible) {
-          setCurrent(primerDisponible);
-          registrarVista(primerDisponible);
-        } else if (vData[0] && vData[0].max_vistas != null) {
-          // Todos bloqueados — mostrar error del primero
-          setAccesoError({ video: vData[0], count: contadores[vData[0].id] || 0 });
-        }
+        await cargarContadores(videoIds, alumno?.id);
+        // No se autoselecciona ningún video: el alumno elige de la lista.
       }
     });
   }, []);
@@ -3523,8 +3515,17 @@ function AlumnoVideos({ alumno, user }) {
           setAccesoError({ video: v, count: vistas });
           return;
         }
+        // Tiene límite y va a gastar una vista: pedir confirmación antes de reproducir.
+        setConfirmVista({ video: v, restantes: v.max_vistas - vistas });
+        return;
       }
     }
+    // Sin límite, o ya registrado en esta sesión: reproducir directo.
+    reproducirVideo(v);
+  };
+
+  const reproducirVideo = (v) => {
+    setConfirmVista(null);
     setCurrent(v);
     registrarVista(v);
   };
@@ -3596,7 +3597,7 @@ function AlumnoVideos({ alumno, user }) {
                 {current.descripcion && <div style={{color:'var(--text2)',fontSize:'0.88rem'}}>{current.descripcion}</div>}
               </div>
             </>
-          ) : <Empty icon="🎬" text="No hay videos disponibles" />}
+          ) : (videos.length ? <Empty icon="🎬" text="Elegí un video de la lista para reproducirlo" /> : <Empty icon="🎬" text="No hay videos disponibles" />)}
         </div>
         <div>
           <div style={{fontWeight:700,marginBottom:10,color:'var(--text2)',fontSize:'0.75rem',textTransform:'uppercase',letterSpacing:'0.08em'}}>Contenido</div>
@@ -3636,6 +3637,22 @@ function AlumnoVideos({ alumno, user }) {
             </div>
             <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso adicional.</div>
             <button className="btn btn-ghost" onClick={() => setAccesoError(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
+          </div>
+        </div>
+      )}
+      {confirmVista && (
+        <div className="modal-overlay" onClick={() => setConfirmVista(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--accent)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'3rem',marginBottom:12}}>👁️</div>
+            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>¿Reproducir este video?</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>Vas a usar 1 visualización de <strong style={{color:'var(--text)'}}>{confirmVista.video.titulo}</strong>.</div>
+            <div style={{background:'rgba(108,99,255,0.1)',border:'1px solid var(--accent)',borderRadius:10,padding:'10px 16px',marginBottom:20,fontSize:'0.85rem',color:'var(--accent)'}}>
+              Después de reproducir te quedarán {confirmVista.restantes - 1} de {confirmVista.video.max_vistas} visualizaciones.
+            </div>
+            <div style={{display:'flex',gap:10}}>
+              <button className="btn btn-ghost" onClick={() => setConfirmVista(null)} style={{flex:1,justifyContent:'center'}}>Cancelar</button>
+              <button className="btn btn-primary" onClick={() => reproducirVideo(confirmVista.video)} style={{flex:1,justifyContent:'center'}}>Sí, reproducir</button>
+            </div>
           </div>
         </div>
       )}
