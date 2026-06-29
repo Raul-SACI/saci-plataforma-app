@@ -187,6 +187,10 @@
 
   /* Video player */
   .video-container { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; border-radius: var(--radius); overflow: hidden; }
+  .video-container:fullscreen { width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; }
+  .video-container:fullscreen iframe { width: 100%; height: 100%; }
+  .video-container:fullscreen .video-watermark-text { font-size: 2rem; }
+  .video-container:fullscreen .video-watermark-sub { font-size: 1.2rem; }
   .video-watermark { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 10; gap: 8px; }
   .video-watermark-text { color: rgba(249,202,36,0.55); font-size: 1.1rem; font-weight: 700; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 2px 8px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.05em; }
   .video-watermark-sub { color: rgba(249,202,36,0.35); font-size: 0.72rem; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 1px 4px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.08em; }
@@ -3518,6 +3522,18 @@ function AlumnoVideos({ alumno, user }) {
   const embedUrl = current ? getEmbedUrl(current) : null;
   const esDrive = !!(embedUrl && embedUrl.includes('drive.google.com'));
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
+  const videoContRef = useRef();
+  const pantallaCompleta = () => {
+    const el = videoContRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if (el.webkitRequestFullscreen) {
+      el.webkitRequestFullscreen();
+    }
+  };
 
   const VideoItem = ({ v }) => {
     const bid = v.bunny_id || v.bunny_video_id;
@@ -3542,11 +3558,14 @@ function AlumnoVideos({ alumno, user }) {
         <div>
           {current ? (
             <>
-              <div className="video-container" style={{marginBottom:16}}>
+              <div className="video-container" ref={videoContRef} style={{marginBottom:16}}>
                 {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 {esDrive && (
                   <div style={{position:'absolute',top:0,right:0,width:64,height:64,background:'transparent',zIndex:11,cursor:'default'}} title="" onContextMenu={e=>e.preventDefault()} />
+                )}
+                {esDrive && (
+                  <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:12,right:12,zIndex:12,background:'rgba(0,0,0,0.65)',color:'#fff',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6}}>⛶ Pantalla completa</button>
                 )}
                 <div className="video-watermark">
                   <div className="video-watermark-text">{watermarkName}</div>
