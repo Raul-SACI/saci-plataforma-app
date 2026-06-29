@@ -3458,6 +3458,8 @@ function AlumnoVideos({ alumno, user }) {
       if (ytM) return `https://www.youtube.com/embed/${ytM[1]}`;
       const vmM = v.url_externa.match(/vimeo\.com\/(\d+)/);
       if (vmM) return `https://player.vimeo.com/video/${vmM[1]}`;
+      const gdM = v.url_externa.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
+      if (gdM) return `https://drive.google.com/file/d/${gdM[1]}/preview`;
       return v.url_externa;
     }
     return null;
