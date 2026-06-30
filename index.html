@@ -317,6 +317,12 @@
   /* Celular en HORIZONTAL (acostado): el video usa casi toda la pantalla para verse completo con sus controles. */
   @media (max-height: 500px) and (orientation: landscape) {
     .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; aspect-ratio: auto !important; height: 92vh !important; }
+    /* Cuando se está mirando un video en horizontal, ocultamos barras para dar toda la pantalla al video */
+    body:has(.videos-page) .topbar,
+    body:has(.videos-page) .bottom-nav { display: none !important; }
+    .videos-page { padding: 0 !important; }
+    .videos-page .page-header { display: none !important; }
+    .videos-page .video-stage { height: 96vh !important; margin: 0 !important; }
   }
 
   /* Mobile hamburger button */
@@ -3700,7 +3706,7 @@ function AlumnoVideos({ alumno, user }) {
 
   if (loading) return <Loading />;
   return (
-    <div className="page-content fade-in">
+    <div className="page-content fade-in videos-page">
       <div className="page-header">
         <div><div className="page-title">🎬 Mis Videos</div><div className="page-subtitle">{videos.length} videos disponibles</div></div>
       </div>
