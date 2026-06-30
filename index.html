@@ -3665,6 +3665,7 @@ function AlumnoVideos({ alumno, user }) {
   const esDrive = !!(embedUrl && embedUrl.includes('drive.google.com'));
   // iOS (iPhone/iPad) no soporta el fullscreen del contenedor; usa el reproductor nativo.
   const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const esMobil = (typeof window !== 'undefined') && (window.innerWidth <= 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
   const videoContRef = useRef();
   const pantallaCompleta = () => {
@@ -3708,7 +3709,7 @@ function AlumnoVideos({ alumno, user }) {
                 {esDrive && (
                   <div style={{position:'absolute',top:0,right:0,width:72,height:72,background:'#000',zIndex:13,cursor:'default'}} title="" onClick={e=>e.preventDefault()} onContextMenu={e=>e.preventDefault()} />
                 )}
-                {esDrive && !esIOS && (
+                {esDrive && !esMobil && (
                   <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:6,right:6,zIndex:12,background:'#000',color:'#fff',border:'none',borderRadius:8,padding:'10px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>⛶ Pantalla completa</button>
                 )}
                 {/* Cartelito chico permanente con el nombre del alumno (identificación) */}
