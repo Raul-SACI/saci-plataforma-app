@@ -310,6 +310,8 @@
 
     /* Video grid */
     .video-grid { grid-template-columns: 1fr !important; }
+    /* Video más grande en celular: se sale del padding lateral del page-content */
+    .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; }
   }
 
   /* Mobile hamburger button */
@@ -3700,8 +3702,8 @@ function AlumnoVideos({ alumno, user }) {
         <div>
           {current ? (
             <>
-              <div className="video-container" ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
-                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive || esIOS} />
+              <div className="video-container video-stage" ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
+                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive} />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 {esDrive && !esIOS && (
                   <div style={{position:'absolute',top:0,right:0,width:64,height:64,background:'transparent',zIndex:11,cursor:'default'}} title="" onContextMenu={e=>e.preventDefault()} />
