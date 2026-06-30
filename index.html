@@ -602,7 +602,7 @@ const NAV_ALUMNO = [
   { id: 'mis-pagos', icon: '💳', label: 'Mis Pagos' },
 ];
 
-function Sidebar({ page, setPage, isAdmin, user, alumno, onLogout, className }) {
+function Sidebar({ page, setPage, isAdmin, user, alumno, onLogout, className, onPreview, enPreview }) {
   const nav = isAdmin ? NAV_ADMIN : NAV_ALUMNO;
   const name = isAdmin ? 'Administrador' : (alumno?.nombre || user?.email);
   const initials = (name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -632,6 +632,11 @@ function Sidebar({ page, setPage, isAdmin, user, alumno, onLogout, className }) 
             </span>
           </div>
         </div>
+        {isAdmin && onPreview && (
+          <button className="btn btn-ghost btn-sm" style={{width:'100%',justifyContent:'center',marginBottom:8,color:'#ff8c00'}} onClick={onPreview}>
+            👁 Ver como alumno
+          </button>
+        )}
         <button className="btn btn-ghost btn-sm" style={{width:'100%',justifyContent:'center'}} onClick={onLogout}>
           🚪 Cerrar sesión
         </button>
@@ -4476,15 +4481,44 @@ function App() {
   const [page, setPage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [preview, setPreview] = useState(null);        // alumno que el admin está "viendo como"
+  const [previewModal, setPreviewModal] = useState(false);
+  const [previewLista, setPreviewLista] = useState([]);
+  const [previewBusca, setPreviewBusca] = useState('');
   const toast = useToast();
 
-  // Deshabilitar clic derecho para alumnos
+  // Deshabilitar clic derecho para alumnos (también en modo vista-alumno)
   useEffect(() => {
-    if (!auth || auth.isAdmin) return;
+    if (!auth) return;
+    const esAlumno = !auth.isAdmin || preview;
+    if (!esAlumno) return;
     const block = e => e.preventDefault();
     document.addEventListener('contextmenu', block);
     return () => document.removeEventListener('contextmenu', block);
-  }, [auth]);
+  }, [auth, preview]);
+
+  // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos
+  const abrirPreview = async () => {
+    setPreviewModal(true);
+    setPreviewBusca('');
+    const { data } = await supabase.from('alumnos').select('id, nombre, email').eq('estado','activo').order('nombre');
+    setPreviewLista(data || []);
+  };
+  // Entrar en modo vista-alumno con el alumno elegido
+  const entrarPreview = (al) => {
+    setPreview(al);
+    setPreviewModal(false);
+    setPage('muro');
+    setSidebarOpen(false);
+    toast(`👁 Viendo como ${al.nombre}`, 'info');
+  };
+  // Salir del modo vista-alumno y volver a admin
+  const salirPreview = () => {
+    setPreview(null);
+    setPage('dashboard');
+    setSidebarOpen(false);
+    toast('Volviste a la vista de Administrador', 'info');
+  };
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data }) => {
@@ -4510,7 +4544,7 @@ function App() {
     setPage(a.isAdmin ? 'dashboard' : 'muro');
     if (!a.isAdmin && a.alumno?.id) subscribirPush(a.alumno.id);
   };
-  const handleLogout = async () => { await supabase.auth.signOut(); setAuth(null); setPage(null); toast('Sesión cerrada 👋', 'info'); };
+  const handleLogout = async () => { await supabase.auth.signOut(); setAuth(null); setPreview(null); setPage(null); toast('Sesión cerrada 👋', 'info'); };
 
   if (loading) return (
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)'}}>
@@ -4523,7 +4557,12 @@ function App() {
 
   if (!auth) return <LoginPage onLogin={handleLogin} />;
 
-  const { isAdmin, alumno, user } = auth;
+  // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
+  const enPreview = !!(auth.isAdmin && preview);
+  const authEfectivo = enPreview
+    ? { user: auth.user, isAdmin: false, alumno: preview }
+    : auth;
+  const { isAdmin, alumno, user } = authEfectivo;
 
   const PAGE_MAP = {
     dashboard: <AdminDashboard setPage={setPage} />,
@@ -4560,28 +4599,36 @@ function App() {
   };
   const [title, subtitle] = titles[page] || ['SACi', ''];
 
-  const bottomNav = auth && !auth.isAdmin ? [
+  const bottomNav = !isAdmin ? [
     { id: 'muro', icon: '📢', label: 'Novedades' },
     { id: 'mis-videos', icon: '🎬', label: 'Videos' },
     { id: 'mis-materiales', icon: '📄', label: 'Material' },
     { id: 'mis-evaluaciones', icon: '📝', label: 'Eval.' },
     { id: 'mis-gantt', icon: '📅', label: 'Plan.' },
     { id: 'mis-pagos', icon: '💳', label: 'Pagos' },
-    { id: 'logout', icon: '🚪', label: 'Salir' },
-  ] : auth && auth.isAdmin ? [
+    enPreview
+      ? { id: 'salir-preview', icon: '↩️', label: 'Volver' }
+      : { id: 'logout', icon: '🚪', label: 'Salir' },
+  ] : [
     { id: 'dashboard', icon: '📊', label: 'Dashboard' },
     { id: 'novedades-admin', icon: '📢', label: 'Novedades' },
     { id: 'alumnos', icon: '👥', label: 'Alumnos' },
     { id: 'videos', icon: '🎬', label: 'Videos' },
     { id: 'gantt', icon: '📅', label: 'Plan.' },
     { id: 'logout', icon: '🚪', label: 'Salir' },
-  ] : [];
+  ];
 
   return (
     <div className="app-shell">
       <div className={`mobile-overlay ${sidebarOpen ? 'active' : ''}`} onClick={() => setSidebarOpen(false)} />
-      <Sidebar page={page} setPage={p => { setPage(p); setSidebarOpen(false); }} isAdmin={isAdmin} user={user} alumno={alumno} onLogout={handleLogout} className={sidebarOpen ? 'open' : ''} />
+      <Sidebar page={page} setPage={p => { setPage(p); setSidebarOpen(false); }} isAdmin={isAdmin} user={user} alumno={alumno} onLogout={handleLogout} className={sidebarOpen ? 'open' : ''} onPreview={enPreview ? salirPreview : abrirPreview} enPreview={enPreview} />
       <div className="main-content">
+        {enPreview && (
+          <div style={{background:'linear-gradient(135deg,#ffb020,#ff8c00)',color:'#1a1a1a',padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,fontWeight:600,flexWrap:'wrap'}}>
+            <span>👁 Estás viendo la app como <strong>{preview.nombre}</strong> (vista de alumno)</span>
+            <button className="btn btn-sm" style={{background:'#1a1a1a',color:'#fff',whiteSpace:'nowrap'}} onClick={salirPreview}>↩️ Volver a Administrador</button>
+          </div>
+        )}
         <Topbar title={title} subtitle={subtitle} onMenuToggle={() => setSidebarOpen(p => !p)} />
         {PAGE_MAP[page] || <Empty icon="🔍" text="Página no encontrada" />}
       </div>
@@ -4590,14 +4637,53 @@ function App() {
           <div className="bottom-nav-items">
             {bottomNav.map(item => (
               <button key={item.id} className={`bottom-nav-item ${page === item.id ? 'active' : ''} ${item.id==='logout'?'logout-btn':''}`}
-                onClick={() => item.id === 'logout' ? handleLogout() : setPage(item.id)}
-                style={item.id==='logout'?{color:'var(--danger)'}:{}}>
+                onClick={() => {
+                  if (item.id === 'logout') handleLogout();
+                  else if (item.id === 'salir-preview') salirPreview();
+                  else setPage(item.id);
+                }}
+                style={item.id==='logout'?{color:'var(--danger)'}:(item.id==='salir-preview'?{color:'#ff8c00'}:{})}>
                 <span className="bnav-icon">{item.icon}</span>
                 <span>{item.label}</span>
               </button>
             ))}
           </div>
         </nav>
+      )}
+
+      {previewModal && (
+        <div className="modal-overlay" onClick={() => setPreviewModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{maxWidth:480}}>
+            <div className="modal-header">
+              <h3>👁 Ver la app como un alumno</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setPreviewModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{color:'var(--text2)',marginBottom:12,fontSize:'0.9rem'}}>
+                Elegí un alumno para ver la plataforma tal como la ve él (sus videos, materiales, pagos, etc.). No modificás nada: es solo para mirar.
+              </p>
+              <input className="input" placeholder="🔍 Buscar alumno..." value={previewBusca}
+                onChange={e => setPreviewBusca(e.target.value)} style={{marginBottom:12}} />
+              <div style={{maxHeight:320,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+                {previewLista
+                  .filter(a => a.nombre?.toLowerCase().includes(previewBusca.toLowerCase()))
+                  .map(a => (
+                    <button key={a.id} className="btn btn-ghost" style={{justifyContent:'flex-start',gap:10,textAlign:'left'}}
+                      onClick={() => entrarPreview(a)}>
+                      <span style={{fontSize:'1.2rem'}}>👤</span>
+                      <span>
+                        <div style={{fontWeight:600}}>{a.nombre}</div>
+                        {a.email && <div style={{fontSize:'0.75rem',color:'var(--text2)'}}>{a.email}</div>}
+                      </span>
+                    </button>
+                  ))}
+                {previewLista.filter(a => a.nombre?.toLowerCase().includes(previewBusca.toLowerCase())).length === 0 && (
+                  <div style={{textAlign:'center',color:'var(--text2)',padding:20}}>No se encontraron alumnos</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
