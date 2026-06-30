@@ -320,6 +320,9 @@
     /* Ocultamos barras de la app para dar toda la pantalla al video */
     body:has(.videos-page) .topbar,
     body:has(.videos-page) .bottom-nav { display: none !important; }
+    /* Ocultamos el menú lateral (sidebar) y usamos todo el ancho — corrige iPhone, que en horizontal lo mostraba fijo */
+    body:has(.videos-page) .sidebar { transform: translateX(-100%) !important; }
+    body:has(.videos-page) .main-content { margin-left: 0 !important; padding-bottom: 0 !important; }
     .videos-page { padding: 0 !important; }
     .videos-page .page-header { display: none !important; }
     /* Ocultamos la tarjeta de info del video y la sección "Contenido" para ganar todo el espacio */
