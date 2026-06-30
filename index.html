@@ -310,8 +310,13 @@
 
     /* Video grid */
     .video-grid { grid-template-columns: 1fr !important; }
-    /* Video a todo el ancho. En celular vertical le damos más alto para que Drive muestre bien el play/controles sin tener que girar el teléfono. */
+    /* Video a todo el ancho. En celular VERTICAL le damos altura cómoda para ver el play/controles sin girar. */
     .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; aspect-ratio: auto !important; height: 56vh !important; }
+  }
+
+  /* Celular en HORIZONTAL (acostado): el video usa casi toda la pantalla para verse completo con sus controles. */
+  @media (max-height: 500px) and (orientation: landscape) {
+    .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; aspect-ratio: auto !important; height: 92vh !important; }
   }
 
   /* Mobile hamburger button */
