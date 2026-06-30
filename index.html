@@ -1650,6 +1650,8 @@ function AdminDashboard({ setPage }) {
 }
 function AdminAlumnos() {
   const [alumnos, setAlumnos] = useState([]);
+  const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
+  const [orden, setOrden] = useState('az');         // 'az' o 'za'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
@@ -1663,8 +1665,17 @@ function AdminAlumnos() {
   const fileRef = useRef();
 
   const load = async () => {
-    const { data } = await supabase.from('alumnos').select('*').order('created_at', { ascending: false });
-    setAlumnos(data || []);
+    const [al, pg] = await Promise.all([
+      supabase.from('alumnos').select('*').order('created_at', { ascending: false }),
+      supabase.from('pagos').select('alumno_id, monto'),
+    ]);
+    setAlumnos(al.data || []);
+    const mapa = {};
+    (pg.data || []).forEach(p => {
+      if (!p.alumno_id) return;
+      mapa[p.alumno_id] = (mapa[p.alumno_id] || 0) + (parseFloat(p.monto) || 0);
+    });
+    setPagosMap(mapa);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -1835,7 +1846,34 @@ function AdminAlumnos() {
   };
 
   const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '' }); setEditing(a.id); setModal(true); };
-  const filtered = alumnos.filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()));
+
+  const fmtPesos = n => '$' + (n || 0).toLocaleString('es-AR');
+
+  const filtered = alumnos
+    .filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      const cmp = (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
+      return orden === 'az' ? cmp : -cmp;
+    });
+
+  const exportarExcel = () => {
+    if (!filtered.length) return toast('No hay alumnos para exportar', 'error');
+    const datos = filtered.map(a => ({
+      Nombre: a.nombre || '',
+      Email: a.email || '',
+      DNI: a.telefono || '',
+      Estado: a.estado || '',
+      'Total pagado': pagosMap[a.id] || 0,
+    }));
+    const ws = XLSX.utils.json_to_sheet(datos);
+    ws['!cols'] = [{ wch: 28 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Alumnos');
+    const hoy = new Date();
+    const fecha = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+    XLSX.writeFile(wb, `alumnos_${fecha}.xlsx`);
+    toast('Listado exportado 📤', 'success');
+  };
 
   if (loading) return <Loading />;
   return (
@@ -1849,6 +1887,7 @@ function AdminAlumnos() {
           <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={importExcel} />
           <button className="btn btn-ghost" onClick={downloadTemplate}>📋 Plantilla</button>
           <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📥 Importar Excel</button>
+          <button className="btn btn-ghost" onClick={exportarExcel}>📤 Exportar Excel</button>
           <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
       </div>
@@ -1859,7 +1898,12 @@ function AdminAlumnos() {
       <div className="table-wrap">
         {filtered.length === 0 ? <Empty icon="👥" text="No hay alumnos" /> : (
           <table>
-            <thead><tr><th>Nombre</th><th>Email</th><th>DNI</th><th>Estado</th><th>Acciones</th></tr></thead>
+            <thead><tr>
+              <th style={{cursor:'pointer',userSelect:'none'}} onClick={() => setOrden(o => o === 'az' ? 'za' : 'az')} title="Ordenar por nombre">
+                Nombre {orden === 'az' ? '▲' : '▼'}
+              </th>
+              <th>Email</th><th>DNI</th><th>Estado</th><th>Total pagado</th><th>Acciones</th>
+            </tr></thead>
             <tbody>
               {filtered.map(a => (
                 <tr key={a.id}>
@@ -1867,6 +1911,11 @@ function AdminAlumnos() {
                   <td style={{color:'var(--text2)'}}>{a.email}</td>
                   <td style={{color:'var(--text2)'}}>{a.telefono || '—'}</td>
                   <td><span className={`chip ${a.estado === 'activo' ? 'chip-green' : 'chip-red'}`}>{a.estado}</span></td>
+                  <td>
+                    {pagosMap[a.id]
+                      ? <strong style={{color:'var(--success)'}}>{fmtPesos(pagosMap[a.id])}</strong>
+                      : <span style={{color:'var(--text2)'}}>$0</span>}
+                  </td>
                   <td>
                     <div style={{display:'flex',gap:6}}>
                       <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>✏️ Editar</button>
