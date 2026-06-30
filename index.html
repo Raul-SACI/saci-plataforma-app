@@ -3706,7 +3706,7 @@ function AlumnoVideos({ alumno, user }) {
                 {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive} />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 {esDrive && (
-                  <div style={{position:'absolute',top:0,right:0,width:72,height:72,background:'transparent',zIndex:13,cursor:'default'}} title="" onClick={e=>e.preventDefault()} onContextMenu={e=>e.preventDefault()} />
+                  <div style={{position:'absolute',top:0,right:0,width:72,height:72,background:'#000',zIndex:13,cursor:'default'}} title="" onClick={e=>e.preventDefault()} onContextMenu={e=>e.preventDefault()} />
                 )}
                 {esDrive && !esIOS && (
                   <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:6,right:6,zIndex:12,background:'#000',color:'#fff',border:'none',borderRadius:8,padding:'10px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>⛶ Pantalla completa</button>
