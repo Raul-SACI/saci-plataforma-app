@@ -314,15 +314,19 @@
     .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; aspect-ratio: auto !important; height: 56vh !important; }
   }
 
-  /* Celular en HORIZONTAL (acostado): el video usa casi toda la pantalla para verse completo con sus controles. */
+  /* Celular en HORIZONTAL (acostado): el video usa toda la pantalla, ocultando todo lo demás (simil pantalla completa). */
   @media (max-height: 500px) and (orientation: landscape) {
     .video-stage { max-width: none !important; margin-left: -12px !important; margin-right: -12px !important; border-radius: 0 !important; aspect-ratio: auto !important; height: 92vh !important; }
-    /* Cuando se está mirando un video en horizontal, ocultamos barras para dar toda la pantalla al video */
+    /* Ocultamos barras de la app para dar toda la pantalla al video */
     body:has(.videos-page) .topbar,
     body:has(.videos-page) .bottom-nav { display: none !important; }
     .videos-page { padding: 0 !important; }
     .videos-page .page-header { display: none !important; }
-    .videos-page .video-stage { height: 96vh !important; margin: 0 !important; }
+    /* Ocultamos la tarjeta de info del video y la sección "Contenido" para ganar todo el espacio */
+    .videos-page .video-grid > div:last-child { display: none !important; }
+    .videos-page .card { display: none !important; }
+    .videos-page .video-grid { gap: 0 !important; }
+    .videos-page .video-stage { height: 100vh !important; margin: 0 !important; }
   }
 
   /* Mobile hamburger button */
