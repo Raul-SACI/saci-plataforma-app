@@ -3661,6 +3661,8 @@ function AlumnoVideos({ alumno, user }) {
 
   const embedUrl = current ? getEmbedUrl(current) : null;
   const esDrive = !!(embedUrl && embedUrl.includes('drive.google.com'));
+  // iOS (iPhone/iPad) no soporta el fullscreen del contenedor; usa el reproductor nativo.
+  const esIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
   const videoContRef = useRef();
   const pantallaCompleta = () => {
@@ -3699,14 +3701,18 @@ function AlumnoVideos({ alumno, user }) {
           {current ? (
             <>
               <div className="video-container" ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
-                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive} />
+                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive || esIOS} />
                   : <Empty icon="🎬" text="Video no disponible" />}
-                {esDrive && (
+                {esDrive && !esIOS && (
                   <div style={{position:'absolute',top:0,right:0,width:64,height:64,background:'transparent',zIndex:11,cursor:'default'}} title="" onContextMenu={e=>e.preventDefault()} />
                 )}
-                {esDrive && (
+                {esDrive && !esIOS && (
                   <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:6,right:6,zIndex:12,background:'#000',color:'#fff',border:'none',borderRadius:8,padding:'10px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>⛶ Pantalla completa</button>
                 )}
+                {/* Cartelito chico permanente con el nombre del alumno (identificación) */}
+                <div style={{position:'absolute',top:6,left:6,zIndex:10,background:'rgba(0,0,0,0.45)',color:'rgba(249,202,36,0.9)',padding:'3px 8px',borderRadius:6,fontSize:'0.7rem',fontWeight:600,fontFamily:"'Space Mono', monospace",pointerEvents:'none',letterSpacing:'0.03em',textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
+                  {watermarkName}
+                </div>
                 <div className="video-watermark">
                   <div className="video-watermark-text">{watermarkName}</div>
                   <div className="video-watermark-sub">{alumno?.email || user?.email || ''}</div>
