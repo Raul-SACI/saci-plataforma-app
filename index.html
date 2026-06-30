@@ -1385,6 +1385,7 @@ function AdminDashboard({ setPage }) {
   const [planRows, setPlanRows] = useState([]);
   const [planLoading, setPlanLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [verIngresos, setVerIngresos] = useState(false);   // ojito: importe oculto por defecto
 
   useEffect(() => {
     (async () => {
@@ -1484,14 +1485,24 @@ function AdminDashboard({ setPage }) {
       <div className="stats-grid">
         {[
           { label: 'Alumnos activos', value: stats.alumnos, icon: '👥', color: 'blue' },
-          { label: 'Ingresos cobrados', value: `$${Math.round(stats.pagos).toLocaleString('es-AR')}`, icon: '💰', color: 'green', valueStyle:{fontSize:'1.3rem'} },
+          { label: 'Ingresos cobrados', value: `$${Math.round(stats.pagos).toLocaleString('es-AR')}`, icon: '💰', color: 'green', valueStyle:{fontSize:'1.3rem'}, ocultable:true },
           { label: 'Videos publicados', value: stats.videos, icon: '🎬', color: 'pink' },
           { label: 'Materiales', value: stats.materiales, icon: '📄', color: 'gold' },
           { label: 'Total visualizaciones', value: stats.vistas, icon: '👁️', color: 'blue' },
         ].map((s, i) => (
           <div key={i} className={`stat-card ${s.color} fade-in`} style={{animationDelay:`${i*0.1}s`}}>
             <span className="stat-icon">{s.icon}</span>
-            <div className="stat-value" style={s.valueStyle||{}}>{s.value}</div>
+            {s.ocultable ? (
+              <div className="stat-value" style={{...(s.valueStyle||{}),display:'flex',alignItems:'center',gap:8}}>
+                <span>{verIngresos ? s.value : '••••••'}</span>
+                <button onClick={() => setVerIngresos(v => !v)} title={verIngresos ? 'Ocultar importe' : 'Mostrar importe'}
+                  style={{background:'none',border:'none',cursor:'pointer',fontSize:'1rem',padding:0,lineHeight:1,color:'var(--text2)'}}>
+                  {verIngresos ? '🙈' : '👁️'}
+                </button>
+              </div>
+            ) : (
+              <div className="stat-value" style={s.valueStyle||{}}>{s.value}</div>
+            )}
             <div className="stat-label">{s.label}</div>
           </div>
         ))}
