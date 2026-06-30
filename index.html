@@ -2016,6 +2016,10 @@ function AdminPagos() {
   const proximosVenc = pagos.filter(p => p.proximo_pago && p.proximo_pago >= today);
   const filtered = filterAlumno ? pagos.filter(p => p.alumno_id === filterAlumno) : pagos;
 
+  // Alumnos que no tienen ningún pago registrado
+  const idsConPago = new Set(pagos.map(p => p.alumno_id));
+  const alumnosSinPago = alumnos.filter(a => !idsConPago.has(a.id));
+
   const planColor = plan => {
     if (plan === 'Parcial') return 'chip-yellow';
     if (plan === 'Final') return 'chip-green';
@@ -2055,7 +2059,20 @@ function AdminPagos() {
         )}
       </div>
 
-      {/* Filtro por alumno */}
+      {/* Alumnos sin ningún pago registrado */}
+      {alumnosSinPago.length > 0 && (
+        <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--warning)',background:'rgba(255,165,2,0.06)'}}>
+          <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--warning)',marginBottom:10}}>⚠️ Alumnos sin pagos registrados ({alumnosSinPago.length})</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {alumnosSinPago.map(a => (
+              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id }); setEditing(null); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar un pago para este alumno" style={{display:'flex',alignItems:'center',gap:6}}>
+                {a.nombre} <span style={{color:'var(--warning)',fontWeight:700}}>+</span>
+              </button>
+            ))}
+          </div>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Tocá un alumno para registrarle un pago directamente.</div>
+        </div>
+      )}
       <div style={{display:'flex',gap:12,marginBottom:16,alignItems:'center'}}>
         <select value={filterAlumno} onChange={e => setFilterAlumno(e.target.value)} style={{flex:1,maxWidth:300}}>
           <option value="">Todos los alumnos</option>
