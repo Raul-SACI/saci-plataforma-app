@@ -191,6 +191,10 @@
   .video-container:fullscreen iframe { width: 100%; height: 100%; }
   .video-container:fullscreen .video-watermark-text { font-size: 2rem; }
   .video-container:fullscreen .video-watermark-sub { font-size: 1.2rem; }
+  /* Modo "agrandar" propio (sin fullscreen del sistema): el video cubre toda la pantalla dentro de la app y mantiene la marca de agua */
+  .video-container.video-agrandado { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none !important; margin: 0 !important; aspect-ratio: auto !important; border-radius: 0 !important; z-index: 3000 !important; background: #000 !important; }
+  .video-container.video-agrandado .video-watermark-text { font-size: 1.8rem; }
+  .video-container.video-agrandado .video-watermark-sub { font-size: 1rem; }
   .video-watermark { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 10; gap: 8px; }
   .video-watermark-text { color: rgba(249,202,36,0.55); font-size: 1.1rem; font-weight: 700; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 2px 8px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.05em; }
   .video-watermark-sub { color: rgba(249,202,36,0.35); font-size: 0.72rem; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 1px 4px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.08em; }
@@ -3553,6 +3557,7 @@ function AlumnoVideos({ alumno, user }) {
   const [accesoError, setAccesoError] = useState(null);
   const [confirmVista, setConfirmVista] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
+  const [agrandado, setAgrandado] = useState(false);   // modo video grande dentro de la app (mantiene marca de agua)
 
   // Al salir del módulo de videos (cambiar a otra sección), se limpian las marcas
   // de sesión, de modo que al volver cuente como un acceso nuevo.
@@ -3721,14 +3726,20 @@ function AlumnoVideos({ alumno, user }) {
         <div>
           {current ? (
             <>
-              <div className="video-container video-stage" ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
-                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture" allowFullScreen={!esDrive} />
+              <div className={`video-container video-stage${agrandado ? ' video-agrandado' : ''}`} ref={videoContRef} style={{marginBottom:16,maxWidth:1000,marginLeft:'auto',marginRight:'auto'}}>
+                {embedUrl ? <iframe src={embedUrl} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen={!esDrive} />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 {esDrive && (
                   <div style={{position:'absolute',top:0,right:0,width:72,height:72,background:'#000',zIndex:13,cursor:'default'}} title="" onClick={e=>e.preventDefault()} onContextMenu={e=>e.preventDefault()} />
                 )}
                 {esDrive && !esMobil && (
                   <button onClick={pantallaCompleta} title="Pantalla completa" style={{position:'absolute',bottom:6,right:6,zIndex:12,background:'#000',color:'#fff',border:'none',borderRadius:8,padding:'10px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>⛶ Pantalla completa</button>
+                )}
+                {/* Botón propio de agrandar/salir (mantiene la marca de agua, sin fullscreen del sistema) */}
+                {!esDrive && (
+                  <button onClick={() => setAgrandado(a => !a)} title={agrandado ? 'Salir' : 'Agrandar'} style={{position:'absolute',top:8,right:8,zIndex:14,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:'0.8rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>
+                    {agrandado ? '✕ Salir' : '⛶ Agrandar'}
+                  </button>
                 )}
                 {/* Cartelito chico permanente con el nombre del alumno (identificación) */}
                 <div style={{position:'absolute',top:6,left:6,zIndex:10,background:'rgba(0,0,0,0.45)',color:'rgba(249,202,36,0.9)',padding:'3px 8px',borderRadius:6,fontSize:'0.7rem',fontWeight:600,fontFamily:"'Space Mono', monospace",pointerEvents:'none',letterSpacing:'0.03em',textShadow:'0 1px 3px rgba(0,0,0,0.9)'}}>
