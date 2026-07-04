@@ -3682,6 +3682,12 @@ function AlumnoVideos({ alumno, user }) {
     setConfirmVista(null);
     setCurrent(v);
     registrarVista(v);
+    // Subir automáticamente hasta el reproductor para que el alumno vea que el video se abrió.
+    setTimeout(() => {
+      if (videoContRef.current) {
+        videoContRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const embedUrl = current ? getEmbedUrl(current) : null;
