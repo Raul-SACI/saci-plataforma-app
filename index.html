@@ -3947,13 +3947,13 @@ function AlumnoMateriales({ alumno, user }) {
           </div>
         </div>
         <div style={{display:'flex',gap:8,marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
-          {['pdf','imagen','video','link'].includes(m.tipo) && (
+          {['pdf','imagen','video','link','excel','word'].includes(m.tipo) && (
             <button className="btn btn-primary btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => abrirPreview(m)}>👁️ Visualizar</button>
           )}
           {puedeDescargar && (
             <button className="btn btn-success btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => download(m)}>⬇️ Descargar</button>
           )}
-          {!['pdf','imagen','video','link'].includes(m.tipo) && !puedeDescargar && (
+          {!['pdf','imagen','video','link','excel','word'].includes(m.tipo) && !puedeDescargar && (
             <button className="btn btn-ghost btn-sm" style={{flex:1,justifyContent:'center'}} onClick={() => window.open(m.url,'_blank')}>↗️ Abrir</button>
           )}
         </div>
@@ -4041,6 +4041,14 @@ function AlumnoMateriales({ alumno, user }) {
                 <div style={{textAlign:'center',padding:40}}>
                   <a href={preview.url} target="_blank" rel="noreferrer" className="btn btn-primary">↗️ Abrir enlace</a>
                 </div>
+              ) : (preview.tipo === 'excel' || preview.tipo === 'word') ? (
+                <>
+                  <iframe
+                    src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url)}`}
+                    style={{width:'100%',height:'100%',border:'none'}}
+                  />
+                  <WatermarkOverlay name={watermarkName} email={watermarkEmail} />
+                </>
               ) : null}
             </div>
           </div>
