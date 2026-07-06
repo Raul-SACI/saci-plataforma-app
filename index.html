@@ -3734,8 +3734,8 @@ function AlumnoVideos({ alumno, user }) {
                 )}
                 {/* Botón propio de agrandar/salir (mantiene la marca de agua, sin fullscreen del sistema) */}
                 {!esDrive && (
-                  <button onClick={() => setAgrandado(a => !a)} title={agrandado ? 'Salir' : 'Agrandar'} style={{position:'absolute',top:8,right:8,zIndex:14,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:8,padding:'8px 12px',cursor:'pointer',fontSize:'0.8rem',display:'flex',alignItems:'center',gap:6,fontWeight:600}}>
-                    {agrandado ? '✕ Salir' : '⛶ Agrandar'}
+                  <button onClick={() => setAgrandado(a => !a)} title={agrandado ? 'Salir' : 'Agrandar'} style={{position:'absolute',top:10,right:10,zIndex:14,background:'rgba(0,0,0,0.75)',color:'#fff',border:'1px solid rgba(255,255,255,0.4)',borderRadius:8,padding:'9px 14px',cursor:'pointer',fontSize:'0.85rem',display:'flex',alignItems:'center',gap:6,fontWeight:700}}>
+                    {agrandado ? '✕ Salir' : '⤢ Agrandar'}
                   </button>
                 )}
                 {/* Cartelito chico permanente con el nombre del alumno (identificación) */}
