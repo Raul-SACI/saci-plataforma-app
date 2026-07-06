@@ -2325,10 +2325,7 @@ function AdminVideos() {
       supabase.from('alumnos').select('id, nombre, email').order('nombre'),
     ]);
     setTemas(tData || []); setVideos(vData || []); setListaAlumnos(aData || []); setLoading(false);
-    const exp = {};
-    (tData || []).forEach(t => exp[t.id] = true);
-    exp['sin-tema'] = true;
-    setExpandedTemas(p => Object.keys(p).length === 0 ? exp : p);
+    // Temas cerrados por defecto (el usuario los abre tocando cada uno).
   };
 
   const loadBunny = async () => {
@@ -2845,10 +2842,7 @@ function AdminMateriales() {
     setTemas(tData || []);
     setMats(mData || []);
     setLoading(false);
-    const exp = {};
-    (tData || []).forEach(t => exp[t.id] = true);
-    exp['sin-tema'] = true;
-    setExpandedTemas(p => Object.keys(p).length === 0 ? exp : p);
+    // Temas cerrados por defecto (el usuario los abre tocando cada uno).
   };
   useEffect(() => { load(); }, []);
 
@@ -3596,10 +3590,7 @@ function AlumnoVideos({ alumno, user }) {
         .filter(v => !v.publicar_en || v.publicar_en <= now)
         .filter(v => v.para_todos !== false || idsAsignados.has(v.id));
       setTemas(tData || []); setVideos(vFiltered); setLoading(false);
-      const exp = {};
-      (tData || []).forEach(t => exp[t.id] = true);
-      exp['sin-tema'] = true;
-      setExpandedTemas(exp);
+      // Temas cerrados por defecto (el alumno abre el que quiera).
 
       if (vFiltered.length) {
         // Cargar contadores de todos los videos del alumno de una sola query
@@ -3873,10 +3864,7 @@ function AlumnoMateriales({ alumno, user }) {
       const now = new Date().toISOString();
       const mFiltered = (mData || []).filter(m => !m.publicar_en || m.publicar_en <= now);
       setTemas(tData || []); setMats(mFiltered); setLoading(false);
-      const exp = {};
-      (tData || []).forEach(t => exp[t.id] = true);
-      exp['sin-tema'] = true;
-      setExpanded(exp);
+      // Temas cerrados por defecto (el alumno abre el que quiera).
       if (mData?.length && alumno?.id) {
         const matIds = (mData || []).filter(m => m.max_vistas != null).map(m => m.id);
         if (matIds.length) {
