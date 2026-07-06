@@ -4047,6 +4047,8 @@ function AlumnoMateriales({ alumno, user }) {
                     src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(preview.url)}`}
                     style={{width:'100%',height:'100%',border:'none'}}
                   />
+                  {/* Parche que bloquea SOLO la esquina inferior derecha del visor de Office (botones de abrir/descargar en Office), dejando libres las pestañas de hojas de la izquierda */}
+                  <div style={{position:'absolute',bottom:0,right:0,width:160,height:44,background:'transparent',zIndex:11}} onClick={e=>e.preventDefault()} onContextMenu={e=>e.preventDefault()} />
                   <WatermarkOverlay name={watermarkName} email={watermarkEmail} />
                 </>
               ) : null}
