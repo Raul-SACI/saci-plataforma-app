@@ -3670,6 +3670,18 @@ function AlumnoVideos({ alumno, user }) {
 
   // ¿El video ya venció? (fecha y hora de vencimiento pasada)
   const estaVencido = (v) => !!(v.vence_en && new Date(v.vence_en) < new Date());
+  // ¿Vence pronto? (dentro de los próximos 3 días)
+  const venceProximo = (v) => !!(v.vence_en && !estaVencido(v) && new Date(v.vence_en) <= new Date(Date.now() + 3*24*60*60*1000));
+  // Muestra la fecha de vencimiento siempre en horario de Argentina.
+  const fmtVence = (valor, conAnio = false) => {
+    const d = new Date(valor);
+    const tz = 'America/Argentina/Buenos_Aires';
+    const fecha = d.toLocaleDateString('es-AR', conAnio
+      ? {day:'2-digit',month:'long',year:'numeric',timeZone:tz}
+      : {day:'2-digit',month:'2-digit',timeZone:tz});
+    const hora = d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:tz});
+    return `${fecha} ${hora} hs`;
+  };
 
   const seleccionarVideo = async (v) => {
     setAccesoError(null);
@@ -3747,6 +3759,11 @@ function AlumnoVideos({ alumno, user }) {
             {v.titulo}
             {estaVencido(v) && <span className="chip chip-red" style={{marginLeft:6,fontSize:'0.62rem'}}>⌛ Vencido</span>}
           </div>
+          {v.vence_en && !estaVencido(v) && (
+            <div style={{fontSize:'0.68rem',marginTop:2,color:venceProximo(v)?'var(--warning)':'var(--text2)',fontWeight:venceProximo(v)?700:500}}>
+              {venceProximo(v) ? '⚠️ Vence' : '⌛ Disponible hasta'} el {fmtVence(v.vence_en)}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3797,6 +3814,22 @@ function AlumnoVideos({ alumno, user }) {
                     </div>
                   );
                 })()}
+                {current.vence_en && (
+                  <div style={{
+                    fontSize:'0.82rem',
+                    marginBottom:6,
+                    padding:'6px 10px',
+                    borderRadius:8,
+                    display:'inline-block',
+                    background: estaVencido(current) ? 'rgba(255,71,87,0.12)' : (venceProximo(current) ? 'rgba(255,176,32,0.12)' : 'var(--surface2)'),
+                    color: estaVencido(current) ? 'var(--danger)' : (venceProximo(current) ? 'var(--warning)' : 'var(--text2)'),
+                    fontWeight: 600
+                  }}>
+                    {estaVencido(current)
+                      ? `⌛ Venció el ${fmtVence(current.vence_en, true)}`
+                      : `⌛ Disponible hasta el ${fmtVence(current.vence_en, true)}`}
+                  </div>
+                )}
                 {current.descripcion && <div style={{color:'var(--text2)',fontSize:'0.88rem'}}>{current.descripcion}</div>}
               </div>
             </>
