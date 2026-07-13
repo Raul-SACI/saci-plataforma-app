@@ -2302,7 +2302,7 @@ function AdminVideos() {
   const [statsModal, setStatsModal] = useState(null); // video seleccionado para ver stats
   const [statsData, setStatsData] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
-  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', para_todos: true, alumnos_ids: [] });
+  const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', vence_en: '', para_todos: true, alumnos_ids: [] });
   const [listaAlumnos, setListaAlumnos] = useState([]);
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
@@ -2384,7 +2384,7 @@ function AdminVideos() {
     if (tab === 'bunny' && !bunny_id) return toast('Seleccioná un video de Bunny', 'error');
     if (tab === 'url' && !url_externa) return toast('Ingresá una URL', 'error');
 
-    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null, publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null, para_todos: form.para_todos };
+    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null, publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null, vence_en: form.vence_en ? new Date(form.vence_en).toISOString() : null, para_todos: form.para_todos };
 
     let videoId = editing;
     if (editing) {
@@ -2410,7 +2410,7 @@ function AdminVideos() {
     if (!editing) notificarAlumnos('🎬 Nuevo video disponible', form.titulo);
     toast(editing ? 'Video actualizado ✏️' : 'Video agregado 🎬', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
-    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', para_todos: true, alumnos_ids: [] }); load();
+    setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', vence_en: '', para_todos: true, alumnos_ids: [] }); load();
   };
 
   const saveTema = async () => {
@@ -2459,7 +2459,14 @@ function AdminVideos() {
     // Traer los alumnos ya asignados a este video (si los hay)
     const { data: asignados } = await supabase.from('videos_alumnos').select('alumno_id').eq('video_id', v.id);
     const alumnosIds = (asignados || []).map(a => a.alumno_id);
-    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, tema_id: v.tema_id || '', max_vistas: v.max_vistas != null ? String(v.max_vistas) : '', publicar_en: v.publicar_en ? new Date(v.publicar_en).toISOString().slice(0,16) : '', para_todos: v.para_todos !== false, alumnos_ids: alumnosIds });
+    // Convierte a formato del input datetime-local usando la hora LOCAL (no UTC, que correría la hora).
+    const aInputLocal = (valor) => {
+      if (!valor) return '';
+      const d = new Date(valor);
+      const p = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    };
+    setForm({ titulo: v.titulo, descripcion: v.descripcion || '', bunny_id: v.bunny_id || v.bunny_video_id || '', url_externa: v.url_externa || '', orden: v.orden || 0, tema_id: v.tema_id || '', max_vistas: v.max_vistas != null ? String(v.max_vistas) : '', publicar_en: aInputLocal(v.publicar_en), vence_en: aInputLocal(v.vence_en), para_todos: v.para_todos !== false, alumnos_ids: alumnosIds });
     setEditing(v.id); setSelectedFile(null);
     setTab(v.url_externa ? 'url' : 'bunny');
     setModal(true);
@@ -2488,7 +2495,7 @@ function AdminVideos() {
         </div>
         <div style={{display:'flex',gap:10}}>
           <button className="btn btn-ghost" onClick={() => { setTemaForm({nombre:'',descripcion:'',color:'#6c63ff',orden:temas.length}); setEditingTema(null); setTemaModal(true); }}>📂 Nuevo tema</button>
-          <button className="btn btn-primary" onClick={() => { setForm({titulo:'',descripcion:'',bunny_id:'',url_externa:'',orden:videos.length,tema_id:'',max_vistas:'',publicar_en:'',para_todos:true,alumnos_ids:[]}); setEditing(null); setSelectedFile(null); setTab('bunny'); setModal(true); }}>➕ Agregar video</button>
+          <button className="btn btn-primary" onClick={() => { setForm({titulo:'',descripcion:'',bunny_id:'',url_externa:'',orden:videos.length,tema_id:'',max_vistas:'',publicar_en:'',vence_en:'',para_todos:true,alumnos_ids:[]}); setEditing(null); setSelectedFile(null); setTab('bunny'); setModal(true); }}>➕ Agregar video</button>
         </div>
       </div>
 
@@ -2536,7 +2543,7 @@ function AdminVideos() {
                     {tVids.length === 0 ? (
                       <div style={{padding:'16px 20px',color:'var(--text2)',fontSize:'0.84rem',fontStyle:'italic',background:'var(--surface)',display:'flex',alignItems:'center',gap:12}}>
                         Sin videos en este tema.
-                        <button className="btn btn-ghost btn-sm" onClick={() => { setForm({titulo:'',descripcion:'',bunny_id:'',url_externa:'',orden:videos.length,tema_id:t.id,max_vistas:'',publicar_en:'',para_todos:true,alumnos_ids:[]}); setEditing(null); setSelectedFile(null); setTab('bunny'); setModal(true); }}>➕ Agregar</button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => { setForm({titulo:'',descripcion:'',bunny_id:'',url_externa:'',orden:videos.length,tema_id:t.id,max_vistas:'',publicar_en:'',vence_en:'',para_todos:true,alumnos_ids:[]}); setEditing(null); setSelectedFile(null); setTab('bunny'); setModal(true); }}>➕ Agregar</button>
                       </div>
                     ) : (
                       <table style={{width:'100%',borderCollapse:'collapse'}}>
@@ -2765,6 +2772,18 @@ function AdminVideos() {
               <div style={{marginTop:8}}>
                 <input type="datetime-local" value={form.publicar_en} min={new Date().toISOString().slice(0,16)} onChange={e=>setForm(p=>({...p,publicar_en:e.target.value}))} />
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>El contenido será visible para los alumnos a partir de esta fecha y hora</div>
+              </div>
+            )}
+          </div>
+          <div className="form-group">
+            <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
+              <input type="checkbox" checked={!!form.vence_en} onChange={e=>setForm(p=>({...p,vence_en:e.target.checked?new Date(Date.now()+7*24*3600000).toISOString().slice(0,16):''}))} style={{width:'auto'}} />
+              ⌛ Programar vencimiento
+            </label>
+            {form.vence_en && (
+              <div style={{marginTop:8}}>
+                <input type="datetime-local" value={form.vence_en} onChange={e=>setForm(p=>({...p,vence_en:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el alumno verá el video como "Vencido" y no podrá reproducirlo</div>
               </div>
             )}
           </div>
@@ -3402,7 +3421,7 @@ function AdminEvaluaciones() {
       titulo: form.titulo,
       descripcion: form.descripcion || null,
       link_google: form.link_google || null,
-      fecha_limite: form.fecha_limite || null,
+      fecha_limite: form.fecha_limite ? new Date(form.fecha_limite).toISOString() : null,
       tema: form.tema || null,
       visible: form.visible,
       estado: 'disponible',
@@ -3422,8 +3441,16 @@ function AdminEvaluaciones() {
     toast('Evaluación eliminada', 'info'); load();
   };
 
+  // Convierte una fecha guardada a formato para el input datetime-local, usando la hora LOCAL (no UTC).
+  const aInputLocal = (valor) => {
+    if (!valor) return '';
+    const d = new Date(valor);
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
+
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: ev.fecha_limite || '', tema: ev.tema || '', visible: ev.visible !== false, publicar_en: ev.publicar_en ? new Date(ev.publicar_en).toISOString().slice(0,16) : '' });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en) });
     setEditing(ev.id); setModal(true);
   };
 
@@ -3432,8 +3459,8 @@ function AdminEvaluaciones() {
     load();
   };
 
-  const isVencida = ev => ev.fecha_limite && ev.fecha_limite < today;
-  const isProxVencer = ev => ev.fecha_limite && ev.fecha_limite >= today && ev.fecha_limite <= new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+  const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
+  const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
 
   if (loading) return <Loading />;
   return (
@@ -3470,7 +3497,7 @@ function AdminEvaluaciones() {
                       </a>
                       {ev.fecha_limite && (
                         <span style={{fontSize:'0.82rem',color: vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--text2)',display:'flex',alignItems:'center',gap:4}}>
-                          📅 Fecha límite: <strong>{new Date(ev.fecha_limite+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                          📅 Fecha límite: <strong>{new Date(ev.fecha_limite).toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric',timeZone:'America/Argentina/Buenos_Aires'})} a las {new Date(ev.fecha_limite).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'})} hs</strong>
                         </span>
                       )}
                     </div>
@@ -3509,9 +3536,9 @@ function AdminEvaluaciones() {
             <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Pegá el link del formulario de Google Forms</div>
           </div>
           <div className="form-group">
-            <label>📅 Fecha límite (opcional)</label>
-            <input type="date" value={form.fecha_limite} onChange={e => setForm(p=>({...p,fecha_limite:e.target.value}))} />
-            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha el link se mostrará como vencido para los alumnos</div>
+            <label>📅 Fecha y hora límite (opcional)</label>
+            <input type="datetime-local" value={form.fecha_limite} onChange={e => setForm(p=>({...p,fecha_limite:e.target.value}))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el link se mostrará como vencido para los alumnos</div>
           </div>
           <div className="form-group">
             <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
@@ -3549,6 +3576,7 @@ function AlumnoVideos({ alumno, user }) {
   const [current, setCurrent] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
   const [accesoError, setAccesoError] = useState(null);
+  const [vencidoAviso, setVencidoAviso] = useState(null);
   const [confirmVista, setConfirmVista] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
   const [agrandado, setAgrandado] = useState(false);   // modo video grande dentro de la app (mantiene marca de agua)
@@ -3640,8 +3668,16 @@ function AlumnoVideos({ alumno, user }) {
     }
   };
 
+  // ¿El video ya venció? (fecha y hora de vencimiento pasada)
+  const estaVencido = (v) => !!(v.vence_en && new Date(v.vence_en) < new Date());
+
   const seleccionarVideo = async (v) => {
     setAccesoError(null);
+    // Si el video venció, no se reproduce: se avisa al alumno.
+    if (estaVencido(v)) {
+      setVencidoAviso(v);
+      return;
+    }
     if (alumno?.id && v.max_vistas != null) {
       const sessionKey = `vista_${v.id}_${alumno.id}`;
       const yaRegistradoEstaSesion = !!sessionStorage.getItem(sessionKey);
@@ -3707,7 +3743,10 @@ function AlumnoVideos({ alumno, user }) {
         {bid ? <img src={`https://${BUNNY_CDN}/${bid}/thumbnail.jpg`} style={{width:58,height:36,borderRadius:5,objectFit:'cover',flexShrink:0}} onError={e=>e.target.style.display='none'} />
           : <div style={{width:58,height:36,borderRadius:5,background:'var(--surface2)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>🎬</div>}
         <div style={{overflow:'hidden',flex:1}}>
-          <div style={{fontSize:'0.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:current?.id===v.id?'var(--accent)':'var(--text)'}}>{v.titulo}</div>
+          <div style={{fontSize:'0.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:current?.id===v.id?'var(--accent)':(estaVencido(v)?'var(--text2)':'var(--text)')}}>
+            {v.titulo}
+            {estaVencido(v) && <span className="chip chip-red" style={{marginLeft:6,fontSize:'0.62rem'}}>⌛ Vencido</span>}
+          </div>
         </div>
       </div>
     );
@@ -3801,6 +3840,22 @@ function AlumnoVideos({ alumno, user }) {
             </div>
             <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso adicional.</div>
             <button className="btn btn-ghost" onClick={() => setAccesoError(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
+          </div>
+        </div>
+      )}
+      {vencidoAviso && (
+        <div className="modal-overlay" onClick={() => setVencidoAviso(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'3rem',marginBottom:12}}>⌛</div>
+            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Video vencido</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>
+              <strong style={{color:'var(--text)'}}>{vencidoAviso.titulo}</strong> ya no está disponible.
+            </div>
+            <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
+              Venció el {new Date(vencidoAviso.vence_en).toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric',timeZone:'America/Argentina/Buenos_Aires'})} a las {new Date(vencidoAviso.vence_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'})} hs
+            </div>
+            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso.</div>
+            <button className="btn btn-ghost" onClick={() => setVencidoAviso(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
           </div>
         </div>
       )}
@@ -4091,8 +4146,8 @@ function AlumnoEvaluaciones({ alumno }) {
       });
   }, []);
 
-  const isVencida = ev => ev.fecha_limite && ev.fecha_limite < today;
-  const isProxVencer = ev => ev.fecha_limite && ev.fecha_limite >= today && ev.fecha_limite <= new Date(Date.now() + 3*24*60*60*1000).toISOString().split('T')[0];
+  const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
+  const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
 
   if (loading) return <Loading />;
   return (
@@ -4117,7 +4172,7 @@ function AlumnoEvaluaciones({ alumno }) {
                     {ev.descripcion && <div style={{fontSize:'0.88rem',color:'var(--text2)',marginBottom:10,lineHeight:1.5}}>{ev.descripcion}</div>}
                     {ev.fecha_limite && (
                       <div style={{fontSize:'0.82rem',color:vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--text2)',marginBottom:10}}>
-                        📅 {vencida ? 'Venció el' : 'Disponible hasta'}: <strong>{new Date(ev.fecha_limite+'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'})}</strong>
+                        📅 {vencida ? 'Venció el' : 'Disponible hasta'}: <strong>{new Date(ev.fecha_limite).toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric',timeZone:'America/Argentina/Buenos_Aires'})} a las {new Date(ev.fecha_limite).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'})} hs</strong>
                       </div>
                     )}
                   </div>
