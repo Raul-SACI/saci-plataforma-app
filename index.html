@@ -609,6 +609,7 @@ function LoginPage({ onLogin }) {
 // ─── SIDEBAR ─────────────────────────────────────────────────────────
 const NAV_ADMIN = [
   { id: 'dashboard', icon: '📊', label: 'Dashboard' },
+  { id: 'aulas', icon: '🏫', label: 'Aulas' },
   { id: 'novedades-admin', icon: '📢', label: 'Novedades' },
   { id: 'gantt', icon: '📅', label: 'Planificación' },
   { id: 'alumnos', icon: '👥', label: 'Alumnos' },
@@ -1683,6 +1684,180 @@ function AdminDashboard({ setPage }) {
     </div>
   );
 }
+// ─── ADMIN AULAS ──────────────────────────────────────────────────────
+function AdminAulas({ aulaActiva, setAulaActiva }) {
+  const [aulas, setAulas] = useState([]);
+  const [conteos, setConteos] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [modal, setModal] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [confirmCierre, setConfirmCierre] = useState(null);
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '' });
+  const toast = useToast();
+
+  const load = async () => {
+    const { data } = await supabase.from('aulas').select('*').order('created_at', { ascending: false });
+    setAulas(data || []);
+    // Contar alumnos por aula (para mostrar cuántos hay en cada una)
+    const { data: als } = await supabase.from('alumnos').select('aula_id');
+    const c = {};
+    (als || []).forEach(a => { if (a.aula_id) c[a.aula_id] = (c[a.aula_id] || 0) + 1; });
+    setConteos(c);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    if (!form.nombre.trim()) return toast('Poné un nombre al aula', 'error');
+    setSaving(true);
+    const payload = {
+      nombre: form.nombre.trim(),
+      fecha_inicio: form.fecha_inicio || null,
+      fecha_fin: form.fecha_fin || null,
+    };
+    const { error } = editing
+      ? await supabase.from('aulas').update(payload).eq('id', editing)
+      : await supabase.from('aulas').insert({ ...payload, estado: 'activa' });
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
+    setModal(false); setEditing(null);
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '' });
+    load();
+  };
+
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '' }); setEditing(null); setModal(true); };
+  const openEdit = a => {
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '' });
+    setEditing(a.id); setModal(true);
+  };
+
+  // Cerrar o reabrir un aula. Al cerrarla, sus alumnos ya no podrán entrar (se aplica en el login).
+  const cambiarEstado = async (aula, nuevoEstado) => {
+    const { error } = await supabase.from('aulas').update({ estado: nuevoEstado }).eq('id', aula.id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(nuevoEstado === 'cerrada' ? `Aula "${aula.nombre}" cerrada 🔒` : `Aula "${aula.nombre}" reabierta ✅`, 'success');
+    setConfirmCierre(null);
+    if (nuevoEstado === 'cerrada' && aulaActiva === aula.id) setAulaActiva(null);
+    load();
+  };
+
+  if (loading) return <Loading />;
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header">
+        <div>
+          <div className="page-title">🏫 Aulas</div>
+          <div className="page-subtitle">{aulas.length} aulas · {aulas.filter(a=>a.estado!=='cerrada').length} activas</div>
+        </div>
+        <button className="btn btn-primary" onClick={openNew}>+ Nueva aula</button>
+      </div>
+
+      <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:'12px 16px',marginBottom:20,fontSize:'0.85rem',color:'var(--text2)'}}>
+        💡 Elegí un aula para trabajar en ella. El contenido que cargues (videos, materiales, evaluaciones) quedará asignado al aula seleccionada.
+      </div>
+
+      {aulas.length === 0 ? <Empty icon="🏫" text="Todavía no creaste ninguna aula" /> : (
+        <div style={{display:'grid',gap:12}}>
+          {aulas.map(a => {
+            const cerrada = a.estado === 'cerrada';
+            const seleccionada = aulaActiva === a.id;
+            return (
+              <div key={a.id} className="card" style={{
+                borderLeft: `4px solid ${cerrada ? 'var(--danger)' : (seleccionada ? 'var(--accent)' : 'var(--success)')}`,
+                opacity: cerrada ? 0.75 : 1
+              }}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}>
+                  <div style={{flex:1,minWidth:200}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4,flexWrap:'wrap'}}>
+                      <span style={{fontWeight:700,fontSize:'1.05rem'}}>{a.nombre}</span>
+                      {cerrada
+                        ? <span className="chip chip-red">🔒 Cerrada</span>
+                        : <span className="chip chip-green">Activa</span>}
+                      {seleccionada && <span className="chip" style={{background:'var(--accent)',color:'#fff'}}>● Trabajando acá</span>}
+                    </div>
+                    <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>
+                      👥 {conteos[a.id] || 0} alumnos
+                      {a.fecha_inicio && ` · Desde ${new Date(a.fecha_inicio+'T00:00:00').toLocaleDateString('es-AR')}`}
+                      {a.fecha_fin && ` hasta ${new Date(a.fecha_fin+'T00:00:00').toLocaleDateString('es-AR')}`}
+                    </div>
+                    {cerrada && (
+                      <div style={{fontSize:'0.78rem',color:'var(--danger)',marginTop:6}}>
+                        Los alumnos de esta aula no pueden ingresar a la app.
+                      </div>
+                    )}
+                  </div>
+                  <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                    {!cerrada && (
+                      <button
+                        className={`btn btn-sm ${seleccionada ? 'btn-ghost' : 'btn-primary'}`}
+                        onClick={() => setAulaActiva(seleccionada ? null : a.id)}>
+                        {seleccionada ? '✓ Seleccionada' : '📂 Trabajar acá'}
+                      </button>
+                    )}
+                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>✏️</button>
+                    {cerrada
+                      ? <button className="btn btn-ghost btn-sm" onClick={() => cambiarEstado(a, 'activa')}>🔓 Reabrir</button>
+                      : <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => setConfirmCierre(a)}>🔒 Cerrar</button>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {modal && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setModal(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:460}}>
+            <div className="modal-header">
+              <h3>{editing ? '✏️ Editar aula' : '🏫 Nueva aula'}</h3>
+              <button className="modal-close" onClick={() => setModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Nombre del aula *</label>
+                <input value={form.nombre} onChange={e=>setForm(p=>({...p,nombre:e.target.value}))} placeholder="Ej: Agosto 2026" />
+              </div>
+              <div className="form-group">
+                <label>Fecha de inicio (opcional)</label>
+                <input type="date" value={form.fecha_inicio} onChange={e=>setForm(p=>({...p,fecha_inicio:e.target.value}))} />
+              </div>
+              <div className="form-group">
+                <label>Fecha de fin (opcional)</label>
+                <input type="date" value={form.fecha_fin} onChange={e=>setForm(p=>({...p,fecha_fin:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Informativa: el aula se cierra manualmente con el botón "Cerrar"</div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmCierre && (
+        <div className="modal-overlay" onClick={() => setConfirmCierre(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:440,padding:32,textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'3rem',marginBottom:12}}>🔒</div>
+            <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>¿Cerrar el aula "{confirmCierre.nombre}"?</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>
+              Los <strong style={{color:'var(--text)'}}>{conteos[confirmCierre.id] || 0} alumnos</strong> de esta aula ya no van a poder ingresar a la app.
+              El contenido no se borra y podés reabrirla cuando quieras.
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button className="btn btn-ghost" onClick={() => setConfirmCierre(null)} style={{flex:1,justifyContent:'center'}}>Cancelar</button>
+              <button className="btn btn-danger" onClick={() => cambiarEstado(confirmCierre, 'cerrada')} style={{flex:1,justifyContent:'center'}}>Sí, cerrar aula</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminAlumnos() {
   const [alumnos, setAlumnos] = useState([]);
   const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
@@ -4675,7 +4850,22 @@ function App() {
   const [previewModal, setPreviewModal] = useState(false);
   const [previewLista, setPreviewLista] = useState([]);
   const [previewBusca, setPreviewBusca] = useState('');
+  // Aula en la que el admin está trabajando. Se guarda como preferencia local (no es dato de negocio).
+  const [aulaActiva, setAulaActivaState] = useState(() => localStorage.getItem('saci_aula_activa') || null);
+  const [aulasLista, setAulasLista] = useState([]);
+  const setAulaActiva = (id) => {
+    setAulaActivaState(id);
+    if (id) localStorage.setItem('saci_aula_activa', id);
+    else localStorage.removeItem('saci_aula_activa');
+  };
   const toast = useToast();
+
+  // Cargar la lista de aulas (para el selector de arriba)
+  useEffect(() => {
+    if (!auth?.isAdmin) return;
+    supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false })
+      .then(({ data }) => setAulasLista(data || []));
+  }, [auth, page]);
 
   // Deshabilitar clic derecho para alumnos (también en modo vista-alumno)
   useEffect(() => {
@@ -4756,6 +4946,7 @@ function App() {
 
   const PAGE_MAP = {
     dashboard: <AdminDashboard setPage={setPage} />,
+    aulas: <AdminAulas aulaActiva={aulaActiva} setAulaActiva={setAulaActiva} />,
     'novedades-admin': <AdminNovedades />,
     gantt: <AdminPlanificacion />,
     alumnos: <AdminAlumnos />,
@@ -4773,6 +4964,7 @@ function App() {
 
   const titles = {
     dashboard: ['📊 Dashboard', 'Resumen general'],
+    aulas: ['🏫 Aulas', 'Gestión de aulas y cohortes'],
     'novedades-admin': ['📢 Novedades', 'Gestión de novedades'],
     gantt: ['📅 Planificación', 'Cronograma mensual del curso'],
     'mis-gantt': ['📅 Mi Planificación', 'Tu cronograma personal'],
@@ -4820,6 +5012,35 @@ function App() {
           </div>
         )}
         <Topbar title={title} subtitle={subtitle} onMenuToggle={() => setSidebarOpen(p => !p)} />
+        {/* Barra de aula activa: le recuerda al admin en qué aula está trabajando */}
+        {isAdmin && !enPreview && aulasLista.length > 0 && (
+          <div style={{
+            background: aulaActiva ? 'rgba(108,92,231,0.12)' : 'rgba(255,176,32,0.12)',
+            borderBottom: `1px solid ${aulaActiva ? 'var(--accent)' : 'var(--warning)'}`,
+            padding: '8px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            flexWrap: 'wrap',
+            fontSize: '0.85rem'
+          }}>
+            <span style={{fontWeight:600}}>🏫 Aula:</span>
+            <select
+              value={aulaActiva || ''}
+              onChange={e => setAulaActiva(e.target.value || null)}
+              style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.85rem',fontWeight:600,cursor:'pointer'}}>
+              <option value="">— Ninguna seleccionada —</option>
+              {aulasLista.filter(a => a.estado !== 'cerrada').map(a => (
+                <option key={a.id} value={a.id}>{a.nombre}</option>
+              ))}
+            </select>
+            {!aulaActiva && (
+              <span style={{color:'var(--warning)',fontSize:'0.78rem'}}>
+                Elegí un aula para trabajar en ella
+              </span>
+            )}
+          </div>
+        )}
         {PAGE_MAP[page] || <Empty icon="🔍" text="Página no encontrada" />}
       </div>
       {auth && (
