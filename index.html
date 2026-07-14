@@ -652,6 +652,7 @@ const NAV_ADMIN = [
   { id: 'gantt', icon: '📅', label: 'Planificación' },
   { id: 'alumnos', icon: '👥', label: 'Alumnos' },
   { id: 'pagos', icon: '💳', label: 'Pagos' },
+  { id: 'extensiones', icon: '⏱️', label: 'Extensiones' },
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'materiales', icon: '📄', label: 'Materiales' },
   { id: 'evaluaciones', icon: '📝', label: 'Evaluaciones' },
@@ -1757,6 +1758,218 @@ function AdminDashboard({ setPage, aulaActiva }) {
     </div>
   );
 }
+// ─── ADMIN EXTENSIONES ────────────────────────────────────────────────
+function AdminExtensiones({ aulaActiva }) {
+  const [exts, setExts] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [alumnos, setAlumnos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filtro, setFiltro] = useState('todas');   // todas | pagado | pendiente | rechazado
+  const [modal, setModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ alumno_id: '', video_id: '' });
+  const toast = useToast();
+
+  const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
+
+    // Videos y alumnos del aula (las extensiones no tienen aula: se acotan por ellos).
+    const [{ data: vData }, { data: aData }] = await Promise.all([
+      supabase.from('videos').select('id, titulo, precio_extension').eq('aula_id', aulaActiva).order('orden'),
+      supabase.from('alumnos').select('id, nombre, email').eq('aula_id', aulaActiva).order('nombre'),
+    ]);
+    setVideos(vData || []);
+    setAlumnos(aData || []);
+
+    const idsVideos = (vData || []).map(v => v.id);
+    if (!idsVideos.length) { setExts([]); setLoading(false); return; }
+
+    const { data: eData } = await supabase
+      .from('extensiones_video')
+      .select('*, videos(titulo), alumnos(nombre, email)')
+      .in('video_id', idsVideos)
+      .order('created_at', { ascending: false });
+
+    setExts(eData || []);
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
+
+  // Habilita 24hs manualmente, sin cobrar. Sirve para destrabar un pago fallido
+  // o para darle tiempo extra a un alumno por decisión del docente.
+  const habilitarManual = async () => {
+    if (!form.alumno_id || !form.video_id) return toast('Elegí alumno y video', 'error');
+    setSaving(true);
+    const { error } = await supabase.from('extensiones_video').insert({
+      video_id: form.video_id,
+      alumno_id: form.alumno_id,
+      vence_en: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      monto: 0,
+      estado: 'pagado',
+      mp_payment_id: 'MANUAL',
+    });
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast('24hs habilitadas ✅', 'success');
+    setModal(false);
+    setForm({ alumno_id: '', video_id: '' });
+    load();
+  };
+
+  const eliminar = async (e) => {
+    if (!confirm(`¿Eliminar esta extensión de ${e.alumnos?.nombre}?`)) return;
+    const { error } = await supabase.from('extensiones_video').delete().eq('id', e.id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast('Extensión eliminada', 'info');
+    load();
+  };
+
+  const fmt = (valor) => {
+    const d = new Date(valor);
+    const tz = 'America/Argentina/Buenos_Aires';
+    return `${d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'2-digit',timeZone:tz})} ${d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:tz})}`;
+  };
+  const estaVigente = (e) => e.estado === 'pagado' && new Date(e.vence_en) > new Date();
+
+  const filtradas = exts.filter(e => filtro === 'todas' || e.estado === filtro);
+  const totalCobrado = exts.filter(e => e.estado === 'pagado').reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
+  const vigentes = exts.filter(estaVigente).length;
+  const pendientes = exts.filter(e => e.estado === 'pendiente').length;
+
+  if (!aulaActiva) return <SinAula />;
+  if (loading) return <Loading />;
+
+  const chipEstado = (e) => {
+    if (e.estado === 'pagado') {
+      return estaVigente(e)
+        ? <span className="chip chip-green">✅ Activa</span>
+        : <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>Vencida</span>;
+    }
+    if (e.estado === 'pendiente') return <span className="chip" style={{background:'rgba(255,176,32,0.15)',color:'var(--warning)'}}>⏳ Pendiente</span>;
+    return <span className="chip chip-red">❌ Rechazada</span>;
+  };
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header">
+        <div>
+          <div className="page-title">⏱️ Extensiones</div>
+          <div className="page-subtitle">Compras de 24hs extra por video</div>
+        </div>
+        <button className="btn btn-primary" onClick={() => { setForm({alumno_id:'',video_id:''}); setModal(true); }}>
+          + Habilitar 24hs manualmente
+        </button>
+      </div>
+
+      <div className="stats-grid" style={{marginBottom:20}}>
+        <div className="stat-card green">
+          <span className="stat-icon">💰</span>
+          <div className="stat-value" style={{fontSize:'1.3rem'}}>${Math.round(totalCobrado).toLocaleString('es-AR')}</div>
+          <div className="stat-label">Total cobrado</div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon">✅</span>
+          <div className="stat-value">{vigentes}</div>
+          <div className="stat-label">Activas ahora</div>
+        </div>
+        <div className="stat-card">
+          <span className="stat-icon">📊</span>
+          <div className="stat-value">{exts.filter(e=>e.estado==='pagado').length}</div>
+          <div className="stat-label">Compras totales</div>
+        </div>
+        <div className="stat-card" style={pendientes ? {borderColor:'var(--warning)'} : {}}>
+          <span className="stat-icon">⏳</span>
+          <div className="stat-value">{pendientes}</div>
+          <div className="stat-label">Pendientes</div>
+        </div>
+      </div>
+
+      {pendientes > 0 && (
+        <div style={{background:'rgba(255,176,32,0.1)',border:'1px solid var(--warning)',borderRadius:12,padding:'12px 16px',marginBottom:16,fontSize:'0.85rem'}}>
+          ⚠️ Hay {pendientes} {pendientes === 1 ? 'pago pendiente' : 'pagos pendientes'}. Puede ser un pago que quedó a medias.
+          Si el alumno dice que pagó, verificá en Mercado Pago y habilitalo manualmente.
+        </div>
+      )}
+
+      <div style={{display:'flex',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+        {[['todas','Todas'],['pagado','Pagadas'],['pendiente','Pendientes'],['rechazado','Rechazadas']].map(([id,label]) => (
+          <button key={id} className={`btn btn-sm ${filtro===id?'btn-primary':'btn-ghost'}`} onClick={() => setFiltro(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {filtradas.length === 0 ? (
+        <Empty icon="⏱️" text={exts.length === 0 ? 'Todavía nadie compró extensiones' : 'No hay extensiones con ese filtro'} />
+      ) : (
+        <div className="card" style={{overflowX:'auto'}}>
+          <table>
+            <thead><tr>
+              <th>Alumno</th><th>Video</th><th>Monto</th><th>Comprada</th><th>Vence</th><th>Estado</th><th></th>
+            </tr></thead>
+            <tbody>
+              {filtradas.map(e => (
+                <tr key={e.id}>
+                  <td><strong>{e.alumnos?.nombre || '—'}</strong></td>
+                  <td style={{color:'var(--text2)',maxWidth:220,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.videos?.titulo || '—'}</td>
+                  <td>
+                    {e.mp_payment_id === 'MANUAL'
+                      ? <span style={{color:'var(--text2)',fontSize:'0.8rem'}}>Manual</span>
+                      : <strong style={{color:'var(--success)'}}>${Number(e.monto || 0).toLocaleString('es-AR')}</strong>}
+                  </td>
+                  <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{fmt(e.created_at)}</td>
+                  <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{e.estado === 'pagado' ? fmt(e.vence_en) : '—'}</td>
+                  <td>{chipEstado(e)}</td>
+                  <td>
+                    <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => eliminar(e)}>🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {modal && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setModal(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:460}}>
+            <div className="modal-header">
+              <h3>⏱️ Habilitar 24hs manualmente</h3>
+              <button className="modal-close" onClick={() => setModal(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{background:'var(--surface2)',borderRadius:10,padding:12,marginBottom:16,fontSize:'0.84rem',color:'var(--text2)'}}>
+                Le da al alumno 24hs de acceso a un video, <strong style={{color:'var(--text)'}}>sin cobrarle</strong>.
+                Sirve para destrabar un pago que falló o para darle tiempo extra.
+              </div>
+              <div className="form-group">
+                <label>Alumno *</label>
+                <select value={form.alumno_id} onChange={e=>setForm(p=>({...p,alumno_id:e.target.value}))}>
+                  <option value="">— Elegir alumno —</option>
+                  {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Video *</label>
+                <select value={form.video_id} onChange={e=>setForm(p=>({...p,video_id:e.target.value}))}>
+                  <option value="">— Elegir video —</option>
+                  {videos.map(v => <option key={v.id} value={v.id}>{v.titulo}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={habilitarManual} disabled={saving}>
+                {saving ? 'Habilitando...' : 'Habilitar 24hs'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ADMIN AULAS ──────────────────────────────────────────────────────
 // Aviso que se muestra en los módulos cuando el admin no eligió un aula.
 function SinAula() {
@@ -5226,6 +5439,7 @@ function App() {
     gantt: <AdminPlanificacion aulaActiva={aulaActiva} />,
     alumnos: <AdminAlumnos aulaActiva={aulaActiva} />,
     pagos: <AdminPagos aulaActiva={aulaActiva} />,
+    extensiones: <AdminExtensiones aulaActiva={aulaActiva} />,
     videos: <AdminVideos aulaActiva={aulaActiva} />,
     materiales: <AdminMateriales aulaActiva={aulaActiva} />,
     evaluaciones: <AdminEvaluaciones aulaActiva={aulaActiva} />,
@@ -5245,6 +5459,7 @@ function App() {
     'mis-gantt': ['📅 Mi Planificación', 'Tu cronograma personal'],
     alumnos: ['👥 Alumnos', 'Gestión de alumnos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
+    extensiones: ['⏱️ Extensiones', 'Compras de 24hs extra'],
     videos: ['🎬 Videos', 'Biblioteca de videos'],
     materiales: ['📄 Materiales', 'Recursos educativos'],
     evaluaciones: ['📝 Evaluaciones', 'Gestión de exámenes'],
