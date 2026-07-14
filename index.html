@@ -738,7 +738,7 @@ const PLAN_DIAS  = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
 const planDiasEnMes = (m,y) => new Date(y, m+1, 0).getDate();
 const planPrimerDia = (m,y) => { const d = new Date(y,m,1).getDay(); return d===0?6:d-1; };
 
-function AdminPlanificacion() {
+function AdminPlanificacion({ aulaActiva }) {
   const today = new Date();
   const [mes, setMes] = useState(today.getMonth());
   const [año, setAño] = useState(today.getFullYear());
@@ -754,12 +754,12 @@ function AdminPlanificacion() {
     setLoading(true);
     const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
     const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
-    const { data } = await supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta);
+    const { data } = await supabase.from('planificacion_docente').select('*').eq('aula_id', aulaActiva).gte('fecha',desde).lte('fecha',hasta);
     const map = {};
     (data||[]).forEach(d => { map[d.fecha] = d; });
     setPlanDocente(map); setLoading(false);
   };
-  useEffect(() => { load(); }, [mes, año]);
+  useEffect(() => { load(); }, [mes, año, aulaActiva]);
 
   const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -778,8 +778,9 @@ function AdminPlanificacion() {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
     }
-    const payload = { fecha: modal.fecha, color: form.color||null, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null };
-    const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).maybeSingle();
+    const payload = { fecha: modal.fecha, color: form.color||null, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null, aula_id: aulaActiva };
+    // Buscamos por fecha Y aula: la misma fecha puede estar planificada en otras aulas.
+    const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).eq('aula_id', aulaActiva).maybeSingle();
     const { error } = existing
       ? await supabase.from('planificacion_docente').update(payload).eq('id', existing.id)
       : await supabase.from('planificacion_docente').insert(payload);
@@ -791,6 +792,7 @@ function AdminPlanificacion() {
   for (let i=0; i<planPrimerDia(mes,año); i++) cells.push(null);
   for (let d=1; d<=planDiasEnMes(mes,año); d++) cells.push(d);
 
+  if (!aulaActiva) return <SinAula />;
   return (
     <div className="page-content fade-in">
       <div className="page-header">
@@ -1685,6 +1687,21 @@ function AdminDashboard({ setPage }) {
   );
 }
 // ─── ADMIN AULAS ──────────────────────────────────────────────────────
+// Aviso que se muestra en los módulos cuando el admin no eligió un aula.
+function SinAula() {
+  return (
+    <div className="page-content fade-in">
+      <div style={{textAlign:'center',padding:'60px 20px'}}>
+        <div style={{fontSize:'3.5rem',marginBottom:16}}>🏫</div>
+        <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Elegí un aula para continuar</div>
+        <div style={{color:'var(--text2)',fontSize:'0.9rem',maxWidth:420,margin:'0 auto'}}>
+          Seleccioná un aula en la barra de arriba (o en el módulo <strong>Aulas</strong>) para ver y cargar contenido.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [aulas, setAulas] = useState([]);
   const [conteos, setConteos] = useState({});
@@ -1858,7 +1875,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   );
 }
 
-function AdminAlumnos() {
+function AdminAlumnos({ aulaActiva }) {
   const [alumnos, setAlumnos] = useState([]);
   const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
   const [orden, setOrden] = useState('az');         // 'az' o 'za'
@@ -1875,8 +1892,9 @@ function AdminAlumnos() {
   const fileRef = useRef();
 
   const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
     const [al, pg] = await Promise.all([
-      supabase.from('alumnos').select('*').order('created_at', { ascending: false }),
+      supabase.from('alumnos').select('*').eq('aula_id', aulaActiva).order('created_at', { ascending: false }),
       supabase.from('pagos').select('alumno_id, monto'),
     ]);
     setAlumnos(al.data || []);
@@ -1888,7 +1906,7 @@ function AdminAlumnos() {
     setPagosMap(mapa);
     setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const callEdge = async (action, payload) => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -1923,7 +1941,7 @@ function AdminAlumnos() {
         if (adminSession) {
           await supabase.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
         }
-        const insertPayload = { nombre: form.nombre, email: form.email, estado: form.estado || 'activo' };
+        const insertPayload = { nombre: form.nombre, email: form.email, estado: form.estado || 'activo', aula_id: aulaActiva };
         if (form.telefono) insertPayload.telefono = form.telefono;
         const { error: dbError } = await supabase.from('alumnos').insert(insertPayload);
         if (dbError) throw new Error(dbError.message);
@@ -2011,6 +2029,7 @@ function AdminAlumnos() {
               email: alumno.email,
               telefono: alumno.telefono || null,
               estado: alumno.estado || 'activo',
+              aula_id: aulaActiva,
             });
 
             if (dbError && !dbError.message.includes('duplicate')) {
@@ -2085,6 +2104,7 @@ function AdminAlumnos() {
     toast('Listado exportado 📤', 'success');
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
     <div className="page-content fade-in">
@@ -2207,7 +2227,7 @@ function AdminAlumnos() {
 
 }
 // ─── ADMIN PAGOS ──────────────────────────────────────────────────────
-function AdminPagos() {
+function AdminPagos({ aulaActiva }) {
   const today = new Date().toISOString().split('T')[0];
   const PLANES = ['Parcial', 'Final', 'Cursado Completo'];
   const emptyForm = { alumno_id: '', plan: 'Cursado Completo', monto: '', fecha_pago: today, proximo_pago: '', notas: '' };
@@ -2222,13 +2242,18 @@ function AdminPagos() {
   const toast = useToast();
 
   const load = async () => {
-    const [p, a] = await Promise.all([
-      supabase.from('pagos').select('*, alumnos(nombre, email)').order('fecha_pago', { ascending: false }),
-      supabase.from('alumnos').select('id, nombre, estado').order('nombre'),
-    ]);
-    setPagos(p.data || []); setAlumnos(a.data || []); setLoading(false);
+    if (!aulaActiva) { setLoading(false); return; }
+    // Los pagos no tienen aula: se filtran por los alumnos que pertenecen al aula activa.
+    const { data: aData } = await supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre');
+    const idsAula = (aData || []).map(a => a.id);
+    let pData = [];
+    if (idsAula.length) {
+      const { data } = await supabase.from('pagos').select('*, alumnos(nombre, email)').in('alumno_id', idsAula).order('fecha_pago', { ascending: false });
+      pData = data || [];
+    }
+    setPagos(pData); setAlumnos(aData || []); setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const save = async () => {
     if (!form.alumno_id) return toast('Seleccioná un alumno', 'error');
@@ -2290,6 +2315,7 @@ function AdminPagos() {
     return 'chip-blue';
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
     <div className="page-content fade-in">
@@ -2465,7 +2491,7 @@ function AdminPagos() {
 }
 
 // ─── ADMIN VIDEOS ─────────────────────────────────────────────────────
-function AdminVideos() {
+function AdminVideos({ aulaActiva }) {
   const TEMA_COLORS = ['#6c63ff','#ff6584','#43e97b','#f9ca24','#06b6d4','#f97316','#a78bfa','#ec4899'];
   const [temas, setTemas] = useState([]);
   const [videos, setVideos] = useState([]);
@@ -2494,10 +2520,11 @@ function AdminVideos() {
   const toast = useToast();
 
   const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
     const [{ data: tData }, { data: vData }, { data: aData }] = await Promise.all([
-      supabase.from('temas_videos').select('*').order('orden'),
-      supabase.from('videos').select('*').order('orden'),
-      supabase.from('alumnos').select('id, nombre, email').order('nombre'),
+      supabase.from('temas_videos').select('*').eq('aula_id', aulaActiva).order('orden'),
+      supabase.from('videos').select('*').eq('aula_id', aulaActiva).order('orden'),
+      supabase.from('alumnos').select('id, nombre, email').eq('aula_id', aulaActiva).order('nombre'),
     ]);
     setTemas(tData || []); setVideos(vData || []); setListaAlumnos(aData || []); setLoading(false);
     // Temas cerrados por defecto (el usuario los abre tocando cada uno).
@@ -2513,7 +2540,7 @@ function AdminVideos() {
     } catch { toast('No se pudo conectar con Bunny CDN', 'error'); }
   };
 
-  useEffect(() => { load(); loadBunny(); }, []);
+  useEffect(() => { setLoading(true); load(); loadBunny(); }, [aulaActiva]);
 
   const uploadToBunny = async (file) => {
     if (!file) return null;
@@ -2559,7 +2586,7 @@ function AdminVideos() {
     if (tab === 'bunny' && !bunny_id) return toast('Seleccioná un video de Bunny', 'error');
     if (tab === 'url' && !url_externa) return toast('Ingresá una URL', 'error');
 
-    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null, publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null, vence_en: form.vence_en ? new Date(form.vence_en).toISOString() : null, para_todos: form.para_todos };
+    const payload = { titulo: form.titulo, descripcion: form.descripcion, bunny_id, bunny_video_id: bunny_id, url_externa, orden: form.orden, tema_id: form.tema_id || null, max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null, publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null, vence_en: form.vence_en ? new Date(form.vence_en).toISOString() : null, para_todos: form.para_todos, aula_id: aulaActiva };
 
     let videoId = editing;
     if (editing) {
@@ -2592,7 +2619,7 @@ function AdminVideos() {
     if (!temaForm.nombre) return toast('Nombre requerido', 'error');
     const { error } = editingTema
       ? await supabase.from('temas_videos').update(temaForm).eq('id', editingTema)
-      : await supabase.from('temas_videos').insert(temaForm);
+      : await supabase.from('temas_videos').insert({ ...temaForm, aula_id: aulaActiva });
     if (error) return toast(error.message, 'error');
     toast(editingTema ? 'Tema actualizado ✏️' : 'Tema creado ✅', 'success');
     setTemaModal(false); setEditingTema(null); setTemaForm({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 }); load();
@@ -2660,6 +2687,7 @@ function AdminVideos() {
     setStatsLoading(false);
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
     <div className="page-content fade-in">
@@ -2992,7 +3020,7 @@ function AdminVideos() {
   );
 }
 
-function AdminMateriales() {
+function AdminMateriales({ aulaActiva }) {
   const TIPO_INFO = {
     pdf:   { icon: '📕', label: 'PDF',    accept: '.pdf' },
     word:  { icon: '📘', label: 'Word',   accept: '.doc,.docx' },
@@ -3028,9 +3056,10 @@ function AdminMateriales() {
   const toast = useToast();
 
   const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
     const [{ data: tData }, { data: mData, error }] = await Promise.all([
-      supabase.from('temas_materiales').select('*').order('orden', { ascending: true }),
-      supabase.from('materiales').select('*').order('orden', { ascending: true }),
+      supabase.from('temas_materiales').select('*').eq('aula_id', aulaActiva).order('orden', { ascending: true }),
+      supabase.from('materiales').select('*').eq('aula_id', aulaActiva).order('orden', { ascending: true }),
     ]);
     if (error) console.error('materiales error:', error);
     setTemas(tData || []);
@@ -3038,7 +3067,7 @@ function AdminMateriales() {
     setLoading(false);
     // Temas cerrados por defecto (el usuario los abre tocando cada uno).
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const uploadFile = async (file) => {
     setUploading(true); setUploadPct(0);
@@ -3077,6 +3106,7 @@ function AdminMateriales() {
       tema_id: form.tema_id || null,
       max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
       publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
+      aula_id: aulaActiva,
     };
     const { error } = editing
       ? await supabase.from('materiales').update(payload).eq('id', editing)
@@ -3118,6 +3148,7 @@ function AdminMateriales() {
           tema_id: form.tema_id || null,
           max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
           publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
+          aula_id: aulaActiva,
         });
         if (dbErr) throw dbErr;
         done++;
@@ -3137,7 +3168,7 @@ function AdminMateriales() {
     if (!temaForm.nombre) return toast('El nombre del tema es requerido', 'error');
     const { error } = editingTema
       ? await supabase.from('temas_materiales').update(temaForm).eq('id', editingTema)
-      : await supabase.from('temas_materiales').insert(temaForm);
+      : await supabase.from('temas_materiales').insert({ ...temaForm, aula_id: aulaActiva });
     if (error) return toast(error.message, 'error');
     toast(editingTema ? 'Tema actualizado ✏️' : 'Tema creado ✅', 'success');
     setTemaModal(false); setEditingTema(null);
@@ -3197,6 +3228,7 @@ function AdminMateriales() {
     setStatsData(data || []); setStatsLoading(false);
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
 
   return (
@@ -3569,7 +3601,7 @@ function AdminMateriales() {
 
 
 // ─── ADMIN EVALUACIONES ──────────────────────────────────────────────
-function AdminEvaluaciones() {
+function AdminEvaluaciones({ aulaActiva }) {
   const [evals, setEvals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
@@ -3580,14 +3612,16 @@ function AdminEvaluaciones() {
   const today = new Date().toISOString().split('T')[0];
 
   const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
     const { data, error } = await supabase
       .from('evaluaciones')
       .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+      .eq('aula_id', aulaActiva)
       .order('id', { ascending: false });
-    console.log('EVAL:', data, error);
+    if (error) console.error('EVAL:', error);
     setEvals(data || []); setLoading(false);
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const save = async () => {
     if (!form.titulo) return toast('El título es requerido', 'error');
@@ -3601,6 +3635,7 @@ function AdminEvaluaciones() {
       visible: form.visible,
       estado: 'disponible',
       publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
+      aula_id: aulaActiva,
     };
     const { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
@@ -3637,6 +3672,7 @@ function AdminEvaluaciones() {
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
   const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
     <div className="page-content fade-in">
@@ -4498,7 +4534,7 @@ function AlumnoPagos({ alumno }) {
 // ═══════════════════════════════════════════════════════════════════════
 // ADMIN NOVEDADES
 // ═══════════════════════════════════════════════════════════════════════
-function AdminNovedades() {
+function AdminNovedades({ aulaActiva }) {
   const [novedades, setNovedades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -4515,22 +4551,24 @@ function AdminNovedades() {
   };
 
   const load = async () => {
+    if (!aulaActiva) { setLoading(false); return; }
     const { data } = await supabase
       .from('novedades')
       .select('*, likes_novedades(count)')
+      .eq('aula_id', aulaActiva)
       .order('created_at', { ascending: false });
     setNovedades(data || []);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const save = async () => {
     if (!form.titulo.trim()) return toast('El título es requerido', 'error');
     if (!form.contenido.trim()) return toast('El contenido es requerido', 'error');
     setSaving(true);
     try {
-      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado };
+      const payload = { titulo: form.titulo, contenido: form.contenido, tipo: form.tipo, destacado: form.destacado, aula_id: aulaActiva };
       if ((form.link || '').trim()) payload.link = form.link.trim();
       const { error } = editing
         ? await supabase.from('novedades').update(payload).eq('id', editing)
@@ -4560,6 +4598,7 @@ function AdminNovedades() {
     return new Date(iso).toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
 
   return (
@@ -4947,13 +4986,13 @@ function App() {
   const PAGE_MAP = {
     dashboard: <AdminDashboard setPage={setPage} />,
     aulas: <AdminAulas aulaActiva={aulaActiva} setAulaActiva={setAulaActiva} />,
-    'novedades-admin': <AdminNovedades />,
-    gantt: <AdminPlanificacion />,
-    alumnos: <AdminAlumnos />,
-    pagos: <AdminPagos />,
-    videos: <AdminVideos />,
-    materiales: <AdminMateriales />,
-    evaluaciones: <AdminEvaluaciones />,
+    'novedades-admin': <AdminNovedades aulaActiva={aulaActiva} />,
+    gantt: <AdminPlanificacion aulaActiva={aulaActiva} />,
+    alumnos: <AdminAlumnos aulaActiva={aulaActiva} />,
+    pagos: <AdminPagos aulaActiva={aulaActiva} />,
+    videos: <AdminVideos aulaActiva={aulaActiva} />,
+    materiales: <AdminMateriales aulaActiva={aulaActiva} />,
+    evaluaciones: <AdminEvaluaciones aulaActiva={aulaActiva} />,
     'mis-gantt': <AlumnoPlanificacion alumno={alumno} />,
     'mis-videos': <AlumnoVideos alumno={alumno} user={user} />,
     'mis-materiales': <AlumnoMateriales alumno={alumno} user={user} />,
