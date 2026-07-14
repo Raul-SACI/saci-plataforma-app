@@ -903,8 +903,12 @@ function AlumnoPlanificacion({ alumno }) {
     setLoading(true);
     const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
     const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
+    // La planificación del docente se filtra por el aula del alumno.
+    const miAula = alumno?.aula_id;
     const [{ data: docData }, { data: alumData }] = await Promise.all([
-      supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta),
+      miAula
+        ? supabase.from('planificacion_docente').select('*').eq('aula_id', miAula).gte('fecha',desde).lte('fecha',hasta)
+        : { data: [] },
       alumno?.id
         ? supabase.from('planificacion_alumnos').select('*').eq('alumno_id',alumno.id).gte('fecha',desde).lte('fecha',hasta)
         : { data: [] },
@@ -3818,9 +3822,12 @@ function AlumnoVideos({ alumno, user }) {
   };
 
   useEffect(() => {
+    // El alumno solo ve el contenido de SU aula.
+    const miAula = alumno?.aula_id;
+    if (!miAula) { setTemas([]); setVideos([]); setLoading(false); return; }
     Promise.all([
-      supabase.from('temas_videos').select('*').order('orden'),
-      supabase.from('videos').select('*').order('orden'),
+      supabase.from('temas_videos').select('*').eq('aula_id', miAula).order('orden'),
+      supabase.from('videos').select('*').eq('aula_id', miAula).order('orden'),
       supabase.from('videos_alumnos').select('video_id').eq('alumno_id', alumno?.id || ''),
     ]).then(async ([{ data: tData }, { data: vData }, { data: asignData }]) => {
       const now = new Date().toISOString();
@@ -4156,9 +4163,12 @@ function AlumnoMateriales({ alumno, user }) {
   };
 
   useEffect(() => {
+    // El alumno solo ve el contenido de SU aula.
+    const miAula = alumno?.aula_id;
+    if (!miAula) { setTemas([]); setMats([]); setLoading(false); return; }
     Promise.all([
-      supabase.from('temas_materiales').select('*').order('orden'),
-      supabase.from('materiales').select('*').order('orden'),
+      supabase.from('temas_materiales').select('*').eq('aula_id', miAula).order('orden'),
+      supabase.from('materiales').select('*').eq('aula_id', miAula).order('orden'),
     ]).then(async ([{ data: tData }, { data: mData }]) => {
       const now = new Date().toISOString();
       const mFiltered = (mData || []).filter(m => !m.publicar_en || m.publicar_en <= now);
@@ -4379,8 +4389,12 @@ function AlumnoEvaluaciones({ alumno }) {
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
+    // El alumno solo ve las evaluaciones de SU aula.
+    const miAula = alumno?.aula_id;
+    if (!miAula) { setEvals([]); setLoading(false); return; }
     supabase.from('evaluaciones')
       .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+      .eq('aula_id', miAula)
       .neq('visible', false)
       .order('id', { ascending: false })
       .then(({ data }) => {
@@ -4710,9 +4724,13 @@ function AlumnoMuro({ alumno }) {
   };
 
   const load = async () => {
+    // El alumno solo ve las novedades de SU aula.
+    const miAula = alumno?.aula_id;
+    if (!miAula) { setNovedades([]); setLoading(false); return; }
     const { data: novs } = await supabase
       .from('novedades')
       .select('*')
+      .eq('aula_id', miAula)
       .order('destacado', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -4920,7 +4938,7 @@ function App() {
   const abrirPreview = async () => {
     setPreviewModal(true);
     setPreviewBusca('');
-    const { data } = await supabase.from('alumnos').select('id, nombre, email').eq('estado','activo').order('nombre');
+    const { data } = await supabase.from('alumnos').select('id, nombre, email, aula_id').eq('estado','activo').order('nombre');
     setPreviewLista(data || []);
   };
   // Entrar en modo vista-alumno con el alumno elegido
