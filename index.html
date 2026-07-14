@@ -1444,7 +1444,7 @@ function GanttChart({ isAdmin }) {
 }
 
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────
-function AdminDashboard({ setPage }) {
+function AdminDashboard({ setPage, aulaActiva }) {
   const _today = new Date();
   const [stats, setStats] = useState({ alumnos: 0, pagos: 0, videos: 0, materiales: 0, vistas: 0 });
   const [topVideos, setTopVideos] = useState([]);
@@ -1458,41 +1458,69 @@ function AdminDashboard({ setPage }) {
 
   useEffect(() => {
     (async () => {
-      const [a, p, v, m, vis, als] = await Promise.all([
-        supabase.from('alumnos').select('id', { count: 'exact', head: true }),
-        supabase.from('pagos').select('monto'),
-        supabase.from('videos').select('id', { count: 'exact', head: true }),
-        supabase.from('materiales').select('id', { count: 'exact', head: true }),
-        supabase.from('visualizaciones').select('id', { count: 'exact', head: true }),
-        supabase.from('alumnos').select('id, nombre').eq('estado','activo').order('nombre'),
-      ]);
-      const totalPagos = p.data?.reduce((s, r) => s + (parseFloat(r.monto) || 0), 0) || 0;
-      setStats({ alumnos: a.count || 0, pagos: totalPagos, videos: v.count || 0, materiales: m.count || 0, vistas: vis.count || 0 });
-      setAlumnosList(als.data || []);
+      if (!aulaActiva) { setLoading(false); return; }
+      setLoading(true);
 
-      const { data: visData } = await supabase
-        .from('visualizaciones')
-        .select('video_id, videos(titulo, bunny_id, bunny_video_id)')
-        .order('created_at', { ascending: false });
-      if (visData) {
-        const counts = {}, videoInfo = {};
-        visData.forEach(v => {
-          if (!v.video_id) return;
-          counts[v.video_id] = (counts[v.video_id] || 0) + 1;
-          if (v.videos) videoInfo[v.video_id] = v.videos;
-        });
-        setTopVideos(Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,count])=>({id,count,video:videoInfo[id]})));
+      // Alumnos, videos y materiales del aula activa.
+      const [alsAll, vidsAula, matsAula] = await Promise.all([
+        supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre'),
+        supabase.from('videos').select('id').eq('aula_id', aulaActiva),
+        supabase.from('materiales').select('id', { count: 'exact', head: true }).eq('aula_id', aulaActiva),
+      ]);
+      const alumnosAula = alsAll.data || [];
+      const idsAlumnos = alumnosAula.map(a => a.id);
+      const idsVideos = (vidsAula.data || []).map(v => v.id);
+
+      // Los pagos y las visualizaciones no tienen aula: se acotan por los alumnos/videos del aula.
+      let totalPagos = 0;
+      if (idsAlumnos.length) {
+        const { data: pData } = await supabase.from('pagos').select('monto').in('alumno_id', idsAlumnos);
+        totalPagos = (pData || []).reduce((s, r) => s + (parseFloat(r.monto) || 0), 0);
+      }
+      let totalVistas = 0;
+      if (idsVideos.length) {
+        const { count } = await supabase.from('visualizaciones').select('id', { count: 'exact', head: true }).in('video_id', idsVideos);
+        totalVistas = count || 0;
       }
 
-      const { data: ultimas } = await supabase
-        .from('visualizaciones')
-        .select('*, videos(titulo), alumnos(nombre, email)')
-        .order('created_at', { ascending: false })
-        .limit(8);
-      setUltimasVistas(ultimas || []);
+      setStats({
+        alumnos: alumnosAula.length,
+        pagos: totalPagos,
+        videos: idsVideos.length,
+        materiales: matsAula.count || 0,
+        vistas: totalVistas,
+      });
+      setAlumnosList(alumnosAula.filter(a => a.estado === 'activo'));
+
+      if (idsVideos.length) {
+        const { data: visData } = await supabase
+          .from('visualizaciones')
+          .select('video_id, videos(titulo, bunny_id, bunny_video_id)')
+          .in('video_id', idsVideos)
+          .order('created_at', { ascending: false });
+        if (visData) {
+          const counts = {}, videoInfo = {};
+          visData.forEach(v => {
+            if (!v.video_id) return;
+            counts[v.video_id] = (counts[v.video_id] || 0) + 1;
+            if (v.videos) videoInfo[v.video_id] = v.videos;
+          });
+          setTopVideos(Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([id,count])=>({id,count,video:videoInfo[id]})));
+        }
+
+        const { data: ultimas } = await supabase
+          .from('visualizaciones')
+          .select('*, videos(titulo), alumnos(nombre, email)')
+          .in('video_id', idsVideos)
+          .order('created_at', { ascending: false })
+          .limit(8);
+        setUltimasVistas(ultimas || []);
+      } else {
+        setTopVideos([]); setUltimasVistas([]);
+      }
       setLoading(false);
     })();
-  }, []);
+  }, [aulaActiva]);
 
   useEffect(() => {
     const loadPlan = async () => {
@@ -1501,9 +1529,9 @@ function AdminDashboard({ setPage }) {
       const desde = `${año}-${String(mes+1).padStart(2,'0')}-01`;
       const hasta = `${año}-${String(mes+1).padStart(2,'0')}-${String(new Date(año, mes+1, 0).getDate()).padStart(2,'0')}`;
       const [{ data: docDays }, { data: alumDays }, { data: allAlumnos }] = await Promise.all([
-        supabase.from('planificacion_docente').select('*').gte('fecha',desde).lte('fecha',hasta).order('fecha'),
+        supabase.from('planificacion_docente').select('*').eq('aula_id', aulaActiva).gte('fecha',desde).lte('fecha',hasta).order('fecha'),
         (() => { let q = supabase.from('planificacion_alumnos').select('*').gte('fecha',desde).lte('fecha',hasta); if (alumno_id) q=q.eq('alumno_id',alumno_id); return q; })(),
-        supabase.from('alumnos').select('id, nombre').eq('estado','activo').order('nombre'),
+        supabase.from('alumnos').select('id, nombre').eq('aula_id', aulaActiva).eq('estado','activo').order('nombre'),
       ]);
       const docMap = {};
       (docDays||[]).forEach(d => { docMap[d.fecha] = d; });
@@ -1520,7 +1548,7 @@ function AdminDashboard({ setPage }) {
       setPlanLoading(false);
     };
     loadPlan();
-  }, [planFiltro]);
+  }, [planFiltro, aulaActiva]);
 
   const quickActions = [
     { label: 'Agregar alumno', page: 'alumnos', icon: '👥' },
@@ -1540,13 +1568,14 @@ function AdminDashboard({ setPage }) {
     return d.toLocaleDateString('es-AR', { day: '2-digit', month: 'short' });
   };
 
+  if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
     <div className="page-content fade-in">
       <div className="page-header">
         <div>
           <div className="page-title">📊 Dashboard</div>
-          <div className="page-subtitle">Resumen general de la plataforma</div>
+          <div className="page-subtitle">Resumen del aula seleccionada</div>
         </div>
       </div>
 
@@ -5051,7 +5080,7 @@ function App() {
   const { isAdmin, alumno, user } = authEfectivo;
 
   const PAGE_MAP = {
-    dashboard: <AdminDashboard setPage={setPage} />,
+    dashboard: <AdminDashboard setPage={setPage} aulaActiva={aulaActiva} />,
     aulas: <AdminAulas aulaActiva={aulaActiva} setAulaActiva={setAulaActiva} />,
     'novedades-admin': <AdminNovedades aulaActiva={aulaActiva} />,
     gantt: <AdminPlanificacion aulaActiva={aulaActiva} />,
