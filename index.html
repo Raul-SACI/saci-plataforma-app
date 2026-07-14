@@ -3876,6 +3876,27 @@ function AlumnoVideos({ alumno, user }) {
   const [confirmVista, setConfirmVista] = useState(null);
   const [contadoresVistas, setContadoresVistas] = useState({});
   const [agrandado, setAgrandado] = useState(false);   // modo video grande dentro de la app (mantiene marca de agua)
+  const [extensiones, setExtensiones] = useState({});  // { video_id: { vence_en, compras } } — extensiones pagadas
+  const [comprando, setComprando] = useState(false);   // mientras se genera el link de pago
+  const toast = useToast();
+
+  // Al volver de Mercado Pago, la URL trae ?pago=ok / error / pendiente.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const pago = params.get('pago');
+    if (!pago) return;
+
+    if (pago === 'ok') {
+      toast('¡Pago acreditado! Ya tenés 24hs más 🎉', 'success');
+    } else if (pago === 'pendiente') {
+      toast('El pago quedó pendiente de acreditación', 'info');
+    } else if (pago === 'error') {
+      toast('El pago no se completó', 'error');
+    }
+
+    // Limpiamos el parámetro para que el aviso no se repita al recargar.
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
 
   // Al salir del módulo de videos (cambiar a otra sección), se limpian las marcas
   // de sesión, de modo que al volver cuente como un acceso nuevo.
@@ -3910,12 +3931,25 @@ function AlumnoVideos({ alumno, user }) {
       supabase.from('temas_videos').select('*').eq('aula_id', miAula).order('orden'),
       supabase.from('videos').select('*').eq('aula_id', miAula).order('orden'),
       supabase.from('videos_alumnos').select('video_id').eq('alumno_id', alumno?.id || ''),
-    ]).then(async ([{ data: tData }, { data: vData }, { data: asignData }]) => {
+      supabase.from('extensiones_video').select('video_id, vence_en').eq('alumno_id', alumno?.id || '').eq('estado', 'pagado'),
+    ]).then(async ([{ data: tData }, { data: vData }, { data: asignData }, { data: extData }]) => {
       const now = new Date().toISOString();
       const idsAsignados = new Set((asignData || []).map(a => a.video_id));
       const vFiltered = (vData || [])
         .filter(v => !v.publicar_en || v.publicar_en <= now)
         .filter(v => v.para_todos !== false || idsAsignados.has(v.id));
+
+      // Extensiones compradas: guardamos cuántas compró y hasta cuándo llega la más lejana.
+      const mapaExt = {};
+      (extData || []).forEach(e => {
+        if (!mapaExt[e.video_id]) mapaExt[e.video_id] = { vence_en: e.vence_en, compras: 0 };
+        mapaExt[e.video_id].compras += 1;
+        if (new Date(e.vence_en) > new Date(mapaExt[e.video_id].vence_en)) {
+          mapaExt[e.video_id].vence_en = e.vence_en;
+        }
+      });
+      setExtensiones(mapaExt);
+
       setTemas(tData || []); setVideos(vFiltered); setLoading(false);
       // Temas cerrados por defecto (el alumno abre el que quiera).
 
@@ -3967,8 +4001,53 @@ function AlumnoVideos({ alumno, user }) {
     }
   };
 
-  // ¿El video ya venció? (fecha y hora de vencimiento pasada)
-  const estaVencido = (v) => !!(v.vence_en && new Date(v.vence_en) < new Date());
+  // ¿Tiene una extensión paga y todavía vigente para este video?
+  const extensionVigente = (v) => {
+    const e = extensiones[v.id];
+    return !!(e && new Date(e.vence_en) > new Date());
+  };
+  // Cuántas extensiones compró ya para este video (el tope es 2).
+  const comprasHechas = (v) => extensiones[v.id]?.compras || 0;
+
+  // ¿El video ya venció? Una extensión paga vigente lo mantiene disponible.
+  const estaVencido = (v) => {
+    if (!v.vence_en) return false;
+    if (new Date(v.vence_en) >= new Date()) return false;  // todavía no venció
+    return !extensionVigente(v);                            // venció, salvo que haya comprado tiempo extra
+  };
+
+  // ¿Se le puede ofrecer comprar 24hs más? Solo si venció, tiene precio,
+  // le quedan visualizaciones y no llegó al tope de compras.
+  const puedeComprarExtension = (v) => {
+    if (!estaVencido(v)) return false;
+    if (!v.precio_extension || v.precio_extension <= 0) return false;
+    if (comprasHechas(v) >= 2) return false;
+    // Sin usos disponibles, un día extra no le serviría de nada.
+    if (v.max_vistas != null && (contadoresVistas[v.id] || 0) >= v.max_vistas) return false;
+    return true;
+  };
+
+  // Pide el link de pago a la Edge Function y lleva al alumno a Mercado Pago.
+  const comprarExtension = async (v) => {
+    if (!alumno?.id) return;
+    setComprando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('crear-pago-extension', {
+        body: { video_id: v.id, alumno_id: alumno.id },
+      });
+      if (error) throw new Error('No se pudo iniciar el pago');
+      if (data?.error) throw new Error(data.error);
+
+      const link = data?.init_point || data?.sandbox_init_point;
+      if (!link) throw new Error('No se recibió el link de pago');
+
+      window.location.href = link;   // se va a Mercado Pago
+    } catch (err) {
+      setComprando(false);
+      toast(err.message || 'No se pudo iniciar el pago', 'error');
+    }
+  };
+
   // ¿Vence pronto? (dentro de los próximos 3 días)
   const venceProximo = (v) => !!(v.vence_en && !estaVencido(v) && new Date(v.vence_en) <= new Date(Date.now() + 3*24*60*60*1000));
   // Muestra la fecha de vencimiento siempre en horario de Argentina.
@@ -4057,6 +4136,7 @@ function AlumnoVideos({ alumno, user }) {
           <div style={{fontSize:'0.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:current?.id===v.id?'var(--accent)':(estaVencido(v)?'var(--text2)':'var(--text)')}}>
             {v.titulo}
             {estaVencido(v) && <span className="chip chip-red" style={{marginLeft:6,fontSize:'0.62rem'}}>⌛ Vencido</span>}
+            {extensionVigente(v) && <span className="chip chip-green" style={{marginLeft:6,fontSize:'0.62rem'}}>⏱️ +24hs</span>}
           </div>
           {v.vence_en && !estaVencido(v) && (
             <div style={{fontSize:'0.68rem',marginTop:2,color:venceProximo(v)?'var(--warning)':'var(--text2)',fontWeight:venceProximo(v)?700:500}}>
@@ -4176,18 +4256,64 @@ function AlumnoVideos({ alumno, user }) {
         </div>
       )}
       {vencidoAviso && (
-        <div className="modal-overlay" onClick={() => setVencidoAviso(null)}>
-          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:420,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-overlay" onClick={() => !comprando && setVencidoAviso(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:440,padding:32,textAlign:'center',animation:'fadeInScale 0.3s ease'}} onClick={e=>e.stopPropagation()}>
             <div style={{fontSize:'3rem',marginBottom:12}}>⌛</div>
             <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>Video vencido</div>
             <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>
               <strong style={{color:'var(--text)'}}>{vencidoAviso.titulo}</strong> ya no está disponible.
             </div>
             <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
-              Venció el {new Date(vencidoAviso.vence_en).toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric',timeZone:'America/Argentina/Buenos_Aires'})} a las {new Date(vencidoAviso.vence_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'})} hs
+              Venció el {fmtVence(vencidoAviso.vence_en, true)}
             </div>
-            <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>Contactá al docente si necesitás acceso.</div>
-            <button className="btn btn-ghost" onClick={() => setVencidoAviso(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
+
+            {puedeComprarExtension(vencidoAviso) ? (
+              <>
+                <div style={{background:'var(--surface2)',border:'1px solid var(--accent)',borderRadius:12,padding:16,marginBottom:16}}>
+                  <div style={{fontSize:'0.9rem',fontWeight:600,marginBottom:6}}>
+                    ¿Necesitás más tiempo?
+                  </div>
+                  <div style={{color:'var(--text2)',fontSize:'0.84rem',marginBottom:10,lineHeight:1.5}}>
+                    Podés comprar <strong style={{color:'var(--text)'}}>24 horas más</strong> de acceso a este video.
+                    Tus visualizaciones disponibles no cambian.
+                  </div>
+                  <div style={{fontSize:'1.5rem',fontWeight:800,color:'var(--success)'}}>
+                    ${Number(vencidoAviso.precio_extension).toLocaleString('es-AR')}
+                  </div>
+                  {comprasHechas(vencidoAviso) > 0 && (
+                    <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:6}}>
+                      Ya compraste {comprasHechas(vencidoAviso)} de 2 extensiones posibles
+                    </div>
+                  )}
+                </div>
+                <div style={{display:'flex',gap:8}}>
+                  <button className="btn btn-ghost" disabled={comprando}
+                    onClick={() => setVencidoAviso(null)}
+                    style={{flex:1,justifyContent:'center'}}>
+                    Cancelar
+                  </button>
+                  <button className="btn btn-primary" disabled={comprando}
+                    onClick={() => comprarExtension(vencidoAviso)}
+                    style={{flex:1.4,justifyContent:'center'}}>
+                    {comprando ? 'Abriendo pago...' : '💳 Comprar 24hs'}
+                  </button>
+                </div>
+                <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:10}}>
+                  Vas a ser redirigido a Mercado Pago
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{color:'var(--text2)',fontSize:'0.82rem',marginBottom:20}}>
+                  {comprasHechas(vencidoAviso) >= 2
+                    ? 'Ya usaste las 2 extensiones disponibles para este video. Contactá al docente.'
+                    : (vencidoAviso.max_vistas != null && (contadoresVistas[vencidoAviso.id] || 0) >= vencidoAviso.max_vistas)
+                      ? 'Ya usaste todas tus visualizaciones de este video, así que extender el plazo no te serviría. Contactá al docente.'
+                      : 'Contactá al docente si necesitás acceso.'}
+                </div>
+                <button className="btn btn-ghost" onClick={() => setVencidoAviso(null)} style={{width:'100%',justifyContent:'center'}}>Cerrar</button>
+              </>
+            )}
           </div>
         </div>
       )}
