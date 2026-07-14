@@ -555,6 +555,7 @@ function LoginPage({ onLogin }) {
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [loading, setLoading] = useState(false);
+  const [bloqueado, setBloqueado] = useState(null);  // nombre del aula cerrada, si corresponde
   const toast = useToast();
 
   const handleLogin = async e => {
@@ -568,6 +569,17 @@ function LoginPage({ onLogin }) {
       if (!isAdmin) {
         const { data: al } = await supabase.from('alumnos').select('*').eq('email', email).single();
         alumno = al;
+
+        // Si el alumno pertenece a un aula cerrada, no puede ingresar.
+        if (alumno?.aula_id) {
+          const { data: aula } = await supabase.from('aulas').select('nombre, estado').eq('id', alumno.aula_id).single();
+          if (aula?.estado === 'cerrada') {
+            await supabase.auth.signOut();
+            setLoading(false);
+            setBloqueado(aula.nombre || '');
+            return;
+          }
+        }
       }
       onLogin({ user: data.user, isAdmin, alumno });
       toast('¡Bienvenido a SACi! 🎉', 'success');
@@ -577,6 +589,32 @@ function LoginPage({ onLogin }) {
       setLoading(false);
     }
   };
+
+  // Si el alumno pertenece a un aula cerrada, se le muestra este aviso en vez del login.
+  if (bloqueado !== null) {
+    return (
+      <div className="login-page">
+        <div className="login-card">
+          <div className="card" style={{textAlign:'center',padding:'40px 32px'}}>
+            <div style={{fontSize:'3.5rem',marginBottom:16}}>🔒</div>
+            <div style={{fontWeight:700,fontSize:'1.3rem',marginBottom:10}}>Tu curso finalizó</div>
+            <div style={{color:'var(--text2)',fontSize:'0.92rem',marginBottom:8,lineHeight:1.6}}>
+              {bloqueado
+                ? <>El aula <strong style={{color:'var(--text)'}}>{bloqueado}</strong> ya no está activa, por lo que el acceso a la plataforma está cerrado.</>
+                : <>Tu aula ya no está activa, por lo que el acceso a la plataforma está cerrado.</>}
+            </div>
+            <div style={{color:'var(--text2)',fontSize:'0.85rem',marginBottom:24}}>
+              Si creés que es un error, contactá al docente.
+            </div>
+            <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center'}}
+              onClick={() => { setBloqueado(null); setEmail(''); setPass(''); }}>
+              ← Volver
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-page">
@@ -4966,6 +5004,17 @@ function App() {
         if (!isAdmin) {
           const { data: al } = await supabase.from('alumnos').select('*').eq('email', u.email).single();
           alumno = al;
+
+          // Si el aula del alumno fue cerrada, se cierra su sesión aunque la tuviera guardada.
+          if (alumno?.aula_id) {
+            const { data: aula } = await supabase.from('aulas').select('estado').eq('id', alumno.aula_id).single();
+            if (aula?.estado === 'cerrada') {
+              await supabase.auth.signOut();
+              setAuth(null);
+              setLoading(false);
+              return;
+            }
+          }
         }
         const a = { user: u, isAdmin, alumno };
         setAuth(a);
