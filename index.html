@@ -5127,6 +5127,7 @@ function AlumnoMateriales({ alumno, user }) {
   const [mats, setMats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(null);
+  const [previewFull, setPreviewFull] = useState(false);   // visor de material en pantalla completa
   const [expanded, setExpanded] = useState({});
   const [contadoresVistasMat, setContadoresVistasMat] = useState({});
   const [accesoErrorMat, setAccesoErrorMat] = useState(null);
@@ -5302,17 +5303,20 @@ function AlumnoMateriales({ alumno, user }) {
       {/* Preview modal - sin opción de descarga cuando está bloqueado */}
       {preview && (
         <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setPreview(null)}>
-          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:18,width:'90vw',maxWidth:900,height:'85vh',display:'flex',flexDirection:'column'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 22px',borderBottom:'1px solid var(--border)'}}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius: previewFull?0:18, width: previewFull?'100vw':'95vw', maxWidth: previewFull?'none':1400, height: previewFull?'100vh':'92vh', display:'flex',flexDirection:'column'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid var(--border)'}}>
               <div style={{fontWeight:700}}>{preview.unidad||preview.titulo}</div>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
                 {preview.permite_descarga !== false && (
                   <button className="btn btn-success btn-sm" onClick={() => download(preview)}>⬇️ Descargar</button>
                 )}
-                <button className="modal-close" onClick={() => setPreview(null)}>✕</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPreviewFull(f => !f)} title={previewFull?'Reducir':'Pantalla completa'}>
+                  {previewFull ? '🗗 Reducir' : '⛶ Pantalla completa'}
+                </button>
+                <button className="modal-close" onClick={() => { setPreview(null); setPreviewFull(false); }}>✕</button>
               </div>
             </div>
-            <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px',position:'relative'}}>
+            <div style={{flex:1,overflow:'hidden',borderRadius: previewFull?0:'0 0 18px 18px',position:'relative'}}>
               {preview.tipo === 'pdf' ? (
                 <>
                   <iframe
