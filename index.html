@@ -1887,6 +1887,17 @@ const MSA_COLS = [
   { key: 'out_doc', label: 'Output · Doc/Elem', tipo: 'piezas' },
 ];
 
+// Colores predefinidos para el texto de las celdas (Proceso, Subproceso, Sector, Actividades).
+// hex null = color normal del tema (sin color especial). Elegidos para leerse bien en claro y oscuro.
+const MSA_PALETA = [
+  { hex: null,      label: 'Normal' },
+  { hex: '#dc2626', label: 'Rojo' },
+  { hex: '#2563eb', label: 'Azul' },
+  { hex: '#16a34a', label: 'Verde' },
+  { hex: '#ea580c', label: 'Naranja' },
+  { hex: '#7c3aed', label: 'Violeta' },
+];
+
 function filaVacia() {
   return { id: Math.random().toString(36).slice(2), proceso: '', subproceso: '', sector: '', in_arch: [], in_doc: [], actividades: '', out_arch: [], out_doc: [] };
 }
@@ -1906,6 +1917,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [verBanco, setVerBanco] = useState(true);
   const [anchos, setAnchos] = useState({});        // ancho por columna (px)
   const [colores, setColores] = useState({});      // color de texto por celda: { "filaId_colKey": "#hex" }
+  const [colorAbierto, setColorAbierto] = useState(null); // celda cuya paleta de color está abierta ("filaId_colKey")
   const fileImportRef = useRef();
   const resizAviso = useRef(null);                 // datos del arrastre de ancho en curso
   const toast = useToast();
@@ -1979,9 +1991,16 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     document.addEventListener('mouseup', soltar);
   };
 
-  // Color del texto de una celda concreta.
+  // Color del texto de una celda concreta. color=null vuelve al color normal del tema.
   const setColorCelda = (filaId, colKey, color) => {
-    setColores(c => ({ ...c, [`${filaId}_${colKey}`]: color }));
+    const cellKey = `${filaId}_${colKey}`;
+    setColores(c => {
+      const nuevo = { ...c };
+      if (color) nuevo[cellKey] = color;
+      else delete nuevo[cellKey];
+      return nuevo;
+    });
+    setColorAbierto(null);
   };
 
   // ── Nueva MSA / cargar / guardar ──
@@ -2272,24 +2291,43 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
               <tr key={fila.id}>
                 {MSA_COLS.map(col => (
                   <td key={col.key} style={{minWidth: col.tipo==='piezas' ? 130 : 110}}>
-                    {col.tipo === 'texto' ? (
-                      <div style={{position:'relative'}}>
-                        <textarea
-                          value={fila[col.key]}
-                          readOnly={soloLectura}
-                          onChange={e => setTexto(fila.id, col.key, e.target.value)}
-                          placeholder={soloLectura ? '' : '...'}
-                          rows={2}
-                          style={{width:'100%',border:'none',background:'transparent',color: colores[`${fila.id}_${col.key}`] || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colores[`${fila.id}_${col.key}`] ? 600 : 400}} />
-                        {!soloLectura && (
-                          <input type="color"
-                            value={colores[`${fila.id}_${col.key}`] || '#111827'}
-                            onChange={e => setColorCelda(fila.id, col.key, e.target.value)}
-                            title="Color del texto"
-                            style={{position:'absolute',bottom:2,right:2,width:18,height:18,border:'none',background:'none',cursor:'pointer',padding:0}} />
+                    {col.tipo === 'texto' ? (() => {
+                      const cellKey = `${fila.id}_${col.key}`;
+                      const colorActual = colores[cellKey] || null;
+                      const abierto = colorAbierto === cellKey;
+                      return (
+                      <div>
+                        <div style={{position:'relative'}}>
+                          <textarea
+                            value={fila[col.key]}
+                            readOnly={soloLectura}
+                            onChange={e => setTexto(fila.id, col.key, e.target.value)}
+                            placeholder={soloLectura ? '' : '...'}
+                            rows={2}
+                            style={{width:'100%',border:'none',background:'transparent',color: colorActual || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colorActual ? 600 : 400}} />
+                          {!soloLectura && (
+                            <button type="button"
+                              title="Color del texto"
+                              onClick={() => setColorAbierto(abierto ? null : cellKey)}
+                              style={{position:'absolute',bottom:4,right:4,width:16,height:16,borderRadius:'50%',border:'1px solid var(--border)',background: colorActual || 'var(--text)',cursor:'pointer',padding:0,display:'block'}} />
+                          )}
+                        </div>
+                        {!soloLectura && abierto && (
+                          <div style={{display:'flex',gap:6,justifyContent:'flex-end',padding:'4px 4px 2px',flexWrap:'wrap'}}>
+                            {MSA_PALETA.map(c => (
+                              <button key={c.label} type="button" title={c.label}
+                                onClick={() => setColorCelda(fila.id, col.key, c.hex)}
+                                style={{width:20,height:20,borderRadius:'50%',cursor:'pointer',padding:0,position:'relative',
+                                  background: c.hex || 'var(--text)',
+                                  border: colorActual === c.hex ? '2px solid var(--text)' : '1px solid var(--border)'}}>
+                                {c.hex === null && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,lineHeight:1,color:'var(--surface)'}}>✕</span>}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
-                    ) : (
+                      );
+                    })() : (
                       <div
                         className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
                         onDragOver={soloLectura ? undefined : (e) => { e.preventDefault(); setDragOver(fila.id+col.key); }}
