@@ -215,10 +215,10 @@
     box-shadow: 0 4px 0 -2px #2b8fc7; }
   /* Documento cuadrado */
   .msa-doc_cuadrado { background: #ffe08a; border: 2px solid #d9a72a; border-radius: 3px; }
-  /* Documento con pancita (borde ondulado abajo) */
-  .msa-doc_pancita { background: #b8f0c8; border: 2px solid #3fa85f; border-radius: 3px 3px 0 0;
-    -webkit-mask: radial-gradient(10px at 50% 100%, transparent 96%, #000) 0 100%/20px 10px repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 8px) no-repeat;
-    mask: radial-gradient(10px at 50% 100%, transparent 96%, #000) 0 100%/20px 10px repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 8px) no-repeat; }
+  /* Documento con pancita: rectángulo con base ondulada (una sola onda), dibujado con SVG */
+  .msa-doc_pancita { background: transparent; border: none; border-radius: 0; padding-bottom: 16px;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 60' preserveAspectRatio='none'><path d='M4 4 H96 V46 C74 58 26 34 4 46 Z' fill='%23b8f0c8' stroke='%233fa85f' stroke-width='3'/></svg>");
+    background-size: 100% 100%; background-repeat: no-repeat; }
   .msa-celda { min-height: 54px; padding: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; transition: background 0.15s; }
   .msa-celda.msa-drop { background: rgba(108,92,231,0.18); outline: 2px dashed var(--accent); outline-offset: -3px; }
   .msa-tabla { border-collapse: collapse; width: 100%; }
