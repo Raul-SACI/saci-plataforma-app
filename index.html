@@ -198,7 +198,30 @@
   .video-watermark { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; z-index: 10; gap: 8px; }
   .video-watermark-text { color: rgba(249,202,36,0.55); font-size: 1.1rem; font-weight: 700; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 2px 8px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.05em; }
   .video-watermark-sub { color: rgba(249,202,36,0.35); font-size: 0.72rem; font-family: 'Space Mono', monospace; white-space: nowrap; text-shadow: 0 1px 4px rgba(0,0,0,0.9); transform: rotate(-12deg); letter-spacing: 0.08em; }
-  
+
+  /* ── Matriz MSA ── */
+  .msa-pieza { position: relative; display: inline-flex; align-items: center; justify-content: center; text-align: center;
+    min-width: 74px; max-width: 120px; min-height: 46px; padding: 8px 10px; cursor: grab; user-select: none;
+    font-size: 0.72rem; font-weight: 700; color: #1a1a1a; line-height: 1.1; word-break: break-word; }
+  .msa-pieza:active { cursor: grabbing; }
+  .msa-pieza .msa-x { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--danger); color: #fff; font-size: 0.7rem; display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 3; }
+  .msa-pieza:hover .msa-x { display: flex; }
+  /* Archivo = cilindro */
+  .msa-archivo { background: #7ed0f7; border: 2px solid #2b8fc7; border-radius: 50% / 18px; }
+  /* Documento cuadrado */
+  .msa-doc_cuadrado { background: #ffe08a; border: 2px solid #d9a72a; border-radius: 3px; }
+  /* Documento con pancita (borde ondulado abajo) */
+  .msa-doc_pancita { background: #b8f0c8; border: 2px solid #3fa85f; border-radius: 3px 3px 0 0;
+    -webkit-mask: radial-gradient(10px at 50% 100%, transparent 96%, #000) 0 100%/20px 10px repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 8px) no-repeat;
+    mask: radial-gradient(10px at 50% 100%, transparent 96%, #000) 0 100%/20px 10px repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 8px) no-repeat; }
+  .msa-celda { min-height: 54px; padding: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; transition: background 0.15s; }
+  .msa-celda.msa-drop { background: rgba(108,92,231,0.18); outline: 2px dashed var(--accent); outline-offset: -3px; }
+  .msa-tabla { border-collapse: collapse; width: 100%; }
+  .msa-tabla th, .msa-tabla td { border: 1px solid var(--border); vertical-align: top; }
+  .msa-tabla th { background: var(--surface2); padding: 6px 8px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .msa-banco { display: flex; flex-wrap: wrap; gap: 10px; }
+
   /* Empty state */
   .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
   .empty-icon { font-size: 3rem; margin-bottom: 12px; opacity: 0.5; }
@@ -665,6 +688,7 @@ const NAV_ADMIN = [
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'materiales', icon: '📄', label: 'Materiales' },
   { id: 'evaluaciones', icon: '📝', label: 'Evaluaciones' },
+  { id: 'msa', icon: '🧩', label: 'Matriz MSA' },
 ];
 const NAV_ALUMNO = [
   { id: 'muro', icon: '📢', label: 'Novedades' },
@@ -672,6 +696,7 @@ const NAV_ALUMNO = [
   { id: 'mis-videos', icon: '🎬', label: 'Mis Videos' },
   { id: 'mis-materiales', icon: '📄', label: 'Materiales' },
   { id: 'mis-evaluaciones', icon: '📝', label: 'Evaluaciones' },
+  { id: 'mis-msa', icon: '🧩', label: 'Matriz MSA' },
   { id: 'mis-pagos', icon: '💳', label: 'Mis Pagos' },
 ];
 
@@ -1767,6 +1792,314 @@ function AdminDashboard({ setPage, aulaActiva }) {
     </div>
   );
 }
+// ─── MATRIZ MSA ───────────────────────────────────────────────────────
+// Pieza visual: dibuja un archivo (cilindro), doc cuadrado o doc con pancita.
+function MsaPieza({ pieza, onDragStart, onRemove }) {
+  return (
+    <div
+      className={`msa-pieza msa-${pieza.tipo}`}
+      draggable={!!onDragStart}
+      onDragStart={onDragStart ? (e) => onDragStart(e, pieza) : undefined}
+      title={pieza.nombre}>
+      {onRemove && <span className="msa-x" onClick={(e) => { e.stopPropagation(); onRemove(); }}>✕</span>}
+      <span>{pieza.nombre}</span>
+    </div>
+  );
+}
+
+// Columnas de la matriz. key = dónde se guardan las piezas / el texto.
+const MSA_COLS = [
+  { key: 'proceso', label: 'Proceso', tipo: 'texto' },
+  { key: 'subproceso', label: 'Subproceso', tipo: 'texto' },
+  { key: 'sector', label: 'Sector', tipo: 'texto' },
+  { key: 'in_arch', label: 'Input · Archivos', tipo: 'piezas' },
+  { key: 'in_doc', label: 'Input · Doc/Elem', tipo: 'piezas' },
+  { key: 'actividades', label: 'Actividades', tipo: 'texto' },
+  { key: 'out_arch', label: 'Output · Archivos', tipo: 'piezas' },
+  { key: 'out_doc', label: 'Output · Doc/Elem', tipo: 'piezas' },
+];
+
+function filaVacia() {
+  return { id: Math.random().toString(36).slice(2), proceso: '', subproceso: '', sector: '', in_arch: [], in_doc: [], actividades: '', out_arch: [], out_doc: [] };
+}
+
+// Editor de la matriz: banco de piezas arriba + tabla abajo. Se usa en admin y alumno.
+function MsaEditor({ alumno, aulaActiva, esAdmin }) {
+  const [piezas, setPiezas] = useState([]);
+  const [matrices, setMatrices] = useState([]);
+  const [publicadas, setPublicadas] = useState([]);  // matrices del admin (para el alumno)
+  const [actual, setActual] = useState(null);         // matriz que se está editando
+  const [filas, setFilas] = useState([filaVacia()]);
+  const [titulo, setTitulo] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dragOver, setDragOver] = useState(null);
+  const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
+  const [verBanco, setVerBanco] = useState(true);
+  const toast = useToast();
+
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    // Piezas base + las propias del alumno.
+    const { data: pz } = await supabase.from('msa_piezas').select('*').order('created_at');
+    setPiezas((pz || []).filter(p => p.es_base || p.creado_por === alumno?.id));
+
+    if (esAdmin) {
+      const { data } = await supabase.from('msa_matrices').select('id, titulo, publicada, updated_at')
+        .eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+      setMatrices(data || []);
+    } else {
+      // El alumno ve: sus propias matrices + las publicadas por el admin de su aula.
+      const [mias, pub] = await Promise.all([
+        supabase.from('msa_matrices').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+        supabase.from('msa_matrices').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+      ]);
+      setMatrices(mias.data || []);
+      setPublicadas(pub.data || []);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const bancoPorTipo = (tipo) => piezas.filter(p => p.tipo === tipo);
+
+  // ── Drag & drop ──
+  const onDragStart = (e, pieza) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ nombre: pieza.nombre, tipo: pieza.tipo }));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+  const onDrop = (e, filaId, colKey) => {
+    e.preventDefault();
+    setDragOver(null);
+    try {
+      const p = JSON.parse(e.dataTransfer.getData('application/json'));
+      setFilas(fs => fs.map(f => f.id === filaId
+        ? { ...f, [colKey]: [...f[colKey], { ...p, uid: Math.random().toString(36).slice(2) }] }
+        : f));
+    } catch {}
+  };
+  const quitarPieza = (filaId, colKey, uid) => {
+    setFilas(fs => fs.map(f => f.id === filaId ? { ...f, [colKey]: f[colKey].filter(p => p.uid !== uid) } : f));
+  };
+  const setTexto = (filaId, colKey, valor) => {
+    setFilas(fs => fs.map(f => f.id === filaId ? { ...f, [colKey]: valor } : f));
+  };
+
+  const agregarFila = () => setFilas(fs => [...fs, filaVacia()]);
+  const quitarFila = (id) => setFilas(fs => fs.length > 1 ? fs.filter(f => f.id !== id) : fs);
+
+  // ── Nueva MSA / cargar / guardar ──
+  const nuevaMatriz = () => { setActual(null); setTitulo(''); setFilas([filaVacia()]); };
+
+  const cargarMatriz = async (id, soloLectura = false) => {
+    const { data } = await supabase.from('msa_matrices').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(soloLectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo);
+    const cont = Array.isArray(data.contenido) ? data.contenido : [];
+    setFilas(cont.length ? cont.map(f => ({ ...filaVacia(), ...f })) : [filaVacia()]);
+  };
+
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título a la matriz', 'error');
+    setSaving(true);
+    const payload = {
+      titulo: titulo.trim(),
+      contenido: filas,
+      aula_id: miAula,
+      updated_at: new Date().toISOString(),
+    };
+    if (esAdmin) {
+      payload.es_admin = true;
+      if (publicar !== null) payload.publicada = publicar;
+    } else {
+      payload.alumno_id = alumno?.id;
+    }
+    let error;
+    if (actual?.id && !actual?.soloLectura) {
+      ({ error } = await supabase.from('msa_matrices').update(payload).eq('id', actual.id));
+    } else {
+      const { data, error: e2 } = await supabase.from('msa_matrices').insert(payload).select('id').single();
+      error = e2;
+      if (data) setActual({ id: data.id, ...payload });
+    }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Matriz publicada ✅' : (publicar === false ? 'Matriz despublicada' : 'Matriz guardada ✅'), 'success');
+    load();
+  };
+
+  const crearPieza = async () => {
+    if (!nuevaPieza.nombre.trim()) return toast('Poné un nombre', 'error');
+    const { data, error } = await supabase.from('msa_piezas').insert({
+      nombre: nuevaPieza.nombre.trim().toUpperCase(),
+      tipo: nuevaPieza.tipo,
+      es_base: esAdmin,                    // admin crea piezas base; alumno crea propias
+      creado_por: esAdmin ? null : alumno?.id,
+    }).select('*').single();
+    if (error) return toast('Error: ' + error.message, 'error');
+    setPiezas(p => [...p, data]);
+    setNuevaPieza({ nombre: '', tipo: nuevaPieza.tipo });
+    toast('Pieza creada ✅', 'success');
+  };
+
+  if (!miAula) return <SinAula />;
+  if (loading) return <Loading />;
+
+  const soloLectura = !!actual?.soloLectura;
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header">
+        <div>
+          <div className="page-title">🧩 Matriz de Sistema Administrativo</div>
+          <div className="page-subtitle">Armá la MSA arrastrando archivos y documentos</div>
+        </div>
+        <button className="btn btn-primary" onClick={nuevaMatriz}>+ Nueva MSA</button>
+      </div>
+
+      {/* Selector de matrices guardadas */}
+      <div className="card" style={{marginBottom:16}}>
+        <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+          <div style={{flex:1,minWidth:200}}>
+            <label style={{fontSize:'0.78rem',color:'var(--text2)',fontWeight:600}}>{esAdmin ? 'Mis matrices' : 'Mis prácticas'}</label>
+            <div style={{display:'flex',flexDirection:'column',gap:4,marginTop:6,maxHeight:140,overflowY:'auto'}}>
+              {matrices.length === 0 && <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>Todavía no guardaste ninguna</span>}
+              {matrices.map(m => (
+                <button key={m.id} className="btn btn-ghost btn-sm" style={{justifyContent:'space-between'}} onClick={() => cargarMatriz(m.id)}>
+                  <span>{m.titulo}</span>
+                  {esAdmin && (m.publicada ? <span className="chip chip-green" style={{fontSize:'0.6rem'}}>Publicada</span> : <span className="chip" style={{fontSize:'0.6rem',background:'var(--surface2)',color:'var(--text2)'}}>Borrador</span>)}
+                </button>
+              ))}
+            </div>
+          </div>
+          {!esAdmin && (
+            <div style={{flex:1,minWidth:200}}>
+              <label style={{fontSize:'0.78rem',color:'var(--text2)',fontWeight:600}}>Publicadas por el profesor</label>
+              <div style={{display:'flex',flexDirection:'column',gap:4,marginTop:6,maxHeight:140,overflowY:'auto'}}>
+                {publicadas.length === 0 && <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>Todavía no hay ninguna</span>}
+                {publicadas.map(m => (
+                  <button key={m.id} className="btn btn-ghost btn-sm" style={{justifyContent:'flex-start',gap:8}} onClick={() => cargarMatriz(m.id, true)}>
+                    👁️ {m.titulo}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {soloLectura && (
+        <div style={{background:'rgba(108,92,231,0.12)',border:'1px solid var(--accent)',borderRadius:10,padding:'8px 14px',marginBottom:12,fontSize:'0.85rem'}}>
+          👁️ Estás viendo una matriz del profesor (solo lectura). Para practicar, tocá "+ Nueva MSA".
+        </div>
+      )}
+
+      {/* Banco de piezas */}
+      {!soloLectura && (
+        <div className="card" style={{marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:verBanco?12:0}}>
+            <strong style={{fontSize:'0.9rem'}}>📦 Banco de piezas</strong>
+            <button className="btn btn-ghost btn-sm" onClick={() => setVerBanco(v => !v)}>{verBanco ? 'Ocultar' : 'Mostrar'}</button>
+          </div>
+          {verBanco && (
+            <>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Arrastrá una pieza a la celda que corresponda.</div>
+              {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos cuadrados'],['doc_pancita','📄 Documentos con pancita']].map(([tipo,label]) => (
+                <div key={tipo} style={{marginBottom:12}}>
+                  <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
+                  <div className="msa-banco">
+                    {bancoPorTipo(tipo).map(p => <MsaPieza key={p.id} pieza={p} onDragStart={onDragStart} />)}
+                    {bancoPorTipo(tipo).length === 0 && <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>—</span>}
+                  </div>
+                </div>
+              ))}
+              {/* Crear pieza nueva */}
+              <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:12}}>
+                <input placeholder="Nombre nueva pieza" value={nuevaPieza.nombre}
+                  onChange={e => setNuevaPieza(p => ({...p, nombre: e.target.value}))}
+                  style={{flex:1,minWidth:140,padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}} />
+                <select value={nuevaPieza.tipo} onChange={e => setNuevaPieza(p => ({...p, tipo: e.target.value}))}
+                  style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}}>
+                  <option value="archivo">🛢️ Archivo</option>
+                  <option value="doc_cuadrado">▭ Doc cuadrado</option>
+                  <option value="doc_pancita">📄 Doc pancita</option>
+                </select>
+                <button className="btn btn-ghost btn-sm" onClick={crearPieza}>+ Crear pieza</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Título + acciones */}
+      {!soloLectura && (
+        <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+          <input placeholder="Título de la matriz (ej: Compras con contrato)" value={titulo}
+            onChange={e => setTitulo(e.target.value)}
+            style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
+          {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-success" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
+          {esAdmin && actual?.publicada && <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>}
+        </div>
+      )}
+
+      {/* La matriz */}
+      <div className="card" style={{overflowX:'auto',padding:0}}>
+        <table className="msa-tabla">
+          <thead>
+            <tr>
+              {MSA_COLS.map(c => <th key={c.key}>{c.label}</th>)}
+              {!soloLectura && <th style={{width:36}}></th>}
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map(fila => (
+              <tr key={fila.id}>
+                {MSA_COLS.map(col => (
+                  <td key={col.key} style={{minWidth: col.tipo==='piezas' ? 130 : 110}}>
+                    {col.tipo === 'texto' ? (
+                      <textarea
+                        value={fila[col.key]}
+                        readOnly={soloLectura}
+                        onChange={e => setTexto(fila.id, col.key, e.target.value)}
+                        placeholder={soloLectura ? '' : '...'}
+                        rows={2}
+                        style={{width:'100%',border:'none',background:'transparent',color:'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit'}} />
+                    ) : (
+                      <div
+                        className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
+                        onDragOver={soloLectura ? undefined : (e) => { e.preventDefault(); setDragOver(fila.id+col.key); }}
+                        onDragLeave={() => setDragOver(null)}
+                        onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}>
+                        {fila[col.key].map(p => (
+                          <MsaPieza key={p.uid} pieza={p}
+                            onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
+                        ))}
+                      </div>
+                    )}
+                  </td>
+                ))}
+                {!soloLectura && (
+                  <td style={{textAlign:'center'}}>
+                    <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => quitarFila(fila.id)}>🗑️</button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {!soloLectura && (
+        <button className="btn btn-ghost" style={{marginTop:12}} onClick={agregarFila}>+ Agregar fila</button>
+      )}
+    </div>
+  );
+}
+
 // ─── ADMIN EXTENSIONES ────────────────────────────────────────────────
 function AdminExtensiones({ aulaActiva }) {
   const [exts, setExts] = useState([]);
@@ -5450,6 +5783,8 @@ function App() {
     alumnos: <AdminAlumnos aulaActiva={aulaActiva} />,
     pagos: <AdminPagos aulaActiva={aulaActiva} />,
     extensiones: <AdminExtensiones aulaActiva={aulaActiva} />,
+    msa: <MsaEditor aulaActiva={aulaActiva} esAdmin={true} />,
+    'mis-msa': <MsaEditor alumno={alumno} esAdmin={false} />,
     videos: <AdminVideos aulaActiva={aulaActiva} />,
     materiales: <AdminMateriales aulaActiva={aulaActiva} />,
     evaluaciones: <AdminEvaluaciones aulaActiva={aulaActiva} />,
@@ -5470,6 +5805,8 @@ function App() {
     alumnos: ['👥 Alumnos', 'Gestión de alumnos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
     extensiones: ['⏱️ Extensiones', 'Compras de 24hs extra'],
+    msa: ['🧩 Matriz MSA', 'Armá matrices para tus clases'],
+    'mis-msa': ['🧩 Matriz MSA', 'Practicá armando matrices'],
     videos: ['🎬 Videos', 'Biblioteca de videos'],
     materiales: ['📄 Materiales', 'Recursos educativos'],
     evaluaciones: ['📝 Evaluaciones', 'Gestión de exámenes'],
