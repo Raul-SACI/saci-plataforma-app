@@ -1904,7 +1904,10 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [dragOver, setDragOver] = useState(null);
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
   const [verBanco, setVerBanco] = useState(true);
+  const [anchos, setAnchos] = useState({});        // ancho por columna (px)
+  const [colores, setColores] = useState({});      // color de texto por celda: { "filaId_colKey": "#hex" }
   const fileImportRef = useRef();
+  const resizAviso = useRef(null);                 // datos del arrastre de ancho en curso
   const toast = useToast();
 
   const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
@@ -1959,8 +1962,30 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const agregarFila = () => setFilas(fs => [...fs, filaVacia()]);
   const quitarFila = (id) => setFilas(fs => fs.length > 1 ? fs.filter(f => f.id !== id) : fs);
 
+  // Arrastrar el borde de una columna para cambiar su ancho (como en Excel).
+  const iniciarResize = (e, colKey) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = anchos[colKey] || e.target.parentElement.offsetWidth;
+    const mover = (ev) => {
+      const nuevo = Math.max(70, startW + (ev.clientX - startX));
+      setAnchos(a => ({ ...a, [colKey]: nuevo }));
+    };
+    const soltar = () => {
+      document.removeEventListener('mousemove', mover);
+      document.removeEventListener('mouseup', soltar);
+    };
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  };
+
+  // Color del texto de una celda concreta.
+  const setColorCelda = (filaId, colKey, color) => {
+    setColores(c => ({ ...c, [`${filaId}_${colKey}`]: color }));
+  };
+
   // ── Nueva MSA / cargar / guardar ──
-  const nuevaMatriz = () => { setActual(null); setTitulo(''); setFilas([filaVacia()]); };
+  const nuevaMatriz = () => { setActual(null); setTitulo(''); setFilas([filaVacia()]); setAnchos({}); setColores({}); };
 
   const cargarMatriz = async (id, soloLectura = false) => {
     const { data } = await supabase.from('msa_matrices').select('*').eq('id', id).single();
@@ -1969,6 +1994,10 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     setTitulo(data.titulo);
     const cont = Array.isArray(data.contenido) ? data.contenido : [];
     setFilas(cont.length ? cont.map(f => ({ ...filaVacia(), ...f })) : [filaVacia()]);
+    // Anchos y colores se guardan dentro del contenido como propiedades especiales.
+    const meta = (data.contenido && !Array.isArray(data.contenido)) ? data.contenido : {};
+    setAnchos(data.anchos_meta || meta.__anchos || {});
+    setColores(data.colores_meta || meta.__colores || {});
   };
 
   const guardar = async (publicar = null) => {
@@ -1977,6 +2006,8 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     const payload = {
       titulo: titulo.trim(),
       contenido: filas,
+      anchos_meta: anchos,
+      colores_meta: colores,
       aula_id: miAula,
       updated_at: new Date().toISOString(),
     };
@@ -1998,6 +2029,27 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     if (error) return toast('Error: ' + error.message, 'error');
     toast(publicar === true ? 'Matriz publicada ✅' : (publicar === false ? 'Matriz despublicada' : 'Matriz guardada ✅'), 'success');
     load();
+  };
+
+  // Editar el nombre de una pieza del banco.
+  const editarPieza = async (pieza) => {
+    const nuevoNombre = prompt('Nuevo nombre de la pieza:', pieza.nombre);
+    if (nuevoNombre === null) return;
+    const nombre = nuevoNombre.trim().toUpperCase();
+    if (!nombre) return toast('El nombre no puede estar vacío', 'error');
+    const { error } = await supabase.from('msa_piezas').update({ nombre }).eq('id', pieza.id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    setPiezas(p => p.map(x => x.id === pieza.id ? { ...x, nombre } : x));
+    toast('Pieza actualizada ✅', 'success');
+  };
+
+  // Eliminar una pieza del banco (las ya usadas en matrices guardadas no se tocan).
+  const eliminarPieza = async (pieza) => {
+    if (!confirm(`¿Eliminar la pieza "${pieza.nombre}" del banco?\n\nLas matrices que ya la usaron no se modifican.`)) return;
+    const { error } = await supabase.from('msa_piezas').delete().eq('id', pieza.id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    setPiezas(p => p.filter(x => x.id !== pieza.id));
+    toast('Pieza eliminada', 'info');
   };
 
   const crearPieza = async () => {
@@ -2142,7 +2194,17 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                 <div key={tipo} style={{marginBottom:12}}>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
                   <div className="msa-banco">
-                    {bancoPorTipo(tipo).map(p => <MsaPieza key={p.id} pieza={p} onDragStart={onDragStart} />)}
+                    {bancoPorTipo(tipo).map(p => (
+                      <div key={p.id} style={{display:'inline-flex',flexDirection:'column',alignItems:'center',gap:2}}>
+                        <MsaPieza pieza={p} onDragStart={onDragStart} />
+                        <div style={{display:'flex',gap:4}}>
+                          <button onClick={() => editarPieza(p)} title="Editar"
+                            style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.7rem',opacity:0.6,padding:0}}>✏️</button>
+                          <button onClick={() => eliminarPieza(p)} title="Eliminar"
+                            style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.7rem',opacity:0.6,padding:0}}>🗑️</button>
+                        </div>
+                      </div>
+                    ))}
                     {bancoPorTipo(tipo).length === 0 && <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>—</span>}
                   </div>
                 </div>
@@ -2191,7 +2253,17 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
         <table className="msa-tabla">
           <thead>
             <tr>
-              {MSA_COLS.map(c => <th key={c.key}>{c.label}</th>)}
+              {MSA_COLS.map(c => (
+                <th key={c.key} style={{position:'relative', width: anchos[c.key] ? anchos[c.key]+'px' : undefined, minWidth: anchos[c.key] ? anchos[c.key]+'px' : undefined}}>
+                  {c.label}
+                  {!soloLectura && (
+                    <span
+                      onMouseDown={(e) => iniciarResize(e, c.key)}
+                      title="Arrastrá para cambiar el ancho"
+                      style={{position:'absolute',top:0,right:0,width:8,height:'100%',cursor:'col-resize',userSelect:'none'}} />
+                  )}
+                </th>
+              ))}
               {!soloLectura && <th style={{width:36}}></th>}
             </tr>
           </thead>
@@ -2201,13 +2273,22 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                 {MSA_COLS.map(col => (
                   <td key={col.key} style={{minWidth: col.tipo==='piezas' ? 130 : 110}}>
                     {col.tipo === 'texto' ? (
-                      <textarea
-                        value={fila[col.key]}
-                        readOnly={soloLectura}
-                        onChange={e => setTexto(fila.id, col.key, e.target.value)}
-                        placeholder={soloLectura ? '' : '...'}
-                        rows={2}
-                        style={{width:'100%',border:'none',background:'transparent',color:'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit'}} />
+                      <div style={{position:'relative'}}>
+                        <textarea
+                          value={fila[col.key]}
+                          readOnly={soloLectura}
+                          onChange={e => setTexto(fila.id, col.key, e.target.value)}
+                          placeholder={soloLectura ? '' : '...'}
+                          rows={2}
+                          style={{width:'100%',border:'none',background:'transparent',color: colores[`${fila.id}_${col.key}`] || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colores[`${fila.id}_${col.key}`] ? 600 : 400}} />
+                        {!soloLectura && (
+                          <input type="color"
+                            value={colores[`${fila.id}_${col.key}`] || '#111827'}
+                            onChange={e => setColorCelda(fila.id, col.key, e.target.value)}
+                            title="Color del texto"
+                            style={{position:'absolute',bottom:2,right:2,width:18,height:18,border:'none',background:'none',cursor:'pointer',padding:0}} />
+                        )}
+                      </div>
                     ) : (
                       <div
                         className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
