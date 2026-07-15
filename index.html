@@ -1904,6 +1904,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [dragOver, setDragOver] = useState(null);
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
   const [verBanco, setVerBanco] = useState(true);
+  const fileImportRef = useRef();
   const toast = useToast();
 
   const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
@@ -2013,6 +2014,60 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     toast('Pieza creada ✅', 'success');
   };
 
+  // Descarga una plantilla de Excel de ejemplo para importar piezas.
+  const descargarPlantillaPiezas = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['nombre', 'tipo'],
+      ['ART REP', 'archivo'],
+      ['STOCK', 'archivo'],
+      ['OC', 'manual'],
+      ['LR', 'manual'],
+      ['FACTURA', 'sistema'],
+      ['REMITO', 'sistema'],
+    ]);
+    ws['!cols'] = [{ wch: 22 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Piezas');
+    XLSX.writeFile(wb, 'plantilla_piezas_MSA.xlsx');
+  };
+
+  // Importa piezas desde un Excel. Mapea los tipos amigables a los internos.
+  const importarPiezas = async (file) => {
+    const mapaTipo = {
+      'archivo': 'archivo',
+      'manual': 'doc_cuadrado', 'doc_cuadrado': 'doc_cuadrado', 'cuadrado': 'doc_cuadrado',
+      'sistema': 'doc_pancita', 'doc_pancita': 'doc_pancita', 'pancita': 'doc_pancita',
+    };
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+      if (!rows.length) return toast('El Excel está vacío', 'error');
+
+      const nuevas = [];
+      const errores = [];
+      rows.forEach((r, i) => {
+        const nombre = String(r.nombre ?? r.Nombre ?? '').trim().toUpperCase();
+        const tipoRaw = String(r.tipo ?? r.Tipo ?? '').trim().toLowerCase();
+        const tipo = mapaTipo[tipoRaw];
+        if (!nombre) { errores.push(`Fila ${i + 2}: sin nombre`); return; }
+        if (!tipo) { errores.push(`Fila ${i + 2}: tipo inválido ("${tipoRaw}")`); return; }
+        nuevas.push({ nombre, tipo, es_base: true, creado_por: null });
+      });
+
+      if (!nuevas.length) return toast('No se pudo importar ninguna pieza. Revisá el formato.', 'error');
+
+      const { data, error } = await supabase.from('msa_piezas').insert(nuevas).select('*');
+      if (error) return toast('Error al guardar: ' + error.message, 'error');
+
+      setPiezas(p => [...p, ...(data || [])]);
+      toast(`${data.length} piezas importadas ✅${errores.length ? ` (${errores.length} con error)` : ''}`, 'success');
+      if (errores.length) console.warn('Filas con error:', errores);
+    } catch (err) {
+      toast('No se pudo leer el Excel: ' + err.message, 'error');
+    }
+  };
+
   if (!miAula) return <SinAula />;
   if (loading) return <Loading />;
 
@@ -2105,6 +2160,15 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                 </select>
                 <button className="btn btn-ghost btn-sm" onClick={crearPieza}>+ Crear pieza</button>
               </div>
+              {esAdmin && (
+                <div style={{display:'flex',gap:8,marginTop:10,flexWrap:'wrap',alignItems:'center'}}>
+                  <span style={{fontSize:'0.75rem',color:'var(--text2)'}}>Cargar muchas de una vez:</span>
+                  <button className="btn btn-ghost btn-sm" onClick={descargarPlantillaPiezas}>📋 Plantilla</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => fileImportRef.current.click()}>📥 Importar Excel</button>
+                  <input ref={fileImportRef} type="file" accept=".xlsx,.xls" style={{display:'none'}}
+                    onChange={e => { if (e.target.files[0]) { importarPiezas(e.target.files[0]); e.target.value=''; } }} />
+                </div>
+              )}
             </>
           )}
         </div>
