@@ -207,8 +207,12 @@
   .msa-pieza .msa-x { position: absolute; top: -6px; right: -6px; width: 16px; height: 16px; border-radius: 50%;
     background: var(--danger); color: #fff; font-size: 0.7rem; display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 3; }
   .msa-pieza:hover .msa-x { display: flex; }
-  /* Archivo = cilindro */
-  .msa-archivo { background: #7ed0f7; border: 2px solid #2b8fc7; border-radius: 50% / 18px; }
+  /* Archivo = cilindro con tapa elíptica (símbolo de base de datos) */
+  .msa-archivo { background: #7ed0f7; border: 2px solid #2b8fc7; border-radius: 50% / 20%;
+    padding-top: 16px; }
+  .msa-archivo::before { content: ''; position: absolute; top: 3px; left: 3px; right: 3px; height: 12px;
+    border: 2px solid #2b8fc7; border-radius: 50%; background: #a5def9;
+    box-shadow: 0 4px 0 -2px #2b8fc7; }
   /* Documento cuadrado */
   .msa-doc_cuadrado { background: #ffe08a; border: 2px solid #d9a72a; border-radius: 3px; }
   /* Documento con pancita (borde ondulado abajo) */
