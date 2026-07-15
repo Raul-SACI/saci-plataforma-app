@@ -692,7 +692,7 @@ const NAV_ADMIN = [
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'materiales', icon: '📄', label: 'Materiales' },
   { id: 'evaluaciones', icon: '📝', label: 'Evaluaciones' },
-  { id: 'msa', icon: '🧩', label: 'Matriz MSA' },
+  { id: 'msa', icon: '🎮', label: 'Sala de Juegos' },
 ];
 const NAV_ALUMNO = [
   { id: 'muro', icon: '📢', label: 'Novedades' },
@@ -700,7 +700,7 @@ const NAV_ALUMNO = [
   { id: 'mis-videos', icon: '🎬', label: 'Mis Videos' },
   { id: 'mis-materiales', icon: '📄', label: 'Materiales' },
   { id: 'mis-evaluaciones', icon: '📝', label: 'Evaluaciones' },
-  { id: 'mis-msa', icon: '🧩', label: 'Matriz MSA' },
+  { id: 'mis-msa', icon: '🎮', label: 'Sala de Juegos' },
   { id: 'mis-pagos', icon: '💳', label: 'Mis Pagos' },
 ];
 
@@ -1796,6 +1796,70 @@ function AdminDashboard({ setPage, aulaActiva }) {
     </div>
   );
 }
+// ─── SALA DE JUEGOS ───────────────────────────────────────────────────
+// Contenedor con pestañas. Cada pestaña es una herramienta de práctica.
+function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
+  const [tab, setTab] = useState('msa');
+
+  const JUEGOS = [
+    { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
+    { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
+    { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: false },
+    { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: false },
+    { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
+    { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: false },
+  ];
+
+  const Proximamente = ({ nombre }) => (
+    <div className="page-content fade-in">
+      <div style={{textAlign:'center',padding:'70px 20px'}}>
+        <div style={{fontSize:'3.5rem',marginBottom:16}}>🚧</div>
+        <div style={{fontWeight:700,fontSize:'1.2rem',marginBottom:8}}>{nombre}</div>
+        <div style={{color:'var(--text2)',fontSize:'0.9rem',maxWidth:420,margin:'0 auto'}}>
+          Esta herramienta está en construcción. Muy pronto vas a poder practicar acá.
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="page-content fade-in" style={{paddingBottom:0}}>
+      <div className="page-header">
+        <div>
+          <div className="page-title">🎮 Sala de Juegos</div>
+          <div className="page-subtitle">Herramientas para practicar los temas de la materia</div>
+        </div>
+      </div>
+
+      {/* Pestañas */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:8,borderBottom:'1px solid var(--border)',paddingBottom:10}}>
+        {JUEGOS.map(j => (
+          <button key={j.id}
+            onClick={() => setTab(j.id)}
+            style={{
+              display:'flex',alignItems:'center',gap:6,padding:'8px 14px',borderRadius:10,
+              border:`1px solid ${tab===j.id?'var(--accent)':'var(--border)'}`,
+              background: tab===j.id ? 'var(--accent)' : 'var(--surface2)',
+              color: tab===j.id ? '#fff' : 'var(--text)',
+              cursor:'pointer',fontSize:'0.85rem',fontWeight:600,whiteSpace:'nowrap',position:'relative'
+            }}>
+            <span>{j.icon}</span>
+            <span>{j.label}</span>
+            {!j.listo && <span style={{fontSize:'0.6rem',opacity:0.7,marginLeft:2}}>🚧</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Contenido de la pestaña activa */}
+      <div style={{margin:'0 -12px'}}>
+        {tab === 'msa'
+          ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
+          : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
+      </div>
+    </div>
+  );
+}
+
 // ─── MATRIZ MSA ───────────────────────────────────────────────────────
 // Pieza visual: dibuja un archivo (cilindro), doc cuadrado o doc con pancita.
 function MsaPieza({ pieza, onDragStart, onRemove }) {
@@ -1828,7 +1892,7 @@ function filaVacia() {
 }
 
 // Editor de la matriz: banco de piezas arriba + tabla abajo. Se usa en admin y alumno.
-function MsaEditor({ alumno, aulaActiva, esAdmin }) {
+function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [piezas, setPiezas] = useState([]);
   const [matrices, setMatrices] = useState([]);
   const [publicadas, setPublicadas] = useState([]);  // matrices del admin (para el alumno)
@@ -1956,13 +2020,21 @@ function MsaEditor({ alumno, aulaActiva, esAdmin }) {
 
   return (
     <div className="page-content fade-in">
-      <div className="page-header">
-        <div>
-          <div className="page-title">🧩 Matriz de Sistema Administrativo</div>
-          <div className="page-subtitle">Armá la MSA arrastrando archivos y documentos</div>
+      {!embebido && (
+        <div className="page-header">
+          <div>
+            <div className="page-title">🧩 Matriz de Sistema Administrativo</div>
+            <div className="page-subtitle">Armá la MSA arrastrando archivos y documentos</div>
+          </div>
+          <button className="btn btn-primary" onClick={nuevaMatriz}>+ Nueva MSA</button>
         </div>
-        <button className="btn btn-primary" onClick={nuevaMatriz}>+ Nueva MSA</button>
-      </div>
+      )}
+      {embebido && (
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+          <div style={{fontSize:'0.9rem',color:'var(--text2)'}}>Armá la MSA arrastrando archivos y documentos a las celdas.</div>
+          <button className="btn btn-primary btn-sm" onClick={nuevaMatriz}>+ Nueva MSA</button>
+        </div>
+      )}
 
       {/* Selector de matrices guardadas */}
       <div className="card" style={{marginBottom:16}}>
@@ -5787,8 +5859,8 @@ function App() {
     alumnos: <AdminAlumnos aulaActiva={aulaActiva} />,
     pagos: <AdminPagos aulaActiva={aulaActiva} />,
     extensiones: <AdminExtensiones aulaActiva={aulaActiva} />,
-    msa: <MsaEditor aulaActiva={aulaActiva} esAdmin={true} />,
-    'mis-msa': <MsaEditor alumno={alumno} esAdmin={false} />,
+    msa: <SalaDeJuegos aulaActiva={aulaActiva} esAdmin={true} />,
+    'mis-msa': <SalaDeJuegos alumno={alumno} esAdmin={false} />,
     videos: <AdminVideos aulaActiva={aulaActiva} />,
     materiales: <AdminMateriales aulaActiva={aulaActiva} />,
     evaluaciones: <AdminEvaluaciones aulaActiva={aulaActiva} />,
@@ -5809,8 +5881,8 @@ function App() {
     alumnos: ['👥 Alumnos', 'Gestión de alumnos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
     extensiones: ['⏱️ Extensiones', 'Compras de 24hs extra'],
-    msa: ['🧩 Matriz MSA', 'Armá matrices para tus clases'],
-    'mis-msa': ['🧩 Matriz MSA', 'Practicá armando matrices'],
+    msa: ['🎮 Sala de Juegos', 'Herramientas para tus clases'],
+    'mis-msa': ['🎮 Sala de Juegos', 'Practicá los temas de la materia'],
     videos: ['🎬 Videos', 'Biblioteca de videos'],
     materiales: ['📄 Materiales', 'Recursos educativos'],
     evaluaciones: ['📝 Evaluaciones', 'Gestión de exámenes'],
