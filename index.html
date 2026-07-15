@@ -219,6 +219,8 @@
   .msa-doc_pancita { background: transparent; border: none; border-radius: 0; padding-bottom: 16px;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 60' preserveAspectRatio='none'><path d='M4 4 H96 V46 C74 58 26 34 4 46 Z' fill='%23b8f0c8' stroke='%233fa85f' stroke-width='3'/></svg>");
     background-size: 100% 100%; background-repeat: no-repeat; }
+  /* Elemento = sin forma específica, solo texto en una etiqueta neutra */
+  .msa-elemento { background: #eef0f5; border: 1px dashed #a3a9bd; border-radius: 6px; color: #33384d; }
   .msa-celda { min-height: 54px; padding: 6px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; transition: background 0.15s; }
   .msa-celda.msa-drop { background: rgba(108,92,231,0.18); outline: 2px dashed var(--accent); outline-offset: -3px; }
   .msa-tabla { border-collapse: collapse; width: 100%; }
@@ -2095,6 +2097,8 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
       ['LR', 'manual'],
       ['FACTURA', 'sistema'],
       ['REMITO', 'sistema'],
+      ['MERCADERIA', 'elemento'],
+      ['MATERIA PRIMA', 'elemento'],
     ]);
     ws['!cols'] = [{ wch: 22 }, { wch: 14 }];
     const wb = XLSX.utils.book_new();
@@ -2108,6 +2112,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
       'archivo': 'archivo',
       'manual': 'doc_cuadrado', 'doc_cuadrado': 'doc_cuadrado', 'cuadrado': 'doc_cuadrado',
       'sistema': 'doc_pancita', 'doc_pancita': 'doc_pancita', 'pancita': 'doc_pancita',
+      'elemento': 'elemento', 'elementos': 'elemento',
     };
     try {
       const buf = await file.arrayBuffer();
@@ -2209,7 +2214,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
           {verBanco && (
             <>
               <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Arrastrá una pieza a la celda que corresponda.</div>
-              {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos cuadrados'],['doc_pancita','📄 Documentos con pancita']].map(([tipo,label]) => (
+              {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos Manuales'],['doc_pancita','📄 Documentos generados por Sistema'],['elemento','🔤 Elementos']].map(([tipo,label]) => (
                 <div key={tipo} style={{marginBottom:12}}>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
                   <div className="msa-banco">
@@ -2236,8 +2241,9 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                 <select value={nuevaPieza.tipo} onChange={e => setNuevaPieza(p => ({...p, tipo: e.target.value}))}
                   style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}}>
                   <option value="archivo">🛢️ Archivo</option>
-                  <option value="doc_cuadrado">▭ Doc cuadrado</option>
-                  <option value="doc_pancita">📄 Doc pancita</option>
+                  <option value="doc_cuadrado">▭ Documento Manual</option>
+                  <option value="doc_pancita">📄 Documento generado por Sistema</option>
+                  <option value="elemento">🔤 Elemento</option>
                 </select>
                 <button className="btn btn-ghost btn-sm" onClick={crearPieza}>+ Crear pieza</button>
               </div>
