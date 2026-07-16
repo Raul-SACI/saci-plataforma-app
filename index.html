@@ -261,6 +261,14 @@
     margin-top: 2px; z-index: 15; gap: 4px; padding: 3px 6px; background: var(--surface);
     border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,0.2); white-space: nowrap; }
   .org-nodo-wrap:hover > .org-ctrls { display: flex; }
+  /* Organigrama - tablero libre (arrastrar cajas + conectar a mano) */
+  .og-canvas { position: relative; background: #fbfbfd; background-image: radial-gradient(rgba(0,0,0,0.05) 1px, transparent 1px); background-size: 22px 22px; border-radius: 8px; }
+  .og-box { position: absolute; width: 134px; border: 1.5px solid #333; border-radius: 4px; box-sizing: border-box; user-select: none; }
+  .og-box .og-handle { cursor: move; text-align: center; font-size: 0.7rem; color: rgba(0,0,0,0.35); line-height: 1; padding: 2px 0 0; }
+  .og-box textarea { border: none; background: transparent; resize: none; width: 100%; text-align: center; font-size: 0.68rem; font-weight: 700; line-height: 1.14; font-family: inherit; overflow: hidden; padding: 2px 6px 6px; }
+  .og-box .og-ctrls { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); z-index: 20; gap: 6px; padding: 3px 7px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,0.2); white-space: nowrap; align-items: center; }
+  .og-box:hover .og-ctrls, .og-box .og-ctrls:hover { display: flex; }
+  .og-box.og-sel { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* Empty state */
   .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
@@ -3051,52 +3059,28 @@ const ORG_COLORES = [
   { key: 'naranja', label: 'Naranja', bg: '#f7ddc4', border: '#c4652f', text: '#5a2f10' },
 ];
 const orgColor = (k) => ORG_COLORES.find(c => c.key === k) || ORG_COLORES[0];
-const nuevoNodo = () => ({ id: Math.random().toString(36).slice(2), texto: '', color: 'normal', hijos: [] });
-// Helpers inmutables para el árbol.
-const mapNodo = (nodo, id, fn) => nodo.id === id ? fn(nodo) : { ...nodo, hijos: (nodo.hijos || []).map(h => mapNodo(h, id, fn)) };
-const quitarNodo = (nodo, id) => ({ ...nodo, hijos: (nodo.hijos || []).filter(h => h.id !== id).map(h => quitarNodo(h, id)) });
-
-function OrgNodo({ nodo, soloLectura, onTexto, onColor, onAddHijo, onQuitar, esRaiz, colorAbierto, setColorAbierto }) {
-  const col = orgColor(nodo.color);
-  const abierto = colorAbierto === nodo.id;
-  const rows = Math.min(4, Math.max(2, Math.ceil(((nodo.texto || '').length || 1) / 15)));
-  return (
-    <li>
-      <div className="org-nodo-wrap">
-        <div className="org-nodo" style={{ background: col.bg, borderColor: col.border }}>
-          <textarea value={nodo.texto} readOnly={soloLectura} rows={rows}
-            onChange={e => onTexto(nodo.id, e.target.value)}
-            placeholder={soloLectura ? '' : '...'}
-            style={{ color: col.text }} />
-        </div>
-        {!soloLectura && (
-          <div className="org-ctrls">
-            <button title="Agregar dependiente" onClick={() => onAddHijo(nodo.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.85rem',padding:0}}>＋</button>
-            <button title="Color" onClick={() => setColorAbierto(a => a === nodo.id ? null : nodo.id)}
-              style={{ width: 15, height: 15, borderRadius: '50%', background: col.bg, border: `1px solid ${col.border}`, cursor: 'pointer', padding: 0 }} />
-            {!esRaiz && <button title="Eliminar (con sus dependientes)" onClick={() => onQuitar(nodo.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.78rem',padding:0,color:'var(--danger)'}}>🗑️</button>}
-            {abierto && (
-              <div style={{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', marginTop:3, display:'flex', gap:4, padding:6, borderRadius:10, background:'var(--surface)', border:'1px solid var(--border)', boxShadow:'0 4px 14px rgba(0,0,0,0.25)', zIndex:25 }}>
-                {ORG_COLORES.map(c => (
-                  <button key={c.key} title={c.label} onClick={() => onColor(nodo.id, c.key)}
-                    style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.bg, border: nodo.color===c.key ? '2px solid var(--text)' : `1px solid ${c.border}` }} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-      {nodo.hijos && nodo.hijos.length > 0 && (
-        <ul>
-          {nodo.hijos.map(h => (
-            <OrgNodo key={h.id} nodo={h} soloLectura={soloLectura} onTexto={onTexto} onColor={onColor}
-              onAddHijo={onAddHijo} onQuitar={onQuitar} colorAbierto={colorAbierto} setColorAbierto={setColorAbierto} />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
+const nuevaCaja = (x, y) => ({ id: Math.random().toString(36).slice(2), texto: '', color: 'normal', x, y });
+// Convierte un organigrama viejo (formato árbol) al tablero libre, con ubicación automática.
+function arbolAcanvas(root) {
+  const cajas = [], conexiones = [];
+  let col = 0;
+  const walk = (n, depth, parentId) => {
+    if (!n) return;
+    const id = n.id || Math.random().toString(36).slice(2);
+    cajas.push({ id, texto: n.texto || '', color: n.color || 'normal', x: 30 + col * 152, y: 30 + depth * 108 });
+    col++;
+    if (parentId) conexiones.push({ from: parentId, to: id });
+    (n.hijos || []).forEach(h => walk(h, depth + 1, id));
+  };
+  walk(root, 0, null);
+  return { cajas, conexiones };
 }
+const lienzoDesde = (arbol) => {
+  if (arbol && Array.isArray(arbol.cajas)) return { cajas: arbol.cajas, conexiones: Array.isArray(arbol.conexiones) ? arbol.conexiones : [] };
+  if (arbol && arbol.id && Array.isArray(arbol.hijos)) return arbolAcanvas(arbol);
+  return { cajas: [nuevaCaja(40, 40)], conexiones: [] };
+};
+const OG_BW = 134, OG_HH = 24; // ancho de caja y media-altura para el centro de las flechas
 
 function Organigramas({ alumno, aulaActiva, esAdmin }) {
   const [orgs, setOrgs] = useState([]);
@@ -3105,7 +3089,10 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   const [titulo, setTitulo] = useState('');
   const [tipoEmpresa, setTipoEmpresa] = useState('');
   const [tipoSocietario, setTipoSocietario] = useState('');
-  const [arbol, setArbol] = useState(nuevoNodo());
+  const [cajas, setCajas] = useState([nuevaCaja(40, 40)]);
+  const [conexiones, setConexiones] = useState([]);
+  const [modoConectar, setModoConectar] = useState(false);
+  const [conFrom, setConFrom] = useState(null);
   const [colorAbierto, setColorAbierto] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -3131,12 +3118,43 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   };
   useEffect(() => { setLoading(true); load(); }, [miAula]);
 
-  const onTexto = (id, texto) => setArbol(a => mapNodo(a, id, n => ({ ...n, texto })));
-  const onColor = (id, color) => { setArbol(a => mapNodo(a, id, n => ({ ...n, color }))); setColorAbierto(null); };
-  const onAddHijo = (id) => setArbol(a => mapNodo(a, id, n => ({ ...n, hijos: [...(n.hijos || []), nuevoNodo()] })));
-  const onQuitar = (id) => { if (id === arbol.id) return; setArbol(a => quitarNodo(a, id)); };
+  const setTextoCaja = (id, texto) => setCajas(cs => cs.map(c => c.id === id ? { ...c, texto } : c));
+  const setColorCaja = (id, color) => { setCajas(cs => cs.map(c => c.id === id ? { ...c, color } : c)); setColorAbierto(null); };
+  const quitarCaja = (id) => { setCajas(cs => cs.filter(c => c.id !== id)); setConexiones(xs => xs.filter(k => k.from !== id && k.to !== id)); };
+  const agregarCaja = () => setCajas(cs => { const n = cs.length; return [...cs, nuevaCaja(40 + (n % 6) * 150, 40 + Math.floor(n / 6) * 96)]; });
 
-  const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setArbol(nuevoNodo()); setColorAbierto(null); };
+  // Arrastrar una caja por su manija.
+  const startDrag = (e, id) => {
+    if (soloLectura || modoConectar) return;
+    e.preventDefault();
+    const caja = cajas.find(c => c.id === id);
+    if (!caja) return;
+    const sx = e.clientX, sy = e.clientY, ox = caja.x, oy = caja.y;
+    const mover = (ev) => {
+      const nx = Math.max(0, ox + (ev.clientX - sx));
+      const ny = Math.max(0, oy + (ev.clientY - sy));
+      setCajas(cs => cs.map(c => c.id === id ? { ...c, x: nx, y: ny } : c));
+    };
+    const soltar = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', soltar); };
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  };
+
+  // Conectar dos cajas: clic en la primera, clic en la segunda (repetir para borrar la línea).
+  const clickConectar = (id) => {
+    if (!modoConectar) return;
+    if (!conFrom) { setConFrom(id); return; }
+    if (conFrom === id) { setConFrom(null); return; }
+    const from = conFrom, to = id;
+    setConexiones(xs => {
+      const ya = xs.some(k => (k.from === from && k.to === to) || (k.from === to && k.to === from));
+      return ya ? xs.filter(k => !((k.from === from && k.to === to) || (k.from === to && k.to === from))) : [...xs, { from, to }];
+    });
+    setConFrom(null);
+  };
+  const centro = (id) => { const c = cajas.find(x => x.id === id); return c ? { x: c.x + OG_BW / 2, y: c.y + OG_HH } : null; };
+
+  const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setCajas([nuevaCaja(40, 40)]); setConexiones([]); setColorAbierto(null); setModoConectar(false); setConFrom(null); };
   const cargarOrg = async (id, lectura = false) => {
     const { data } = await supabase.from('org_organigramas').select('*').eq('id', id).single();
     if (!data) return;
@@ -3144,13 +3162,14 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
     setTitulo(data.titulo || '');
     setTipoEmpresa(data.tipo_empresa || '');
     setTipoSocietario(data.tipo_societario || '');
-    setArbol(data.arbol && data.arbol.id ? data.arbol : nuevoNodo());
-    setColorAbierto(null);
+    const l = lienzoDesde(data.arbol);
+    setCajas(l.cajas.length ? l.cajas : [nuevaCaja(40, 40)]); setConexiones(l.conexiones);
+    setColorAbierto(null); setModoConectar(false); setConFrom(null);
   };
   const guardar = async (publicar = null) => {
     if (!titulo.trim()) return toast('Ponele un título al organigrama', 'error');
     setSaving(true);
-    const payload = { titulo: titulo.trim(), tipo_empresa: tipoEmpresa, tipo_societario: tipoSocietario, arbol, aula_id: miAula, updated_at: new Date().toISOString() };
+    const payload = { titulo: titulo.trim(), tipo_empresa: tipoEmpresa, tipo_societario: tipoSocietario, arbol: { cajas, conexiones }, aula_id: miAula, updated_at: new Date().toISOString() };
     if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
     else { payload.alumno_id = alumno?.id; }
     let error;
@@ -3177,6 +3196,8 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
 
   const inpDato = { padding:'6px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)' };
+  const cw = Math.max(760, ...cajas.map(c => c.x + OG_BW), 0) + 60;
+  const ch = Math.max(420, ...cajas.map(c => c.y + 78), 0) + 60;
 
   return (
     <div className="page-content fade-in" style={{paddingTop:8}}>
@@ -3230,13 +3251,61 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
         </label>
       </div>
 
-      {/* El árbol */}
-      <div className="card" style={{padding:16, overflowX:'auto'}}>
-        {!soloLectura && <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:12}}>Escribí el nombre en cada caja. Pasá el mouse sobre una caja para ver sus botones: <b>＋</b> agrega un dependiente debajo, el círculo cambia el color, y 🗑️ la borra (con sus dependientes).</div>}
-        <ul className="org-tree">
-          <OrgNodo nodo={arbol} soloLectura={soloLectura} onTexto={onTexto} onColor={onColor}
-            onAddHijo={onAddHijo} onQuitar={onQuitar} esRaiz={true} colorAbierto={colorAbierto} setColorAbierto={setColorAbierto} />
-        </ul>
+      {/* Tablero libre */}
+      <div className="card" style={{padding:14}}>
+        {!soloLectura && (
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:10}}>
+            <button className="btn btn-ghost btn-sm" onClick={agregarCaja}>➕ Caja</button>
+            <button className={`btn btn-sm ${modoConectar?'btn-primary':'btn-ghost'}`} onClick={() => { setModoConectar(m => !m); setConFrom(null); }}>{modoConectar ? '✓ Conectando' : '🔗 Conectar'}</button>
+            {conexiones.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => { setConexiones([]); setConFrom(null); }}>Borrar líneas</button>}
+            {modoConectar
+              ? <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Clic en una caja y después en otra para unirlas (o repetí el par para borrar la línea).</span>
+              : <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Arrastrá cada caja desde la manija ⠿ de arriba para moverla. Pasá el mouse sobre la caja para el color 🎨 y 🗑️.</span>}
+          </div>
+        )}
+        <div style={{overflow:'auto', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
+          <div className="og-canvas" style={{width:cw, height:ch}}>
+            <svg width={cw} height={ch} style={{position:'absolute',top:0,left:0,pointerEvents:'none',zIndex:1}}>
+              {conexiones.map((k, i) => {
+                const a = centro(k.from), b = centro(k.to);
+                if (!a || !b) return null;
+                return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#5b6472" strokeWidth="2" />;
+              })}
+            </svg>
+            {cajas.map(c => {
+              const col = orgColor(c.color);
+              const sel = conFrom === c.id;
+              const abierto = colorAbierto === c.id;
+              const rows = Math.min(4, Math.max(2, Math.ceil(((c.texto || '').length || 1) / 16)));
+              return (
+                <div key={c.id} className={`og-box ${sel ? 'og-sel' : ''}`}
+                  style={{ left: c.x, top: c.y, background: col.bg, borderColor: col.border, zIndex: sel ? 8 : 5, cursor: modoConectar ? 'pointer' : 'default' }}
+                  onClick={() => { if (modoConectar) clickConectar(c.id); }}>
+                  {!soloLectura && !modoConectar && <div className="og-handle" onMouseDown={(e) => startDrag(e, c.id)} title="Arrastrá para mover">⠿⠿⠿</div>}
+                  <textarea value={c.texto} readOnly={soloLectura} rows={rows}
+                    onChange={e => setTextoCaja(c.id, e.target.value)} placeholder={soloLectura ? '' : '...'}
+                    style={{ color: col.text, userSelect: 'text', pointerEvents: modoConectar ? 'none' : 'auto' }} />
+                  {!soloLectura && (
+                    <div className="og-ctrls">
+                      <button title="Color" onClick={(e) => { e.stopPropagation(); setColorAbierto(a => a === c.id ? null : c.id); }}
+                        style={{ width: 15, height: 15, borderRadius: '50%', background: col.bg, border: `1px solid ${col.border}`, cursor: 'pointer', padding: 0 }} />
+                      <button title="Eliminar caja" onClick={(e) => { e.stopPropagation(); quitarCaja(c.id); }}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.78rem', padding: 0, color: 'var(--danger)' }}>🗑️</button>
+                    </div>
+                  )}
+                  {!soloLectura && abierto && (
+                    <div style={{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', marginTop:22, display:'flex', gap:4, padding:6, borderRadius:10, background:'var(--surface)', border:'1px solid var(--border)', boxShadow:'0 4px 14px rgba(0,0,0,0.25)', zIndex:30 }}>
+                      {ORG_COLORES.map(cc => (
+                        <button key={cc.key} title={cc.label} onClick={(e) => { e.stopPropagation(); setColorCaja(c.id, cc.key); }}
+                          style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:cc.bg, border: c.color===cc.key ? '2px solid var(--text)' : `1px solid ${cc.border}` }} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
