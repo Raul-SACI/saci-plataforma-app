@@ -237,6 +237,30 @@
   .diag-cell { box-sizing: border-box; display: flex; align-items: center; justify-content: center;
     border: 1px solid rgba(120,120,120,0.14); }
   .diag-cell.diag-from { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* Organigrama (árbol jerárquico con conectores) */
+  ul.org-tree, .org-tree ul { --org-line: #9aa0b4; list-style: none; margin: 0; padding: 0;
+    position: relative; display: flex; justify-content: center; padding-top: 22px; }
+  ul.org-tree { padding-top: 0; }
+  .org-tree li { list-style: none; position: relative; padding: 22px 8px 0 8px; text-align: center; }
+  .org-tree li::before, .org-tree li::after { content: ''; position: absolute; top: 0; right: 50%;
+    border-top: 2px solid var(--org-line); width: 50%; height: 22px; }
+  .org-tree li::after { right: auto; left: 50%; border-left: 2px solid var(--org-line); }
+  .org-tree li::before { border-right: 2px solid var(--org-line); }
+  .org-tree li:only-child::after, .org-tree li:only-child::before { display: none; }
+  .org-tree li:only-child { padding-top: 0; }
+  .org-tree li:first-child::before, .org-tree li:last-child::after { border: 0 none; }
+  .org-tree li:last-child::before { border-right: 2px solid var(--org-line); }
+  .org-tree ul::before { content: ''; position: absolute; top: 0; left: 50%;
+    border-left: 2px solid var(--org-line); width: 0; height: 22px; }
+  .org-nodo-wrap { position: relative; display: inline-block; }
+  .org-nodo { display: inline-block; border: 1.5px solid #333; border-radius: 4px; padding: 5px 8px;
+    min-width: 96px; max-width: 152px; }
+  .org-nodo textarea { border: none; background: transparent; resize: none; width: 100%; text-align: center;
+    font-size: 0.68rem; font-weight: 700; line-height: 1.14; font-family: inherit; overflow: hidden; }
+  .org-ctrls { display: none; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+    margin-top: 2px; z-index: 15; gap: 4px; padding: 3px 6px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,0.2); white-space: nowrap; }
+  .org-nodo-wrap:hover > .org-ctrls { display: flex; }
 
   /* Empty state */
   .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
@@ -1819,7 +1843,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
     { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: false },
     { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
-    { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: false },
+    { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: true },
     { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
   ];
 
@@ -1871,6 +1895,8 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           ? <DiagramaContab alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'fragmentaciones'
           ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+          : tab === 'organigramas'
+          ? <Organigramas alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
       </div>
     </div>
@@ -2965,6 +2991,207 @@ function Fragmentaciones({ alumno, aulaActiva, esAdmin }) {
             <button className="btn btn-ghost btn-sm" onClick={agregarFicha} style={{marginLeft:14, marginTop:20, whiteSpace:'nowrap'}}>➕ Ficha</button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ORGANIGRAMAS ─────────────────────────────────────────────────────
+// Árbol jerárquico de cajas conectadas de arriba hacia abajo (CSS puro).
+const ORG_COLORES = [
+  { key: 'normal',  label: 'Blanco',  bg: '#ffffff', border: '#333333', text: '#111111' },
+  { key: 'gris',    label: 'Gris',    bg: '#d9d9d9', border: '#333333', text: '#111111' },
+  { key: 'azul',    label: 'Azul',    bg: '#cfe0f7', border: '#2b5aa0', text: '#12233f' },
+  { key: 'verde',   label: 'Verde',   bg: '#d3efd8', border: '#2f8a44', text: '#123a1c' },
+  { key: 'naranja', label: 'Naranja', bg: '#f7ddc4', border: '#c4652f', text: '#5a2f10' },
+];
+const orgColor = (k) => ORG_COLORES.find(c => c.key === k) || ORG_COLORES[0];
+const nuevoNodo = () => ({ id: Math.random().toString(36).slice(2), texto: '', color: 'normal', hijos: [] });
+// Helpers inmutables para el árbol.
+const mapNodo = (nodo, id, fn) => nodo.id === id ? fn(nodo) : { ...nodo, hijos: (nodo.hijos || []).map(h => mapNodo(h, id, fn)) };
+const quitarNodo = (nodo, id) => ({ ...nodo, hijos: (nodo.hijos || []).filter(h => h.id !== id).map(h => quitarNodo(h, id)) });
+
+function OrgNodo({ nodo, soloLectura, onTexto, onColor, onAddHijo, onQuitar, esRaiz, colorAbierto, setColorAbierto }) {
+  const col = orgColor(nodo.color);
+  const abierto = colorAbierto === nodo.id;
+  const rows = Math.min(4, Math.max(2, Math.ceil(((nodo.texto || '').length || 1) / 15)));
+  return (
+    <li>
+      <div className="org-nodo-wrap">
+        <div className="org-nodo" style={{ background: col.bg, borderColor: col.border }}>
+          <textarea value={nodo.texto} readOnly={soloLectura} rows={rows}
+            onChange={e => onTexto(nodo.id, e.target.value)}
+            placeholder={soloLectura ? '' : '...'}
+            style={{ color: col.text }} />
+        </div>
+        {!soloLectura && (
+          <div className="org-ctrls">
+            <button title="Agregar dependiente" onClick={() => onAddHijo(nodo.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.85rem',padding:0}}>＋</button>
+            <button title="Color" onClick={() => setColorAbierto(a => a === nodo.id ? null : nodo.id)}
+              style={{ width: 15, height: 15, borderRadius: '50%', background: col.bg, border: `1px solid ${col.border}`, cursor: 'pointer', padding: 0 }} />
+            {!esRaiz && <button title="Eliminar (con sus dependientes)" onClick={() => onQuitar(nodo.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.78rem',padding:0,color:'var(--danger)'}}>🗑️</button>}
+            {abierto && (
+              <div style={{ position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)', marginTop:3, display:'flex', gap:4, padding:6, borderRadius:10, background:'var(--surface)', border:'1px solid var(--border)', boxShadow:'0 4px 14px rgba(0,0,0,0.25)', zIndex:25 }}>
+                {ORG_COLORES.map(c => (
+                  <button key={c.key} title={c.label} onClick={() => onColor(nodo.id, c.key)}
+                    style={{ width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.bg, border: nodo.color===c.key ? '2px solid var(--text)' : `1px solid ${c.border}` }} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      {nodo.hijos && nodo.hijos.length > 0 && (
+        <ul>
+          {nodo.hijos.map(h => (
+            <OrgNodo key={h.id} nodo={h} soloLectura={soloLectura} onTexto={onTexto} onColor={onColor}
+              onAddHijo={onAddHijo} onQuitar={onQuitar} colorAbierto={colorAbierto} setColorAbierto={setColorAbierto} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function Organigramas({ alumno, aulaActiva, esAdmin }) {
+  const [orgs, setOrgs] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [tipoEmpresa, setTipoEmpresa] = useState('');
+  const [tipoSocietario, setTipoSocietario] = useState('');
+  const [arbol, setArbol] = useState(nuevoNodo());
+  const [colorAbierto, setColorAbierto] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = actual?.soloLectura;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    if (esAdmin) {
+      const { data } = await supabase.from('org_organigramas').select('id, titulo, publicada, updated_at')
+        .eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+      setOrgs(data || []);
+    } else {
+      const [mios, pub] = await Promise.all([
+        supabase.from('org_organigramas').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+        supabase.from('org_organigramas').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+      ]);
+      setOrgs(mios.data || []);
+      setPublicados(pub.data || []);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const onTexto = (id, texto) => setArbol(a => mapNodo(a, id, n => ({ ...n, texto })));
+  const onColor = (id, color) => { setArbol(a => mapNodo(a, id, n => ({ ...n, color }))); setColorAbierto(null); };
+  const onAddHijo = (id) => setArbol(a => mapNodo(a, id, n => ({ ...n, hijos: [...(n.hijos || []), nuevoNodo()] })));
+  const onQuitar = (id) => { if (id === arbol.id) return; setArbol(a => quitarNodo(a, id)); };
+
+  const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setArbol(nuevoNodo()); setColorAbierto(null); };
+  const cargarOrg = async (id, lectura = false) => {
+    const { data } = await supabase.from('org_organigramas').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setTipoEmpresa(data.tipo_empresa || '');
+    setTipoSocietario(data.tipo_societario || '');
+    setArbol(data.arbol && data.arbol.id ? data.arbol : nuevoNodo());
+    setColorAbierto(null);
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título al organigrama', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), tipo_empresa: tipoEmpresa, tipo_societario: tipoSocietario, arbol, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else { payload.alumno_id = alumno?.id; }
+    let error;
+    if (actual?.id && !actual?.soloLectura) {
+      ({ error } = await supabase.from('org_organigramas').update(payload).eq('id', actual.id));
+    } else {
+      const { data, error: e2 } = await supabase.from('org_organigramas').insert(payload).select('id').single();
+      error = e2; if (data) setActual({ id: data.id, ...payload });
+    }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Organigrama publicado ✅' : (publicar === false ? 'Organigrama despublicado' : 'Organigrama guardado ✅'), 'success');
+    load();
+  };
+  const eliminarOrg = async (id) => {
+    if (!confirm('¿Eliminar este organigrama?')) return;
+    const { error } = await supabase.from('org_organigramas').delete().eq('id', id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    if (actual?.id === id) nuevoOrg();
+    load();
+  };
+
+  if (loading) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>Cargando…</div>;
+  if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const inpDato = { padding:'6px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)' };
+
+  return (
+    <div className="page-content fade-in" style={{paddingTop:8}}>
+      {/* Organigramas guardados */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <button className="btn btn-primary btn-sm" onClick={nuevoOrg}>+ Nuevo organigrama</button>
+        {orgs.map(d => (
+          <span key={d.id} style={{display:'inline-flex',alignItems:'center',gap:2,border:'1px solid var(--border)',borderRadius:8,padding:'2px 4px 2px 8px',background: actual?.id===d.id?'var(--surface2)':'transparent'}}>
+            <span onClick={() => cargarOrg(d.id)} style={{cursor:'pointer',fontSize:'0.82rem',fontWeight: actual?.id===d.id?700:500}}>
+              {d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}
+            </span>
+            {esAdmin && <button onClick={() => eliminarOrg(d.id)} title="Eliminar" style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.72rem',opacity:0.6,padding:0}}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+
+      {/* Publicados por el profe (alumno) */}
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',fontWeight:600,marginBottom:4}}>📢 Publicados por el profe (para ver):</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {publicados.map(d => (
+              <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargarOrg(d.id, true)}>{d.titulo || '(sin título)'}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Título + acciones */}
+      {!soloLectura && (
+        <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
+          <input placeholder="Título (ej: Organigrama empresa industrial)" value={titulo}
+            onChange={e => setTitulo(e.target.value)}
+            style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
+          {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-success" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
+          {esAdmin && actual?.publicada && <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>}
+        </div>
+      )}
+      {soloLectura && <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10}}>{titulo}</div>}
+
+      {/* Datos de la empresa */}
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <label style={{display:'flex',gap:6,alignItems:'center',fontSize:'0.8rem',fontWeight:700}}>
+          Tipo de empresa:
+          <input value={tipoEmpresa} readOnly={soloLectura} onChange={e => setTipoEmpresa(e.target.value)} placeholder="ej: Industrial" style={{...inpDato, fontWeight:400}} />
+        </label>
+        <label style={{display:'flex',gap:6,alignItems:'center',fontSize:'0.8rem',fontWeight:700}}>
+          Tipo societario:
+          <input value={tipoSocietario} readOnly={soloLectura} onChange={e => setTipoSocietario(e.target.value)} placeholder="ej: Sociedad Anónima (SA)" style={{...inpDato, fontWeight:400}} />
+        </label>
+      </div>
+
+      {/* El árbol */}
+      <div className="card" style={{padding:16, overflowX:'auto'}}>
+        {!soloLectura && <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:12}}>Escribí el nombre en cada caja. Pasá el mouse sobre una caja para ver sus botones: <b>＋</b> agrega un dependiente debajo, el círculo cambia el color, y 🗑️ la borra (con sus dependientes).</div>}
+        <ul className="org-tree">
+          <OrgNodo nodo={arbol} soloLectura={soloLectura} onTexto={onTexto} onColor={onColor}
+            onAddHijo={onAddHijo} onQuitar={onQuitar} esRaiz={true} colorAbierto={colorAbierto} setColorAbierto={setColorAbierto} />
+        </ul>
       </div>
     </div>
   );
