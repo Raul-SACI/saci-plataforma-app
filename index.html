@@ -482,6 +482,34 @@ const BUNNY_LIBRARY = '645418';
 const BUNNY_CDN = 'vz-b64e5e9d-a67.b-cdn.net';
 const BUNNY_API_KEY = '31ebdf0b-51c7-4388-8d3e0f3cdc7f-dad7-49dd';
 const ADMIN_EMAIL = 'admin@saci.com';
+// Depósito PRIVADO de Supabase para selfie + fotos de DNI (ver SQL de configuración).
+const BUCKET_DOCS = 'documentos-alumnos';
+const TYC_VERSION = '2026-07';
+const TYC_TEXTO = `TÉRMINOS Y CONDICIONES – CONTRATO DE LOCACIÓN DE SERVICIOS
+
+En la ciudad de San Miguel de Tucumán, entre RAUL EMILIANO DIAZ CORTES, DNI 37.657.683, en adelante EL LOCADOR o EL PROFESIONAL; y el alumno que acepta el presente (EL LOCATARIO), se conviene celebrar este "contrato de locación de asesoramiento administrativo contable" sujeto a las siguientes condiciones:
+
+PRIMERA: OBJETO. El locador prestará al locatario los servicios de instrucción o educación del temario específico para la materia Sistemas Administrativos y Sistemas de Control Interno. El objetivo de la locación de servicios es que el LOCATARIO reciba el asesoramiento y las herramientas necesarias sobre lo relacionado a la materia. La duración total del asesoramiento es de 4 semanas, y puede prolongarse hasta 1 semana más. El docente exhibe copia del título/certificado habilitante expedido por la UNT y copia de su inscripción en ARCA como trabajador autónomo bajo el C.U.I.T. Nº 20-37657683-4.
+
+SEGUNDA: MODALIDAD. Durante toda la vigencia de este contrato, el locador brindará al locatario entre 15 a 20 clases de 1:30 horas de duración aproximada cada una. Las clases se dictarán en modalidad virtual a través de la aplicación Google Meet y una plataforma propia utilizada como aula virtual. En cada sesión de videollamada el LOCATARIO deberá: observar las normas de comportamiento adecuadas a la modalidad virtual; poseer foto en el perfil de su cuenta de e-mail; mantener el video encendido durante todo el transcurso de la clase; abstenerse de grabar la clase por cualquier medio; abstenerse de divulgar grabaciones de las clases hacia terceros. El alumno comprende que cada material y/o video subido en la plataforma consta de una cantidad limitada de visualizaciones y de fechas exactas de vencimiento para acceder a los mismos. El docente puede establecer precios especiales para alumnos que deseen extender plazos de visualización. El alumno se compromete a ir al día con los contenidos de la materia para asegurar el objetivo deseado.
+
+TERCERA: PRECIO. El locatario abonará al locador la suma total de $110.000 (pesos ciento diez mil) por parcial, el cual debe estar cancelado en su totalidad antes de la fecha de examen. La falta de pago en tiempo y forma convenida, devengará en favor del locador un interés mensual del 3% sobre el monto adeudado, sin perjuicio de la facultad de éste de rescindir el contrato y exigir judicialmente la reparación por daños y perjuicios que corresponda.
+
+CUARTA: VIGENCIA. Este contrato tendrá una vigencia de 2 años.
+
+QUINTA: RESCISIÓN SIN CAUSA. El locatario podrá en cualquier tiempo y por cualquier motivo declarar rescindido este contrato de locación de servicios. En tal caso, deberá comunicarlo a la otra parte con una anticipación no menor de 48 horas de iniciado el asesoramiento y en forma fehaciente, prefiriéndose la modalidad de correo electrónico. En caso de rescisión por parte del alumno, el mismo pierde derecho a reclamar el reembolso de lo abonado en concepto de precio.
+
+SEXTA: ENFERMEDAD. El LOCADOR deberá comunicar en forma fehaciente y con certificado médico que lo acredite, cualquier enfermedad que impida la realización de los servicios para los que fue contratado. En ese caso, el LOCADOR arbitrará los medios para culminar el objeto del presente contrato.
+
+SÉPTIMA: PROHIBICIÓN DE CESIÓN. Queda prohibida la cesión en todo o en parte de este contrato de locación de servicios.
+
+OCTAVA: CONFIDENCIALIDAD. Por la presente se establece que todo el contenido brindado por el locador hacia el locatario en el marco del presente contrato y de las clases o consultas, es de carácter confidencial. El locatario se compromete a no divulgar su contenido, a título oneroso o gratuito, y queda expresamente prohibido para el locatario realizar videos de las clases. Asimismo, se establece que el locatario contrata a título personal y que las clases son para su uso individual, debiendo permanecer solo/a frente a su dispositivo (computadora o teléfono celular) mientras dure la/las clases de la/las que participe.
+
+NOVENA: SANCIONES. MULTA ESPECIAL. En caso de violación a lo establecido en la cláusula octava, el locador procederá a excluir automáticamente al LOCATARIO del listado de participantes de las clases y el contrato quedará rescindido por culpa del Locatario. Además de ello, también de forma automática y sin necesidad de interpelación alguna, el Locatario adeudará al docente una suma equivalente a 1500 litros de nafta súper en concepto de multa, la cual debe ser abonada por el infractor hacia el docente en el perentorio plazo de 5 días hábiles. El presente contrato también servirá de título ejecutivo a los fines de su cobro judicial por parte del docente en caso de mora. Se fija un interés compensatorio equivalente a la Tasa Efectiva Anual BNA para sus operaciones a 30 días a partir del vencimiento al pago.
+
+DÉCIMA: JURISDICCIÓN. DOMICILIOS. Para todos los efectos judiciales y extrajudiciales derivados del presente, las partes se someten a la competencia ordinaria de los Tribunales provinciales de la provincia de Tucumán, en su centro judicial capital, y renuncian a cualquier otro fuero o jurisdicción que pudiera corresponderles.
+
+DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotografías (selfie y DNI) que aporto son verídicos y de mi titularidad, y presto mi consentimiento para que el docente los conserve al solo efecto de verificar mi identidad e inscripción. En prueba de conformidad, al presionar "Acepto", firmo digitalmente este documento con mi nombre, DNI y la fecha de hoy.`;
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -643,12 +671,136 @@ function Modal({ title, onClose, children }) {
 }
 
 // ─── LOGIN PAGE ──────────────────────────────────────────────────────
+// Campo para subir una foto (selfie o DNI). Definido afuera para que no se reinicie al tipear.
+function FotoInput({ label, valor, onFile, captura }) {
+  return (
+    <div className="form-group">
+      <label>{label}</label>
+      <input type="file" accept="image/*" capture={captura} onChange={e => onFile(e.target.files?.[0] || null)} />
+      {valor && <div style={{fontSize:'0.78rem',color:'var(--success)',marginTop:4}}>✅ {valor.name?.slice(0,40) || 'Foto cargada'}</div>}
+    </div>
+  );
+}
+
+// Pantalla que ve el alumno que se registró pero todavía no fue aprobado (o fue rechazado).
+function PantallaEspera({ alumno, onLogout }) {
+  const rechazado = alumno && alumno.estado === 'rechazado';
+  return (
+    <div className="login-page"><div className="login-card">
+      <div style={{textAlign:'center', padding:'24px 20px'}}>
+        <div style={{fontSize:'3.4rem', marginBottom:14}}>{rechazado ? '🚫' : '⏳'}</div>
+        <div style={{fontWeight:700, fontSize:'1.25rem', marginBottom:10}}>{rechazado ? 'Inscripción no aprobada' : 'Esperando aprobación del Docente'}</div>
+        <div style={{color:'var(--text2)', fontSize:'0.92rem', maxWidth:360, margin:'0 auto 22px', lineHeight:1.5}}>
+          {rechazado
+            ? 'Tu inscripción no fue aprobada. Si creés que es un error, comunicate con el docente.'
+            : 'Tu inscripción fue recibida. En cuanto el docente la revise y apruebe, vas a poder ingresar. Volvé a entrar más tarde.'}
+        </div>
+        <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center'}} onClick={onLogout}>Cerrar sesión</button>
+      </div>
+    </div></div>
+  );
+}
+
+// Formulario de auto-inscripción del alumno: datos + selfie + DNI (frente/dorso) + T&C.
+function RegistroAlumno({ onListo, onCancel }) {
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [dni, setDni] = useState('');
+  const [pass, setPass] = useState('');
+  const [pass2, setPass2] = useState('');
+  const [selfie, setSelfie] = useState(null);
+  const [frente, setFrente] = useState(null);
+  const [dorso, setDorso] = useState(null);
+  const [acepta, setAcepta] = useState(false);
+  const [verTyc, setVerTyc] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  const subir = async (userId, file, nombreArch) => {
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${userId}/${nombreArch}.${ext}`;
+    const { error } = await supabase.storage.from(BUCKET_DOCS).upload(path, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+    if (error) throw new Error(`No se pudo subir la foto (${nombreArch}): ${error.message}`);
+    return path;
+  };
+
+  const registrar = async () => {
+    if (!nombre.trim() || !email.trim() || !dni.trim() || !pass) return toast('Completá nombre, email, DNI y contraseña', 'error');
+    if (pass.length < 6) return toast('La contraseña debe tener al menos 6 caracteres', 'error');
+    if (pass !== pass2) return toast('Las contraseñas no coinciden', 'error');
+    if (!selfie || !frente || !dorso) return toast('Subí la selfie y las dos fotos del DNI (frente y dorso)', 'error');
+    if (!acepta) return toast('Tenés que aceptar los términos y condiciones', 'error');
+    setSaving(true);
+    try {
+      const { data, error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password: pass, options: { data: { nombre: nombre.trim() } } });
+      if (error) throw new Error(error.message);
+      const userId = data.user?.id;
+      if (!data.session || !userId) throw new Error('No se pudo iniciar la sesión para subir las fotos. Probá de nuevo o avisá al docente.');
+      const selfiePath = await subir(userId, selfie, 'selfie');
+      const frentePath = await subir(userId, frente, 'dni_frente');
+      const dorsoPath = await subir(userId, dorso, 'dni_dorso');
+      const { data: row, error: e2 } = await supabase.from('alumnos').insert({
+        nombre: nombre.trim(), email: email.trim().toLowerCase(), dni: dni.trim(), estado: 'pendiente',
+        selfie_path: selfiePath, dni_frente_path: frentePath, dni_dorso_path: dorsoPath,
+        tyc_aceptado: true, tyc_fecha: new Date().toISOString(), tyc_version: TYC_VERSION,
+      }).select('*').single();
+      if (e2) throw new Error(e2.message);
+      toast('¡Inscripción enviada! Esperá la aprobación del docente 🎉', 'success');
+      onListo({ user: data.user, isAdmin: false, alumno: row });
+    } catch (err) {
+      toast(err.message || 'Error al registrarse', 'error');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="login-page"><div className="login-card" style={{maxWidth:440}}>
+      <div className="login-logo"><div className="login-logo-text">SACi</div>
+        <div className="login-sub" style={{fontWeight:600}}>Inscripción de nuevo alumno</div>
+      </div>
+      <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Completá tus datos y subí tu selfie y las fotos del DNI. El docente va a revisar y aprobar tu inscripción antes de que puedas ingresar.</div>
+
+      <div className="form-group"><label>👤 Nombre y apellido</label>
+        <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre completo" /></div>
+      <div className="form-group"><label>📧 Email</label>
+        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></div>
+      <div className="form-group"><label>🪪 DNI</label>
+        <input value={dni} onChange={e => setDni(e.target.value)} placeholder="Sin puntos" inputMode="numeric" /></div>
+      <div className="form-group"><label>🔑 Contraseña</label>
+        <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Mínimo 6 caracteres" /></div>
+      <div className="form-group"><label>🔑 Repetir contraseña</label>
+        <input type="password" value={pass2} onChange={e => setPass2(e.target.value)} placeholder="••••••••" /></div>
+
+      <FotoInput label="🤳 Selfie (foto de tu cara)" valor={selfie} onFile={setSelfie} captura="user" />
+      <FotoInput label="🪪 DNI - Frente" valor={frente} onFile={setFrente} captura="environment" />
+      <FotoInput label="🪪 DNI - Dorso" valor={dorso} onFile={setDorso} captura="environment" />
+
+      <div style={{marginTop:6,marginBottom:10}}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVerTyc(v => !v)}>{verTyc ? 'Ocultar' : '📄 Leer'} términos y condiciones</button>
+        {verTyc && (
+          <div style={{maxHeight:200,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:12,marginTop:8,fontSize:'0.74rem',lineHeight:1.5,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)'}}>{TYC_TEXTO}</div>
+        )}
+        <label style={{display:'flex',alignItems:'flex-start',gap:8,marginTop:10,cursor:'pointer',fontSize:'0.82rem'}}>
+          <input type="checkbox" checked={acepta} onChange={e => setAcepta(e.target.checked)} style={{width:'auto',marginTop:3}} />
+          <span>Declaro ser mayor de edad y <b>acepto los términos y condiciones</b> (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
+        </label>
+      </div>
+
+      <button className="btn btn-primary" style={{width:'100%',marginTop:6,justifyContent:'center'}} onClick={registrar} disabled={saving}>
+        {saving ? '⏳ Enviando inscripción...' : '✅ Enviar inscripción'}
+      </button>
+      <button type="button" className="btn btn-ghost" style={{width:'100%',marginTop:8,justifyContent:'center'}} onClick={onCancel} disabled={saving}>← Volver al inicio de sesión</button>
+    </div></div>
+  );
+}
+
 function LoginPage({ onLogin }) {
+  const [mostrarRegistro, setMostrarRegistro] = useState(false);
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [bloqueado, setBloqueado] = useState(null);  // nombre del aula cerrada, si corresponde
   const toast = useToast();
+  if (mostrarRegistro) return <RegistroAlumno onListo={onLogin} onCancel={() => setMostrarRegistro(false)} />;
 
   const handleLogin = async e => {
     e.preventDefault();
@@ -729,6 +881,9 @@ function LoginPage({ onLogin }) {
             <button className="btn btn-primary" style={{width:'100%',marginTop:8,justifyContent:'center'}} disabled={loading}>
               {loading ? '⏳ Ingresando...' : '🚀 Ingresar'}
             </button>
+            <button type="button" className="btn btn-ghost" style={{width:'100%',marginTop:10,justifyContent:'center'}} onClick={() => setMostrarRegistro(true)}>
+              📝 ¿Sos alumno nuevo? Inscribite acá
+            </button>
           </form>
         </div>
       </div>
@@ -743,6 +898,7 @@ const NAV_ADMIN = [
   { id: 'novedades-admin', icon: '📢', label: 'Novedades' },
   { id: 'gantt', icon: '📅', label: 'Planificación' },
   { id: 'alumnos', icon: '👥', label: 'Alumnos' },
+  { id: 'inscripciones', icon: '🆕', label: 'Inscripciones' },
   { id: 'pagos', icon: '💳', label: 'Pagos' },
   { id: 'extensiones', icon: '⏱️', label: 'Extensiones' },
   { id: 'videos', icon: '🎬', label: 'Videos' },
@@ -3709,6 +3865,124 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
               <button className="btn btn-danger" onClick={() => cambiarEstado(confirmCierre, 'cerrada')} style={{flex:1,justifyContent:'center'}}>Sí, cerrar aula</button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Panel del docente para aprobar las auto-inscripciones de alumnos nuevos.
+function AprobarInscripciones() {
+  const [pendientes, setPendientes] = useState([]);
+  const [aulas, setAulas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [aulaSel, setAulaSel] = useState({});   // { alumnoId: aulaId elegida }
+  const [verId, setVerId] = useState(null);      // alumno cuyas fotos se están mirando
+  const [urls, setUrls] = useState({});          // URLs firmadas de las fotos
+  const [proc, setProc] = useState(false);
+  const toast = useToast();
+
+  const load = async () => {
+    const [{ data: pend }, { data: aus }] = await Promise.all([
+      supabase.from('alumnos').select('*').eq('estado', 'pendiente').order('created_at', { ascending: true }),
+      supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }),
+    ]);
+    setPendientes(pend || []);
+    setAulas(aus || []);
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, []);
+
+  const verFotos = async (al) => {
+    if (verId === al.id) { setVerId(null); return; }
+    setVerId(al.id); setUrls({});
+    const firmar = async (path) => {
+      if (!path) return null;
+      const { data } = await supabase.storage.from(BUCKET_DOCS).createSignedUrl(path, 600);
+      return data?.signedUrl || null;
+    };
+    const [selfie, frente, dorso] = await Promise.all([firmar(al.selfie_path), firmar(al.dni_frente_path), firmar(al.dni_dorso_path)]);
+    setUrls({ selfie, frente, dorso });
+  };
+
+  const aprobar = async (al) => {
+    const aulaId = aulaSel[al.id];
+    if (!aulaId) return toast('Elegí a qué aula lo mandás', 'error');
+    setProc(true);
+    const { error } = await supabase.from('alumnos').update({ estado: 'activo', aula_id: aulaId }).eq('id', al.id);
+    setProc(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(`${al.nombre} aprobado ✅`, 'success');
+    setVerId(null); load();
+  };
+
+  const rechazar = async (al) => {
+    if (!confirm(`¿Rechazar la inscripción de ${al.nombre}?\n\nSe borran sus fotos y no podrá ingresar.`)) return;
+    setProc(true);
+    const paths = [al.selfie_path, al.dni_frente_path, al.dni_dorso_path].filter(Boolean);
+    if (paths.length) { try { await supabase.storage.from(BUCKET_DOCS).remove(paths); } catch {} }
+    const { error } = await supabase.from('alumnos').update({ estado: 'rechazado' }).eq('id', al.id);
+    setProc(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast('Inscripción rechazada', 'info');
+    setVerId(null); load();
+  };
+
+  const fmtFecha = (v) => { try { return new Date(v).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' }); } catch { return ''; } };
+  const imgBox = { width:'100%', borderRadius:8, border:'1px solid var(--border)', display:'block' };
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header"><div>
+        <div className="page-title">🆕 Inscripciones</div>
+        <div className="page-subtitle">Alumnos que se registraron y esperan tu aprobación</div>
+      </div></div>
+
+      {loading ? <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>Cargando…</div>
+      : pendientes.length === 0 ? (
+        <div className="card" style={{textAlign:'center',padding:'50px 20px',color:'var(--text2)'}}>
+          <div style={{fontSize:'2.6rem',marginBottom:10}}>✅</div>
+          No hay inscripciones pendientes por ahora.
+        </div>
+      ) : (
+        <div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {pendientes.map(al => (
+            <div key={al.id} className="card" style={{padding:16}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:10}}>
+                <div>
+                  <div style={{fontWeight:700,fontSize:'1rem'}}>{al.nombre}</div>
+                  <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>📧 {al.email}</div>
+                  <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>🪪 DNI: {al.dni || '—'}</div>
+                  <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:4}}>Inscripto: {fmtFecha(al.created_at)}{al.tyc_aceptado ? ' · ✅ aceptó T&C' : ''}</div>
+                </div>
+                <button className="btn btn-ghost btn-sm" onClick={() => verFotos(al)}>{verId === al.id ? 'Ocultar fotos' : '🖼️ Ver fotos'}</button>
+              </div>
+
+              {verId === al.id && (
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,marginTop:12}}>
+                  {[['Selfie','selfie'],['DNI frente','frente'],['DNI dorso','dorso']].map(([lbl,k]) => (
+                    <div key={k}>
+                      <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:4}}>{lbl}</div>
+                      {urls[k]
+                        ? <a href={urls[k]} target="_blank" rel="noreferrer"><img src={urls[k]} alt={lbl} style={imgBox} /></a>
+                        : <div style={{fontSize:'0.75rem',color:'var(--text2)'}}>Cargando…</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginTop:14,borderTop:'1px solid var(--border)',paddingTop:12}}>
+                <span style={{fontSize:'0.8rem',color:'var(--text2)'}}>Aula:</span>
+                <select value={aulaSel[al.id] || ''} onChange={e => setAulaSel(s => ({ ...s, [al.id]: e.target.value }))}
+                  style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}}>
+                  <option value="">Elegí un aula…</option>
+                  {aulas.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+                </select>
+                <button className="btn btn-success btn-sm" onClick={() => aprobar(al)} disabled={proc}>✅ Aprobar</button>
+                <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => rechazar(al)} disabled={proc}>🚫 Rechazar</button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -6996,6 +7270,10 @@ function App() {
 
   if (!auth) return <LoginPage onLogin={handleLogin} />;
 
+  // Alumno que todavía no fue aprobado (pendiente) o fue rechazado: no entra a la app.
+  if (!auth.isAdmin && !(auth.alumno && auth.alumno.estado === 'activo'))
+    return <PantallaEspera alumno={auth.alumno} onLogout={handleLogout} />;
+
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
   const enPreview = !!(auth.isAdmin && preview);
   const authEfectivo = enPreview
@@ -7009,6 +7287,7 @@ function App() {
     'novedades-admin': <AdminNovedades aulaActiva={aulaActiva} />,
     gantt: <AdminPlanificacion aulaActiva={aulaActiva} />,
     alumnos: <AdminAlumnos aulaActiva={aulaActiva} />,
+    inscripciones: <AprobarInscripciones />,
     pagos: <AdminPagos aulaActiva={aulaActiva} />,
     extensiones: <AdminExtensiones aulaActiva={aulaActiva} />,
     msa: <SalaDeJuegos aulaActiva={aulaActiva} esAdmin={true} />,
@@ -7031,6 +7310,7 @@ function App() {
     gantt: ['📅 Planificación', 'Cronograma mensual del curso'],
     'mis-gantt': ['📅 Mi Planificación', 'Tu cronograma personal'],
     alumnos: ['👥 Alumnos', 'Gestión de alumnos'],
+    inscripciones: ['🆕 Inscripciones', 'Aprobar alumnos nuevos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
     extensiones: ['⏱️ Extensiones', 'Compras de 24hs extra'],
     msa: ['🎮 Sala de Juegos', 'Herramientas para tus clases'],
@@ -7071,6 +7351,7 @@ function App() {
       : { id: 'logout', icon: '🚪', label: 'Cerrar sesión' },
   ] : [
     { id: 'aulas', icon: '🏫', label: 'Aulas' },
+    { id: 'inscripciones', icon: '🆕', label: 'Inscripciones' },
     { id: 'gantt', icon: '📅', label: 'Planificación' },
     { id: 'pagos', icon: '💳', label: 'Pagos' },
     { id: 'materiales', icon: '📄', label: 'Materiales' },
