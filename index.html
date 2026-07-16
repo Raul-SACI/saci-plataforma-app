@@ -2407,6 +2407,7 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
   const [verBanco, setVerBanco] = useState(true);
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
   const [piezaSel, setPiezaSel] = useState(null); // pieza elegida por clic para colocar tocando una celda
+  const [bancoExp, setBancoExp] = useState(false); // banco desplegado (ver más) o compacto (par de filas)
   const toast = useToast();
   const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
   const soloLectura = actual?.soloLectura;
@@ -2669,7 +2670,7 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
             <>
               <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:8}}>Arrastrá una pieza a una celda del diagrama, o hacé <b>clic en una pieza</b> y después <b>clic en la celda</b> donde va.</div>
               {piezaSel && <div style={{fontSize:'0.78rem',color:'var(--accent)',fontWeight:700,marginBottom:8}}>✋ Elegiste "{piezaSel.nombre}" — ahora tocá una celda del diagrama para colocarla (o tocá la pieza otra vez para soltar).</div>}
-              <div style={{maxHeight:250,overflowY:'auto',paddingRight:4}}>
+              <div style={{maxHeight: bancoExp ? 460 : 128, overflowY:'auto', paddingRight:4, transition:'max-height 0.2s'}}>
               {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos Manuales'],['doc_pancita','📄 Documentos generados por Sistema'],['elemento','🔤 Elementos']].map(([tipo,label]) => (
                 <div key={tipo} style={{marginBottom:10}}>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
@@ -2688,6 +2689,9 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
                   </div>
                 </div>
               ))}
+              </div>
+              <div style={{textAlign:'center',marginTop:6}}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setBancoExp(v => !v)}>{bancoExp ? 'Ver menos ▴' : 'Ver más ▾'}</button>
               </div>
               <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:12}}>
                 <input placeholder="Nombre nueva pieza" value={nuevaPieza.nombre}
