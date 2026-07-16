@@ -525,6 +525,15 @@ async function notificarAlumnos(titulo, cuerpo) {
   } catch {}
 }
 
+// Crea una Novedad automática cuando el profe publica algo (material, video, evaluación).
+// Así aparece sola en el muro de Novedades del aula. No frena el guardado si falla.
+async function crearNovedadAuto(aulaId, { titulo, contenido, tipo = 'info' }) {
+  if (!aulaId) return;
+  try {
+    await supabase.from('novedades').insert({ titulo, contenido, tipo, destacado: false, aula_id: aulaId });
+  } catch {}
+}
+
 /* ── SQL necesario en Supabase para el Muro de Novedades ──────────────
    Ejecutar UNA VEZ en SQL Editor de Supabase:
 
@@ -4369,6 +4378,8 @@ function AdminVideos({ aulaActiva }) {
     }
 
     if (!editing) notificarAlumnos('🎬 Nuevo video disponible', form.titulo);
+    if (!editing && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
+      crearNovedadAuto(aulaActiva, { titulo: '🎬 Nuevo video: ' + form.titulo, contenido: 'Se subió un nuevo video: ' + form.titulo + '. Entrá a la sección Videos para verlo.' });
     toast(editing ? 'Video actualizado ✏️' : 'Video agregado 🎬', 'success');
     setModal(false); setEditing(null); setSelectedFile(null);
     setForm({ titulo: '', descripcion: '', bunny_id: '', url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', vence_en: '', precio_extension: '', para_todos: true, alumnos_ids: [] }); load();
@@ -4886,6 +4897,10 @@ function AdminMateriales({ aulaActiva }) {
       : await supabase.from('materiales').insert(payload);
     if (error) return toast(error.message, 'error');
     if (!editing) notificarAlumnos('📄 Nuevo material disponible', form.unidad || form.titulo);
+    if (!editing && !(form.publicar_en && new Date(form.publicar_en) > new Date())) {
+      const nombreMat = form.unidad || form.titulo;
+      crearNovedadAuto(aulaActiva, { titulo: '📄 Nuevo material: ' + nombreMat, contenido: 'Se subió un nuevo material: ' + nombreMat + '. Entrá a la sección Materiales para verlo.' });
+    }
     toast(editing ? 'Material actualizado ✏️' : 'Material guardado ✅', 'success');
     setModal(false); setEditing(null); setSelectedFile(null); setSelectedFiles([]);
     setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
@@ -4931,6 +4946,8 @@ function AdminMateriales({ aulaActiva }) {
       }
     }
     setBulkProgress(null);
+    if (done > 0 && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
+      crearNovedadAuto(aulaActiva, { titulo: '📄 Nuevos materiales', contenido: 'Se subieron ' + done + ' materiales nuevos. Entrá a la sección Materiales para verlos.' });
     toast(errors > 0 ? `${done} subidos, ${errors} con error` : `✅ ${done} materiales subidos`, errors > 0 ? 'error' : 'success');
     setModal(false); setSelectedFiles([]); setSelectedFile(null);
     setForm({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
@@ -5414,6 +5431,8 @@ function AdminEvaluaciones({ aulaActiva }) {
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
       : await supabase.from('evaluaciones').insert(payload);
     if (error) return toast(error.message, 'error');
+    if (!editing && form.visible !== false && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
+      crearNovedadAuto(aulaActiva, { titulo: '📝 Nueva evaluación: ' + form.titulo, contenido: 'Hay una nueva evaluación disponible: ' + form.titulo + '. Entrá a la sección Evaluaciones.', tipo: 'tarea' });
     toast(editing ? 'Evaluación actualizada ✏️' : 'Evaluación agregada ✅', 'success');
     setModal(false); setEditing(null); setForm(emptyForm); load();
   };
