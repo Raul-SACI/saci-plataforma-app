@@ -2406,6 +2406,7 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
   const [saving, setSaving] = useState(false);
   const [verBanco, setVerBanco] = useState(true);
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
+  const [piezaSel, setPiezaSel] = useState(null); // pieza elegida por clic para colocar tocando una celda
   const toast = useToast();
   const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
   const soloLectura = actual?.soloLectura;
@@ -2430,7 +2431,26 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
   };
   useEffect(() => { setLoading(true); load(); }, [miAula]);
 
+  // Mientras se arrastra una pieza, si el cursor se acerca al borde de la pantalla,
+  // deslizamos la página sola para poder llegar al diagrama aunque esté más abajo.
+  useEffect(() => {
+    const onDrag = (e) => {
+      const m = 90, v = 22, h = window.innerHeight;
+      if (e.clientY < m) window.scrollBy(0, -v);
+      else if (e.clientY > h - m) window.scrollBy(0, v);
+    };
+    document.addEventListener('dragover', onDrag);
+    return () => document.removeEventListener('dragover', onDrag);
+  }, []);
+
   const bancoPorTipo = (t) => piezas.filter(p => p.tipo === t);
+
+  // Colocar en una celda la pieza elegida por clic (alternativa al arrastre).
+  const colocarPieza = (cellId) => {
+    if (!piezaSel || soloLectura || cellId === diagContId() || celdas[cellId]) return;
+    setCeldas(prev => ({ ...prev, [cellId]: { nombre: piezaSel.nombre, tipo: piezaSel.tipo } }));
+    setPiezaSel(null);
+  };
 
   const crearPieza = async () => {
     if (!nuevaPieza.nombre.trim()) return toast('Poné un nombre', 'error');
@@ -2647,16 +2667,28 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
           </div>
           {verBanco && (
             <>
-              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Arrastrá una pieza a la fila que corresponda del diagrama.</div>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:8}}>Arrastrá una pieza a una celda del diagrama, o hacé <b>clic en una pieza</b> y después <b>clic en la celda</b> donde va.</div>
+              {piezaSel && <div style={{fontSize:'0.78rem',color:'var(--accent)',fontWeight:700,marginBottom:8}}>✋ Elegiste "{piezaSel.nombre}" — ahora tocá una celda del diagrama para colocarla (o tocá la pieza otra vez para soltar).</div>}
+              <div style={{maxHeight:250,overflowY:'auto',paddingRight:4}}>
               {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos Manuales'],['doc_pancita','📄 Documentos generados por Sistema'],['elemento','🔤 Elementos']].map(([tipo,label]) => (
                 <div key={tipo} style={{marginBottom:10}}>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
                   <div className="msa-banco">
-                    {bancoPorTipo(tipo).map(p => <MsaPieza key={p.id} pieza={p} onDragStart={onDragBanco} />)}
+                    {bancoPorTipo(tipo).map(p => {
+                      const elegida = piezaSel && piezaSel.nombre === p.nombre && piezaSel.tipo === p.tipo;
+                      return (
+                        <div key={p.id}
+                          onClick={() => setPiezaSel(s => (s && s.nombre === p.nombre && s.tipo === p.tipo) ? null : { nombre: p.nombre, tipo: p.tipo })}
+                          style={{cursor:'pointer',borderRadius:8,outline: elegida ? '2px solid var(--accent)' : 'none',outlineOffset:2}}>
+                          <MsaPieza pieza={p} onDragStart={onDragBanco} />
+                        </div>
+                      );
+                    })}
                     {bancoPorTipo(tipo).length === 0 && <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>—</span>}
                   </div>
                 </div>
               ))}
+              </div>
               <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:12}}>
                 <input placeholder="Nombre nueva pieza" value={nuevaPieza.nombre}
                   onChange={e => setNuevaPieza(p => ({...p, nombre: e.target.value}))}
@@ -2717,8 +2749,8 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
                       className={`diag-cell ${esFrom ? 'diag-from' : ''}`}
                       onDragOver={soloLectura ? undefined : (e) => e.preventDefault()}
                       onDrop={soloLectura ? undefined : (e) => onDropCelda(e, id)}
-                      onClick={() => clickConectar(id)}
-                      style={{cursor: modoConectar && cel ? 'pointer' : 'default'}}>
+                      onClick={() => { if (modoConectar) clickConectar(id); else colocarPieza(id); }}
+                      style={{cursor: ((modoConectar && cel) || (!modoConectar && piezaSel && !cel)) ? 'pointer' : 'default'}}>
                       {cel && (
                         <div draggable={!soloLectura && !cel.fijo} onDragStart={(e) => onDragCelda(e, id)}>
                           <MsaPieza pieza={cel}
