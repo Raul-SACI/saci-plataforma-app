@@ -1820,7 +1820,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: false },
     { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: false },
-    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: false },
+    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
   ];
 
   const Proximamente = ({ nombre }) => (
@@ -1869,6 +1869,8 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
           : tab === 'contab'
           ? <DiagramaContab alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+          : tab === 'fragmentaciones'
+          ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
       </div>
     </div>
@@ -2772,6 +2774,197 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
           </div>
         </div>
         {!soloLectura && <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:8}}>💡 CONT (contabilidad) está fijo al medio de Archivos de Gestión. Podés mover las demás piezas arrastrándolas a otra celda.</div>}
+      </div>
+    </div>
+  );
+}
+
+// ─── FRAGMENTACIONES ──────────────────────────────────────────────────
+// Tira horizontal de fichas tipo flecha (chevron). Cada ficha tiene texto y
+// color, y se puede reordenar. Se guarda igual que la MSA.
+const FRAG_COLORES = [
+  { key: 'normal',  label: 'Normal',  bg: '#ffffff', border: '#2b6a7a', text: '#12333c' },
+  { key: 'naranja', label: 'Naranja', bg: '#e5824a', border: '#c4652f', text: '#ffffff' },
+  { key: 'verde',   label: 'Verde',   bg: '#3d9aa1', border: '#2b6a7a', text: '#ffffff' },
+  { key: 'azul',    label: 'Azul',    bg: '#3b82f6', border: '#1e5fd0', text: '#ffffff' },
+  { key: 'violeta', label: 'Violeta', bg: '#8b5cf6', border: '#6d3fd6', text: '#ffffff' },
+  { key: 'gris',    label: 'Gris',    bg: '#cbd5e1', border: '#94a3b8', text: '#12333c' },
+];
+const fragColor = (k) => FRAG_COLORES.find(c => c.key === k) || FRAG_COLORES[0];
+const nuevaFicha = () => ({ id: Math.random().toString(36).slice(2), texto: '', color: 'normal' });
+
+function Fragmentaciones({ alumno, aulaActiva, esAdmin }) {
+  const [flujos, setFlujos] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [fichas, setFichas] = useState([nuevaFicha()]);
+  const [colorAbierto, setColorAbierto] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = actual?.soloLectura;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    if (esAdmin) {
+      const { data } = await supabase.from('frag_flujos').select('id, titulo, publicada, updated_at')
+        .eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+      setFlujos(data || []);
+    } else {
+      const [mios, pub] = await Promise.all([
+        supabase.from('frag_flujos').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+        supabase.from('frag_flujos').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+      ]);
+      setFlujos(mios.data || []);
+      setPublicados(pub.data || []);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const setTextoFicha = (id, texto) => setFichas(fs => fs.map(f => f.id === id ? { ...f, texto } : f));
+  const setColorFicha = (id, color) => { setFichas(fs => fs.map(f => f.id === id ? { ...f, color } : f)); setColorAbierto(null); };
+  const agregarFicha = () => setFichas(fs => [...fs, nuevaFicha()]);
+  const quitarFicha = (id) => setFichas(fs => fs.length > 1 ? fs.filter(f => f.id !== id) : fs);
+  const moverFicha = (id, dir) => setFichas(fs => {
+    const i = fs.findIndex(f => f.id === id), j = i + dir;
+    if (i < 0 || j < 0 || j >= fs.length) return fs;
+    const n = [...fs]; const tmp = n[i]; n[i] = n[j]; n[j] = tmp; return n;
+  });
+
+  const nuevoFlujo = () => { setActual(null); setTitulo(''); setFichas([nuevaFicha()]); setColorAbierto(null); };
+  const cargarFlujo = async (id, lectura = false) => {
+    const { data } = await supabase.from('frag_flujos').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setFichas(Array.isArray(data.fichas) && data.fichas.length ? data.fichas : [nuevaFicha()]);
+    setColorAbierto(null);
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título al gráfico', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), fichas, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else { payload.alumno_id = alumno?.id; }
+    let error;
+    if (actual?.id && !actual?.soloLectura) {
+      ({ error } = await supabase.from('frag_flujos').update(payload).eq('id', actual.id));
+    } else {
+      const { data, error: e2 } = await supabase.from('frag_flujos').insert(payload).select('id').single();
+      error = e2; if (data) setActual({ id: data.id, ...payload });
+    }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Gráfico publicado ✅' : (publicar === false ? 'Gráfico despublicado' : 'Gráfico guardado ✅'), 'success');
+    load();
+  };
+  const eliminarFlujo = async (id) => {
+    if (!confirm('¿Eliminar este gráfico?')) return;
+    const { error } = await supabase.from('frag_flujos').delete().eq('id', id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    if (actual?.id === id) nuevoFlujo();
+    load();
+  };
+
+  if (loading) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>Cargando…</div>;
+  if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const W = 158, H = 66, K = 17;
+  const chevPoints = (primera) => primera
+    ? `0,0 ${W-K},0 ${W},${H/2} ${W-K},${H} 0,${H}`
+    : `0,0 ${W-K},0 ${W},${H/2} ${W-K},${H} 0,${H} ${K},${H/2}`;
+  const btnMini = { background:'none', border:'none', cursor:'pointer', fontSize:'0.72rem', padding:'0 2px', color:'var(--text2)', lineHeight:1 };
+
+  return (
+    <div className="page-content fade-in" style={{paddingTop:8}}>
+      {/* Gráficos guardados */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <button className="btn btn-primary btn-sm" onClick={nuevoFlujo}>+ Nuevo gráfico</button>
+        {flujos.map(d => (
+          <span key={d.id} style={{display:'inline-flex',alignItems:'center',gap:2,border:'1px solid var(--border)',borderRadius:8,padding:'2px 4px 2px 8px',background: actual?.id===d.id?'var(--surface2)':'transparent'}}>
+            <span onClick={() => cargarFlujo(d.id)} style={{cursor:'pointer',fontSize:'0.82rem',fontWeight: actual?.id===d.id?700:500}}>
+              {d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}
+            </span>
+            {esAdmin && <button onClick={() => eliminarFlujo(d.id)} title="Eliminar" style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.72rem',opacity:0.6,padding:0}}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+
+      {/* Publicados por el profe (alumno) */}
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',fontWeight:600,marginBottom:4}}>📢 Publicados por el profe (para ver):</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {publicados.map(d => (
+              <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargarFlujo(d.id, true)}>{d.titulo || '(sin título)'}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Título + acciones */}
+      {!soloLectura && (
+        <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+          <input placeholder="Título (ej: Subsistema de Compras)" value={titulo}
+            onChange={e => setTitulo(e.target.value)}
+            style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
+          {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-success" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
+          {esAdmin && actual?.publicada && <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>}
+        </div>
+      )}
+      {soloLectura && <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10}}>{titulo}</div>}
+
+      {/* La tira de fichas */}
+      <div className="card" style={{padding:16, overflowX:'auto'}}>
+        {!soloLectura && <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:12}}>Escribí el nombre en cada ficha. Usá ◀ ▶ para cambiar el orden, el círculo para el color y 🗑️ para borrarla.</div>}
+        <div style={{display:'flex', alignItems:'flex-start', minWidth:'min-content', paddingBottom:8}}>
+          {fichas.map((f, i) => {
+            const col = fragColor(f.color);
+            const abierto = colorAbierto === f.id;
+            return (
+              <div key={f.id} style={{display:'flex', flexDirection:'column', alignItems:'center', marginLeft: i>0 ? -K : 0}}>
+                <div style={{position:'relative', width:W, height:H}}>
+                  <svg width={W} height={H} style={{position:'absolute', top:0, left:0}}>
+                    <polygon points={chevPoints(i===0)} fill={col.bg} stroke={col.border} strokeWidth="2" />
+                  </svg>
+                  <textarea
+                    value={f.texto}
+                    readOnly={soloLectura}
+                    onChange={e => setTextoFicha(f.id, e.target.value)}
+                    placeholder={soloLectura ? '' : '...'}
+                    rows={2}
+                    style={{position:'absolute', top:10, left:K, width:W-2*K, height:H-20,
+                      border:'none', background:'transparent', color:col.text, textAlign:'center',
+                      resize:'none', fontSize:'0.72rem', fontWeight:700, lineHeight:1.12, overflow:'hidden', fontFamily:'inherit'}} />
+                </div>
+                {!soloLectura && (
+                  <div style={{display:'flex', gap:3, marginTop:5, alignItems:'center', position:'relative'}}>
+                    <button title="Mover a la izquierda" onClick={() => moverFicha(f.id,-1)} style={btnMini}>◀</button>
+                    <button title="Color de la ficha" onClick={() => setColorAbierto(a => a===f.id ? null : f.id)}
+                      style={{width:16, height:16, borderRadius:'50%', background:col.bg, border:`1px solid ${col.border}`, cursor:'pointer', padding:0}} />
+                    <button title="Eliminar ficha" onClick={() => quitarFicha(f.id)} style={{...btnMini, color:'var(--danger)'}}>🗑️</button>
+                    <button title="Mover a la derecha" onClick={() => moverFicha(f.id,1)} style={btnMini}>▶</button>
+                    {abierto && (
+                      <div style={{position:'absolute', top:24, left:'50%', transform:'translateX(-50%)', zIndex:20, display:'flex', gap:4, padding:6, borderRadius:10, background:'var(--surface)', border:'1px solid var(--border)', boxShadow:'0 4px 14px rgba(0,0,0,0.25)'}}>
+                        {FRAG_COLORES.map(c => (
+                          <button key={c.key} title={c.label} onClick={() => setColorFicha(f.id, c.key)}
+                            style={{width:20, height:20, borderRadius:'50%', cursor:'pointer', padding:0, background:c.bg, border: f.color===c.key ? '2px solid var(--text)' : `1px solid ${c.border}`}} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {!soloLectura && (
+            <button className="btn btn-ghost btn-sm" onClick={agregarFicha} style={{marginLeft:14, marginTop:20, whiteSpace:'nowrap'}}>➕ Ficha</button>
+          )}
+        </div>
       </div>
     </div>
   );
