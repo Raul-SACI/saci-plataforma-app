@@ -1959,6 +1959,8 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [dragOver, setDragOver] = useState(null);
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
   const [verBanco, setVerBanco] = useState(true);
+  const [piezaSel, setPiezaSel] = useState(null);  // pieza elegida por clic para colocar tocando una celda
+  const [bancoExp, setBancoExp] = useState(false); // banco desplegado (ver más) o compacto
   const [anchos, setAnchos] = useState({});        // ancho por columna (px)
   const [colores, setColores] = useState({});      // color de texto por celda: { "filaId_colKey": "#hex" }
   const [colorAbierto, setColorAbierto] = useState(null); // celda cuya paleta de color está abierta ("filaId_colKey")
@@ -1991,7 +1993,27 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   };
   useEffect(() => { setLoading(true); load(); }, [miAula]);
 
+  // Al arrastrar cerca del borde de la pantalla, deslizamos la página sola.
+  useEffect(() => {
+    const onDrag = (e) => {
+      const m = 90, v = 22, h = window.innerHeight;
+      if (e.clientY < m) window.scrollBy(0, -v);
+      else if (e.clientY > h - m) window.scrollBy(0, v);
+    };
+    document.addEventListener('dragover', onDrag);
+    return () => document.removeEventListener('dragover', onDrag);
+  }, []);
+
   const bancoPorTipo = (tipo) => piezas.filter(p => p.tipo === tipo);
+
+  // Colocar en una celda la pieza elegida por clic (alternativa al arrastre).
+  const colocarPieza = (filaId, colKey) => {
+    if (!piezaSel || soloLectura) return;
+    setFilas(fs => fs.map(f => f.id === filaId
+      ? { ...f, [colKey]: [...f[colKey], { nombre: piezaSel.nombre, tipo: piezaSel.tipo, uid: Math.random().toString(36).slice(2) }] }
+      : f));
+    setPiezaSel(null);
+  };
 
   // ── Drag & drop ──
   const onDragStart = (e, pieza) => {
@@ -2255,14 +2277,21 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
           </div>
           {verBanco && (
             <>
-              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Arrastrá una pieza a la celda que corresponda.</div>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:8}}>Arrastrá una pieza a una celda, o hacé <b>clic en una pieza</b> y después <b>clic en la celda</b> donde va.</div>
+              {piezaSel && <div style={{fontSize:'0.78rem',color:'var(--accent)',fontWeight:700,marginBottom:8}}>✋ Elegiste "{piezaSel.nombre}" — ahora tocá una celda para colocarla (o tocá la pieza otra vez para soltar).</div>}
+              <div style={{maxHeight: bancoExp ? 460 : 128, overflowY:'auto', paddingRight:4, transition:'max-height 0.2s'}}>
               {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos Manuales'],['doc_pancita','📄 Documentos generados por Sistema'],['elemento','🔤 Elementos']].map(([tipo,label]) => (
                 <div key={tipo} style={{marginBottom:12}}>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
                   <div className="msa-banco">
-                    {bancoPorTipo(tipo).map(p => (
+                    {bancoPorTipo(tipo).map(p => {
+                      const elegida = piezaSel && piezaSel.nombre === p.nombre && piezaSel.tipo === p.tipo;
+                      return (
                       <div key={p.id} style={{display:'inline-flex',flexDirection:'column',alignItems:'center',gap:2}}>
-                        <MsaPieza pieza={p} onDragStart={onDragStart} />
+                        <div onClick={() => setPiezaSel(s => (s && s.nombre === p.nombre && s.tipo === p.tipo) ? null : { nombre: p.nombre, tipo: p.tipo })}
+                          style={{cursor:'pointer',borderRadius:8,outline: elegida ? '2px solid var(--accent)' : 'none',outlineOffset:2}}>
+                          <MsaPieza pieza={p} onDragStart={onDragStart} />
+                        </div>
                         <div style={{display:'flex',gap:4}}>
                           <button onClick={() => editarPieza(p)} title="Editar"
                             style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.7rem',opacity:0.6,padding:0}}>✏️</button>
@@ -2270,11 +2299,16 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                             style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.7rem',opacity:0.6,padding:0}}>🗑️</button>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                     {bancoPorTipo(tipo).length === 0 && <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>—</span>}
                   </div>
                 </div>
               ))}
+              </div>
+              <div style={{textAlign:'center',marginTop:6}}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setBancoExp(v => !v)}>{bancoExp ? 'Ver menos ▴' : 'Ver más ▾'}</button>
+              </div>
               {/* Crear pieza nueva */}
               <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:12}}>
                 <input placeholder="Nombre nueva pieza" value={nuevaPieza.nombre}
@@ -2380,7 +2414,9 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
                         className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
                         onDragOver={soloLectura ? undefined : (e) => { e.preventDefault(); setDragOver(fila.id+col.key); }}
                         onDragLeave={() => setDragOver(null)}
-                        onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}>
+                        onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}
+                        onClick={() => colocarPieza(fila.id, col.key)}
+                        style={{cursor: (!soloLectura && piezaSel) ? 'pointer' : 'default'}}>
                         {fila[col.key].map(p => (
                           <MsaPieza key={p.uid} pieza={p}
                             onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
