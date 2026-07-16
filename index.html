@@ -780,7 +780,12 @@ function RegistroAlumno({ onListo, onCancel }) {
           <div style={{maxHeight:200,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:12,marginTop:8,fontSize:'0.74rem',lineHeight:1.5,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)'}}>{TYC_TEXTO}</div>
         )}
         <label style={{display:'flex',alignItems:'flex-start',gap:8,marginTop:10,cursor:'pointer',fontSize:'0.82rem'}}>
-          <input type="checkbox" checked={acepta} onChange={e => setAcepta(e.target.checked)} style={{width:'auto',marginTop:3}} />
+          <input type="checkbox" checked={acepta} onChange={e => {
+            if (e.target.checked) {
+              const ok = confirm('¿Seguro/a que leíste detenidamente los términos y condiciones, en especial las SANCIONES por divulgar o grabar el contenido de las clases (cláusulas Octava y Novena)?');
+              setAcepta(ok);
+            } else { setAcepta(false); }
+          }} style={{width:'auto',marginTop:3}} />
           <span>Declaro ser mayor de edad y <b>acepto los términos y condiciones</b> (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
         </label>
       </div>
