@@ -227,6 +227,16 @@
   .msa-tabla th, .msa-tabla td { border: 1px solid var(--border); vertical-align: top; }
   .msa-tabla th { background: var(--surface2); padding: 6px 8px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
   .msa-banco { display: flex; flex-wrap: wrap; gap: 10px; }
+  /* CONT (archivo de contabilidad) resaltado en naranja */
+  .msa-pieza.msa-cont { background: #e8863a; border-color: #b5611c; color: #fff; }
+  .msa-pieza.msa-cont::before { border-color: #b5611c; background: #f2a55f; box-shadow: 0 4px 0 -2px #b5611c; }
+  /* Diagrama de Contabilidad */
+  .diag-lbl { box-sizing: border-box; display: flex; align-items: center; justify-content: flex-end; text-align: right;
+    padding: 4px 8px; font-size: 0.64rem; font-weight: 800; letter-spacing: 0.02em; color: #3a2f00;
+    background: #fde047; border: 1px solid #d9a72a; }
+  .diag-cell { box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(120,120,120,0.14); }
+  .diag-cell.diag-from { outline: 2px solid var(--accent); outline-offset: -2px; }
 
   /* Empty state */
   .empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
@@ -1806,7 +1816,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
   const JUEGOS = [
     { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
     { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
-    { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: false },
+    { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: false },
     { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: false },
@@ -1856,6 +1866,8 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
       <div style={{margin:'0 -12px'}}>
         {tab === 'msa'
           ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
+          : tab === 'contab'
+          ? <DiagramaContab alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
       </div>
     </div>
@@ -1864,13 +1876,14 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
 
 // ─── MATRIZ MSA ───────────────────────────────────────────────────────
 // Pieza visual: dibuja un archivo (cilindro), doc cuadrado o doc con pancita.
-function MsaPieza({ pieza, onDragStart, onRemove }) {
+function MsaPieza({ pieza, onDragStart, onRemove, extra, style }) {
   return (
     <div
-      className={`msa-pieza msa-${pieza.tipo}`}
+      className={`msa-pieza msa-${pieza.tipo}${extra ? ' ' + extra : ''}`}
       draggable={!!onDragStart}
       onDragStart={onDragStart ? (e) => onDragStart(e, pieza) : undefined}
-      title={pieza.nombre}>
+      title={pieza.nombre}
+      style={style}>
       {onRemove && <span className="msa-x" onClick={(e) => { e.stopPropagation(); onRemove(); }}>✕</span>}
       <span>{pieza.nombre}</span>
     </div>
@@ -2361,6 +2374,368 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
       {!soloLectura && (
         <button className="btn btn-ghost" style={{marginTop:12}} onClick={agregarFila}>+ Agregar fila</button>
       )}
+    </div>
+  );
+}
+
+// ─── DIAGRAMA DE CONTABILIDAD ─────────────────────────────────────────
+// Arriba se arma el asiento contable; abajo un diagrama de 5 filas fijas
+// donde se ubican piezas (reusa el banco de la MSA) y se conectan con flechas.
+const DIAG_FILAS = ['DOCUMENTOS', 'ARCHIVOS TRANSACC', 'ARCHIVOS VALORES', 'ARCHIVOS GESTIÓN', 'REPORTES'];
+const DIAG_COLS = 9;
+const DIAG_CW = 118;   // ancho de celda (px)
+const DIAG_CH = 90;    // alto de fila (px)
+const DIAG_CONT_FILA = 3;                        // ARCHIVOS GESTIÓN
+const DIAG_CONT_COL = Math.floor(DIAG_COLS / 2); // columna del medio
+const diagContId = () => `${DIAG_CONT_FILA}_${DIAG_CONT_COL}`;
+const asientoVacio = () => ({ cuenta: '', debe: '', haber: '' });
+const diagInicial = () => ({ [diagContId()]: { nombre: 'CONT', tipo: 'archivo', fijo: true } });
+
+function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
+  const [piezas, setPiezas] = useState([]);
+  const [diagramas, setDiagramas] = useState([]);
+  const [publicadas, setPublicadas] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [asiento, setAsiento] = useState([asientoVacio(), asientoVacio()]);
+  const [celdas, setCeldas] = useState(diagInicial());
+  const [conexiones, setConexiones] = useState([]);
+  const [modoConectar, setModoConectar] = useState(false);
+  const [conFrom, setConFrom] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [verBanco, setVerBanco] = useState(true);
+  const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = actual?.soloLectura;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    const { data: pz } = await supabase.from('msa_piezas').select('*').order('created_at');
+    setPiezas((pz || []).filter(p => p.es_base || p.creado_por === alumno?.id));
+    if (esAdmin) {
+      const { data } = await supabase.from('contab_diagramas').select('id, titulo, publicada, updated_at')
+        .eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+      setDiagramas(data || []);
+    } else {
+      const [mios, pub] = await Promise.all([
+        supabase.from('contab_diagramas').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+        supabase.from('contab_diagramas').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+      ]);
+      setDiagramas(mios.data || []);
+      setPublicadas(pub.data || []);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const bancoPorTipo = (t) => piezas.filter(p => p.tipo === t);
+
+  const crearPieza = async () => {
+    if (!nuevaPieza.nombre.trim()) return toast('Poné un nombre', 'error');
+    const { data, error } = await supabase.from('msa_piezas').insert({
+      nombre: nuevaPieza.nombre.trim().toUpperCase(),
+      tipo: nuevaPieza.tipo,
+      es_base: esAdmin,
+      creado_por: esAdmin ? null : alumno?.id,
+    }).select('*').single();
+    if (error) return toast('Error: ' + error.message, 'error');
+    setPiezas(p => [...p, data]);
+    setNuevaPieza({ nombre: '', tipo: nuevaPieza.tipo });
+  };
+
+  // ── Arrastre: desde el banco (origen null) o mover una pieza ya ubicada ──
+  const onDragBanco = (e, pieza) => {
+    e.dataTransfer.setData('application/json', JSON.stringify({ nombre: pieza.nombre, tipo: pieza.tipo, origen: null }));
+    e.dataTransfer.effectAllowed = 'copy';
+  };
+  const onDragCelda = (e, cellId) => {
+    const c = celdas[cellId];
+    if (!c || c.fijo) { e.preventDefault(); return; }
+    e.dataTransfer.setData('application/json', JSON.stringify({ nombre: c.nombre, tipo: c.tipo, origen: cellId }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const onDropCelda = (e, cellId) => {
+    e.preventDefault();
+    if (soloLectura || cellId === diagContId() || celdas[cellId]) return;
+    let p; try { p = JSON.parse(e.dataTransfer.getData('application/json')); } catch { return; }
+    if (!p || !p.nombre) return;
+    setCeldas(prev => {
+      const n = { ...prev };
+      n[cellId] = { nombre: p.nombre, tipo: p.tipo };
+      if (p.origen && p.origen !== cellId) delete n[p.origen];
+      return n;
+    });
+    if (p.origen && p.origen !== cellId) {
+      setConexiones(cx => cx.map(k => ({
+        from: k.from === p.origen ? cellId : k.from,
+        to: k.to === p.origen ? cellId : k.to,
+      })));
+    }
+  };
+  const quitarCelda = (cellId) => {
+    if (cellId === diagContId()) return;
+    setCeldas(prev => { const n = { ...prev }; delete n[cellId]; return n; });
+    setConexiones(cx => cx.filter(k => k.from !== cellId && k.to !== cellId));
+  };
+
+  // ── Flechas: en modo conectar, clic en origen y luego en destino ──
+  const clickConectar = (cellId) => {
+    if (!modoConectar || !celdas[cellId]) return;
+    if (!conFrom) { setConFrom(cellId); return; }
+    if (conFrom === cellId) { setConFrom(null); return; }
+    const from = conFrom, to = cellId;
+    setConexiones(cx => {
+      const ya = cx.some(k => k.from === from && k.to === to);
+      return ya ? cx.filter(k => !(k.from === from && k.to === to)) : [...cx, { from, to }];
+    });
+    setConFrom(null);
+  };
+
+  const coord = (cellId) => {
+    const [f, c] = cellId.split('_').map(Number);
+    return { cx: c * DIAG_CW + DIAG_CW / 2, cy: f * DIAG_CH + DIAG_CH / 2, f, c };
+  };
+  const flecha = (from, to) => {
+    const a = coord(from), b = coord(to), bh = 46, bw = 82;
+    let x1 = a.cx, y1 = a.cy, x2 = b.cx, y2 = b.cy;
+    if (b.f > a.f) { y1 = a.cy + bh / 2; y2 = b.cy - bh / 2; }
+    else if (b.f < a.f) { y1 = a.cy - bh / 2; y2 = b.cy + bh / 2; }
+    else if (b.c > a.c) { x1 = a.cx + bw / 2; x2 = b.cx - bw / 2; }
+    else { x1 = a.cx - bw / 2; x2 = b.cx + bw / 2; }
+    return { x1, y1, x2, y2 };
+  };
+
+  // ── Nuevo / cargar / guardar / eliminar ──
+  const nuevoDiagrama = () => {
+    setActual(null); setTitulo(''); setAsiento([asientoVacio(), asientoVacio()]);
+    setCeldas(diagInicial()); setConexiones([]); setConFrom(null); setModoConectar(false);
+  };
+  const cargarDiagrama = async (id, lectura = false) => {
+    const { data } = await supabase.from('contab_diagramas').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setAsiento(Array.isArray(data.asiento) && data.asiento.length ? data.asiento : [asientoVacio(), asientoVacio()]);
+    const cel = (data.celdas && typeof data.celdas === 'object' && !Array.isArray(data.celdas)) ? { ...data.celdas } : {};
+    if (!cel[diagContId()]) cel[diagContId()] = { nombre: 'CONT', tipo: 'archivo', fijo: true };
+    setCeldas(cel);
+    setConexiones(Array.isArray(data.conexiones) ? data.conexiones : []);
+    setConFrom(null); setModoConectar(false);
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título al diagrama', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), asiento, celdas, conexiones, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else { payload.alumno_id = alumno?.id; }
+    let error;
+    if (actual?.id && !actual?.soloLectura) {
+      ({ error } = await supabase.from('contab_diagramas').update(payload).eq('id', actual.id));
+    } else {
+      const { data, error: e2 } = await supabase.from('contab_diagramas').insert(payload).select('id').single();
+      error = e2;
+      if (data) setActual({ id: data.id, ...payload });
+    }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Diagrama publicado ✅' : (publicar === false ? 'Diagrama despublicado' : 'Diagrama guardado ✅'), 'success');
+    load();
+  };
+  const eliminarDiagrama = async (id) => {
+    if (!confirm('¿Eliminar este diagrama?')) return;
+    const { error } = await supabase.from('contab_diagramas').delete().eq('id', id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    if (actual?.id === id) nuevoDiagrama();
+    load();
+  };
+
+  const setCampo = (i, campo, val) => setAsiento(a => a.map((r, j) => j === i ? { ...r, [campo]: val } : r));
+  const agregarRenglon = () => setAsiento(a => [...a, asientoVacio()]);
+  const quitarRenglon = (i) => setAsiento(a => a.length > 1 ? a.filter((_, j) => j !== i) : a);
+  const totalDebe = asiento.reduce((s, r) => s + (parseFloat(r.debe) || 0), 0);
+  const totalHaber = asiento.reduce((s, r) => s + (parseFloat(r.haber) || 0), 0);
+
+  if (loading) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>Cargando…</div>;
+  if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const svgW = DIAG_COLS * DIAG_CW, svgH = DIAG_FILAS.length * DIAG_CH;
+  const inpAsiento = { width:'100%', border:'none', background:'transparent', color:'var(--text)', fontSize:'0.85rem', padding:'6px 8px', fontFamily:'inherit' };
+
+  return (
+    <div className="page-content fade-in" style={{paddingTop:8}}>
+      {/* Diagramas guardados */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
+        <button className="btn btn-primary btn-sm" onClick={nuevoDiagrama}>+ Nuevo diagrama</button>
+        {diagramas.map(d => (
+          <span key={d.id} style={{display:'inline-flex',alignItems:'center',gap:2,border:'1px solid var(--border)',borderRadius:8,padding:'2px 4px 2px 8px',background: actual?.id===d.id?'var(--surface2)':'transparent'}}>
+            <span onClick={() => cargarDiagrama(d.id)} style={{cursor:'pointer',fontSize:'0.82rem',fontWeight: actual?.id===d.id?700:500}}>
+              {d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}
+            </span>
+            {esAdmin && <button onClick={() => eliminarDiagrama(d.id)} title="Eliminar" style={{background:'none',border:'none',cursor:'pointer',fontSize:'0.72rem',opacity:0.6,padding:0}}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+
+      {/* Publicadas por el profe (alumno) */}
+      {!esAdmin && publicadas.length > 0 && (
+        <div style={{marginBottom:12}}>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',fontWeight:600,marginBottom:4}}>📢 Publicadas por el profe (para ver):</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {publicadas.map(d => (
+              <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargarDiagrama(d.id, true)}>{d.titulo || '(sin título)'}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Título + acciones */}
+      {!soloLectura && (
+        <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
+          <input placeholder="Título del diagrama (ej: Devolución de compra)" value={titulo}
+            onChange={e => setTitulo(e.target.value)}
+            style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
+          {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-success" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
+          {esAdmin && actual?.publicada && <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>}
+        </div>
+      )}
+      {soloLectura && <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10}}>{titulo}</div>}
+
+      {/* Asiento contable */}
+      <div className="card" style={{marginBottom:14,padding:14}}>
+        <div style={{fontWeight:700,fontSize:'0.9rem',marginBottom:8}}>🧾 Asiento contable</div>
+        <table className="msa-tabla" style={{maxWidth:520}}>
+          <thead><tr>
+            <th style={{textAlign:'left'}}>Cuentas</th>
+            <th style={{width:100}}>Debe</th>
+            <th style={{width:100}}>Haber</th>
+            {!soloLectura && <th style={{width:34}}></th>}
+          </tr></thead>
+          <tbody>
+            {asiento.map((r, i) => (
+              <tr key={i}>
+                <td><input value={r.cuenta} readOnly={soloLectura} onChange={e => setCampo(i, 'cuenta', e.target.value)} placeholder="Cuenta" style={inpAsiento} /></td>
+                <td><input value={r.debe} readOnly={soloLectura} onChange={e => setCampo(i, 'debe', e.target.value)} placeholder="0" inputMode="decimal" style={{...inpAsiento, textAlign:'right'}} /></td>
+                <td><input value={r.haber} readOnly={soloLectura} onChange={e => setCampo(i, 'haber', e.target.value)} placeholder="0" inputMode="decimal" style={{...inpAsiento, textAlign:'right'}} /></td>
+                {!soloLectura && <td style={{textAlign:'center'}}><button className="btn btn-ghost btn-sm" style={{color:'var(--danger)',padding:'2px 6px'}} onClick={() => quitarRenglon(i)}>🗑️</button></td>}
+              </tr>
+            ))}
+            <tr>
+              <td style={{textAlign:'right',fontWeight:700,fontSize:'0.8rem'}}>Totales</td>
+              <td style={{textAlign:'right',fontWeight:700,fontSize:'0.8rem',color: totalDebe===totalHaber?'var(--text)':'var(--danger)'}}>{totalDebe.toLocaleString('es-AR')}</td>
+              <td style={{textAlign:'right',fontWeight:700,fontSize:'0.8rem',color: totalDebe===totalHaber?'var(--text)':'var(--danger)'}}>{totalHaber.toLocaleString('es-AR')}</td>
+              {!soloLectura && <td></td>}
+            </tr>
+          </tbody>
+        </table>
+        {!soloLectura && (
+          <div style={{marginTop:8,display:'flex',gap:10,alignItems:'center'}}>
+            <button className="btn btn-ghost btn-sm" onClick={agregarRenglon}>+ Agregar renglón</button>
+            {totalDebe !== totalHaber && <span style={{fontSize:'0.75rem',color:'var(--danger)'}}>⚠️ El asiento no balancea (Debe ≠ Haber)</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Banco de piezas (reusa el de la MSA) */}
+      {!soloLectura && (
+        <div className="card" style={{marginBottom:14,padding:14}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:verBanco?10:0}}>
+            <strong style={{fontSize:'0.9rem'}}>📦 Banco de piezas</strong>
+            <button className="btn btn-ghost btn-sm" onClick={() => setVerBanco(v => !v)}>{verBanco ? 'Ocultar' : 'Mostrar'}</button>
+          </div>
+          {verBanco && (
+            <>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Arrastrá una pieza a la fila que corresponda del diagrama.</div>
+              {[['archivo','🛢️ Archivos (bases de datos)'],['doc_cuadrado','▭ Documentos Manuales'],['doc_pancita','📄 Documentos generados por Sistema'],['elemento','🔤 Elementos']].map(([tipo,label]) => (
+                <div key={tipo} style={{marginBottom:10}}>
+                  <div style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:600,marginBottom:6}}>{label}</div>
+                  <div className="msa-banco">
+                    {bancoPorTipo(tipo).map(p => <MsaPieza key={p.id} pieza={p} onDragStart={onDragBanco} />)}
+                    {bancoPorTipo(tipo).length === 0 && <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>—</span>}
+                  </div>
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,marginTop:8,flexWrap:'wrap',alignItems:'center',borderTop:'1px solid var(--border)',paddingTop:12}}>
+                <input placeholder="Nombre nueva pieza" value={nuevaPieza.nombre}
+                  onChange={e => setNuevaPieza(p => ({...p, nombre: e.target.value}))}
+                  style={{flex:1,minWidth:140,padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}} />
+                <select value={nuevaPieza.tipo} onChange={e => setNuevaPieza(p => ({...p, tipo: e.target.value}))}
+                  style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)'}}>
+                  <option value="archivo">🛢️ Archivo</option>
+                  <option value="doc_cuadrado">▭ Documento Manual</option>
+                  <option value="doc_pancita">📄 Documento generado por Sistema</option>
+                  <option value="elemento">🔤 Elemento</option>
+                </select>
+                <button className="btn btn-ghost btn-sm" onClick={crearPieza}>+ Crear pieza</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Diagrama */}
+      <div className="card" style={{padding:14}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:10}}>
+          <strong style={{fontSize:'0.9rem'}}>📊 Diagrama</strong>
+          {!soloLectura && (
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              {modoConectar && <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Clic en la pieza de <b>origen</b> y luego en la de <b>destino</b> (o repetí para borrar la flecha).</span>}
+              <button className={`btn btn-sm ${modoConectar?'btn-primary':'btn-ghost'}`} onClick={() => { setModoConectar(m => !m); setConFrom(null); }}>
+                {modoConectar ? '✓ Conectando' : '🔗 Conectar con flechas'}
+              </button>
+              {conexiones.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => { setConexiones([]); setConFrom(null); }}>Borrar flechas</button>}
+            </div>
+          )}
+        </div>
+        <div style={{overflowX:'auto'}}>
+          <div style={{display:'flex',minWidth:'min-content'}}>
+            {/* Etiquetas de filas */}
+            <div style={{display:'flex',flexDirection:'column',flex:'0 0 auto'}}>
+              {DIAG_FILAS.map((lbl, f) => <div key={f} className="diag-lbl" style={{width:150,height:DIAG_CH}}>{lbl}</div>)}
+            </div>
+            {/* Grilla + flechas */}
+            <div style={{position:'relative',width:svgW,height:svgH,flex:'0 0 auto'}}>
+              <svg width={svgW} height={svgH} style={{position:'absolute',top:0,left:0,pointerEvents:'none',zIndex:2}}>
+                <defs>
+                  <marker id="diag-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                    <path d="M0,0 L8,4 L0,8 Z" fill="#5b6472" />
+                  </marker>
+                </defs>
+                {conexiones.map((k, idx) => {
+                  if (!celdas[k.from] || !celdas[k.to]) return null;
+                  const l = flecha(k.from, k.to);
+                  return <line key={idx} x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} stroke="#5b6472" strokeWidth="2" markerEnd="url(#diag-arrow)" />;
+                })}
+              </svg>
+              <div style={{position:'relative',zIndex:1,display:'grid',gridTemplateColumns:`repeat(${DIAG_COLS}, ${DIAG_CW}px)`,gridAutoRows:`${DIAG_CH}px`}}>
+                {DIAG_FILAS.map((_, f) => Array.from({length: DIAG_COLS}).map((_, c) => {
+                  const id = `${f}_${c}`; const cel = celdas[id]; const esFrom = conFrom === id;
+                  return (
+                    <div key={id}
+                      className={`diag-cell ${esFrom ? 'diag-from' : ''}`}
+                      onDragOver={soloLectura ? undefined : (e) => e.preventDefault()}
+                      onDrop={soloLectura ? undefined : (e) => onDropCelda(e, id)}
+                      onClick={() => clickConectar(id)}
+                      style={{cursor: modoConectar && cel ? 'pointer' : 'default'}}>
+                      {cel && (
+                        <div draggable={!soloLectura && !cel.fijo} onDragStart={(e) => onDragCelda(e, id)}>
+                          <MsaPieza pieza={cel}
+                            onRemove={(!soloLectura && !cel.fijo) ? () => quitarCelda(id) : undefined}
+                            extra={cel.fijo ? 'msa-cont' : ''}
+                            style={{maxWidth: DIAG_CW - 16, minWidth: 0}} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                }))}
+              </div>
+            </div>
+          </div>
+        </div>
+        {!soloLectura && <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:8}}>💡 CONT (contabilidad) está fijo al medio de Archivos de Gestión. Podés mover las demás piezas arrastrándolas a otra celda.</div>}
+      </div>
     </div>
   );
 }
