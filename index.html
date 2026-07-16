@@ -476,7 +476,8 @@ const { useState, useEffect, useCallback, useRef, createContext, useContext } = 
 // ─── CONFIG ──────────────────────────────────────────────────────────
 const SUPABASE_URL = 'https://qonptlakubiiseoglkdm.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_fHe2xHAHL37_RDw4STDRZg_EDv8itlN';
-const SUPABASE_SERVICE_KEY = 'sb_secret_sktnJzgM0vLiKna3odrwXQ_5QLt6kNU';
+// La clave SECRETA ya NO vive en el código del navegador (era un riesgo de seguridad).
+// Las notificaciones push ahora se piden con el token de sesión del admin (ver notificarAlumnos).
 const BUNNY_LIBRARY = '645418';
 const BUNNY_CDN = 'vz-b64e5e9d-a67.b-cdn.net';
 const BUNNY_API_KEY = '31ebdf0b-51c7-4388-8d3e0f3cdc7f-dad7-49dd';
@@ -525,9 +526,11 @@ function normalizarUrl(url) {
 
 async function notificarAlumnos(titulo, cuerpo) {
   try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return; // sin sesión no se manda (la función igual usa su propia clave del lado del servidor)
     await fetch(EDGE_FN_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
       body: JSON.stringify({ titulo, cuerpo }),
     });
   } catch {}
