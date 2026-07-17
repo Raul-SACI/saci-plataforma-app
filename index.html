@@ -4507,6 +4507,21 @@ function AdminPagos({ aulaActiva }) {
     toast('Pago eliminado', 'info'); load();
   };
 
+  // Prueba de conexión con ARCA (etapa 1: solo autenticación).
+  const probarArca = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=auth-test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+      });
+      const j = await res.json();
+      if (j.ok) toast('ARCA ✅ ' + (j.mensaje || 'Autenticación OK'), 'success');
+      else toast('ARCA ❌ ' + (j.error || 'error desconocido'), 'error');
+      console.log('[ARCA auth-test]', j);
+    } catch (e) { toast('No se pudo llamar a la función: ' + e.message, 'error'); }
+  };
+
   const guardarPrecios = async () => {
     const limpio = {};
     PLANES.forEach(pl => {
@@ -4586,6 +4601,7 @@ function AdminPagos({ aulaActiva }) {
             });
             setPreciosForm(f); setPreciosModal(true);
           }}>⚙️ Precios de planes</button>
+          <button className="btn btn-ghost" onClick={probarArca} title="Probar la conexión con ARCA (facturación)">🔌 Probar ARCA</button>
           <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
         </div>
       </div>
