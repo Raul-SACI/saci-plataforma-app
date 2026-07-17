@@ -16,6 +16,7 @@
 <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script>
   (function() {
@@ -647,6 +648,93 @@ async function tienePagoVencido(alumnoId, aulaId) {
     if (r.completo !== false) return false;   // ya pagó o no hay precio → no bloquea
     return ps.some(p => p.proximo_pago && p.proximo_pago < hoyISO);
   } catch { return false; }
+}
+
+// ── Factura C visible (representación del comprobante para ver/imprimir) ──
+const EMISOR = {
+  razon: 'DIAZ CORTES RAUL EMILIANO',
+  cuit: '20-37657683-4',
+  cuitNum: 20376576834,
+  domicilio: 'Alberdi 759 - San Miguel de Tucumán (4000), Tucumán',
+  condicion: 'Responsable Monotributo',
+  iibb: '20-37657683-4',
+  inicio: '01/05/2017',
+  detalle: 'Asesoría Contable y en Sistemas administrativos',
+};
+
+function facturaHTML(pago) {
+  const ptoVta = pago.factura_pto_vta || parseInt((pago.factura_nro || '0-0').split('-')[0]) || 1;
+  const nroCmp = parseInt((pago.factura_nro || '').split('-')[1] || '0');
+  const importe = parseFloat(pago.monto) || 0;
+  const impFmt = importe.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+  const fFmt = (iso) => iso ? new Date(iso + 'T00:00:00').toLocaleDateString('es-AR') : '';
+  let qrImg = '';
+  try {
+    const data = { ver: 1, fecha: pago.factura_fecha, cuit: EMISOR.cuitNum, ptoVta, tipoCmp: 11, nroCmp, importe, moneda: 'PES', ctz: 1, tipoDocRec: 99, nroDocRec: 0, tipoCodAut: 'E', codAut: parseInt(pago.factura_cae) };
+    const qrUrl = 'https://www.afip.gob.ar/fe/qr/?p=' + btoa(JSON.stringify(data));
+    const qr = window.qrcode(0, 'M'); qr.addData(qrUrl); qr.make();
+    qrImg = qr.createDataURL(4, 8);
+  } catch (e) {}
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#222;margin:0;padding:16px;font-size:12px}
+    .fac{max-width:720px;margin:0 auto;border:1px solid #333}
+    .row{display:flex}.col{flex:1;padding:10px 14px}.vsep{border-left:1px solid #333}.sep{border-top:1px solid #333}
+    .letra{border:2px solid #333;width:52px;height:52px;display:flex;align-items:center;justify-content:center;font-size:34px;font-weight:700;margin:0 auto}
+    .center{text-align:center}.lbl{color:#555;font-size:10px}
+    h1{font-size:19px;margin:0}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #999;padding:5px 7px;text-align:left;font-size:11px}th{background:#eee}
+    .tot{text-align:right;font-size:14px;font-weight:700;margin-top:10px}
+    .cae{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+    .prueba{color:#c00;font-weight:700;text-align:center;margin-top:8px;font-size:11px}
+    @media print{.noprint{display:none}}
+  </style></head><body>
+  <div class="fac">
+    <div class="row">
+      <div class="col"><h1>${EMISOR.razon}</h1><div class="lbl">Razón Social</div>
+        <div style="margin-top:8px">Domicilio Comercial: ${EMISOR.domicilio}</div>
+        <div>Condición frente al IVA: ${EMISOR.condicion}</div></div>
+      <div class="col center vsep" style="max-width:110px"><div class="letra">C</div><div class="lbl">COD. 011</div></div>
+      <div class="col vsep"><h1>FACTURA</h1>
+        <div style="margin-top:6px">Punto de Venta: <b>${String(ptoVta).padStart(4, '0')}</b> &nbsp; Comp. Nro: <b>${String(nroCmp).padStart(8, '0')}</b></div>
+        <div>Fecha de Emisión: <b>${fFmt(pago.factura_fecha)}</b></div>
+        <div style="margin-top:6px">CUIT: ${EMISOR.cuit}</div>
+        <div>Ingresos Brutos: ${EMISOR.iibb}</div>
+        <div>Inicio de Actividades: ${EMISOR.inicio}</div></div>
+    </div>
+    <div class="sep"></div>
+    <div class="col"><div>CUIT/DNI: <b>Consumidor Final</b> &nbsp;&nbsp; Condición frente al IVA: <b>Consumidor Final</b></div>
+      <div>Condición de venta: Contado</div></div>
+    <div class="col">
+      <table><thead><tr><th style="width:70px">Cantidad</th><th>Descripción</th><th style="text-align:right;width:130px">Importe</th></tr></thead>
+        <tbody><tr><td>1</td><td>${EMISOR.detalle}</td><td style="text-align:right">$ ${impFmt}</td></tr></tbody></table>
+      <div class="tot">Importe Total: $ ${impFmt}</div></div>
+    <div class="sep"></div>
+    <div class="cae col">
+      <div>${qrImg ? `<img src="${qrImg}" width="92" height="92" alt="QR ARCA">` : ''}</div>
+      <div style="text-align:right"><div>CAE N°: <b>${pago.factura_cae || ''}</b></div>
+        <div>Fecha de Vto. de CAE: <b>${fFmt(pago.factura_cae_vto)}</b></div></div>
+    </div>
+    <div class="prueba">⚠️ COMPROBANTE EN AMBIENTE DE HOMOLOGACIÓN — SIN VALIDEZ FISCAL</div>
+  </div>
+  <div class="noprint" style="text-align:center;margin-top:14px">
+    <button onclick="window.print()" style="padding:8px 16px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button>
+  </div>
+  </body></html>`;
+}
+
+function FacturaModal({ pago, onClose }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: '#fff', borderRadius: 12, width: '95vw', maxWidth: 800, height: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)' }}>🧾 Factura C {pago.factura_nro}</div>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <iframe srcDoc={facturaHTML(pago)} style={{ flex: 1, border: 'none', width: '100%', background: '#fff' }} title="Factura" />
+      </div>
+    </div>
+  );
 }
 
 /* ── SQL necesario en Supabase para el Muro de Novedades ──────────────
@@ -4458,6 +4546,7 @@ function AdminPagos({ aulaActiva }) {
   const [arcaProbando, setArcaProbando] = useState(false);
   const [arcaMsg, setArcaMsg] = useState(null);
   const [facturandoId, setFacturandoId] = useState(null);
+  const [facturaVer, setFacturaVer] = useState(null);
   const toast = useToast();
 
   const load = async () => {
@@ -4801,7 +4890,7 @@ function AdminPagos({ aulaActiva }) {
                     <td>
                       <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                         {p.factura_cae
-                          ? <span title={`CAE ${p.factura_cae}`} style={{fontSize:'0.72rem',color:'var(--success)',fontWeight:700,whiteSpace:'nowrap'}}>🧾 {p.factura_nro}</span>
+                          ? <button className="btn btn-ghost btn-sm" title="Ver / imprimir factura" onClick={() => setFacturaVer(p)} style={{color:'var(--success)',fontWeight:700,fontSize:'0.72rem',whiteSpace:'nowrap'}}>🧾 {p.factura_nro}</button>
                           : <button className="btn btn-ghost btn-sm" disabled={facturandoId===p.id} onClick={() => facturarPago(p)}>{facturandoId===p.id ? '⏳...' : '🧾 Facturar'}</button>}
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
                         <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}>🗑️</button>
@@ -4814,6 +4903,8 @@ function AdminPagos({ aulaActiva }) {
           </table>
         )}
       </div>
+
+      {facturaVer && <FacturaModal pago={facturaVer} onClose={() => setFacturaVer(null)} />}
 
       {preciosModal && (
         <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>
@@ -7064,6 +7155,7 @@ function AlumnoEvaluaciones({ alumno }) {
 function AlumnoPagos({ alumno }) {
   const [pagos, setPagos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [facturaVer, setFacturaVer] = useState(null);
   const today = new Date().toISOString().split('T')[0];
 
   useEffect(() => {
@@ -7143,13 +7235,17 @@ function AlumnoPagos({ alumno }) {
                   )}
                 </div>
                 {p.factura_cae && (
-                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid var(--border)',fontSize:'0.8rem'}}>
-                    <span style={{fontWeight:700,color:'var(--success)'}}>🧾 Factura {p.factura_tipo || 'C'} {p.factura_nro}</span>
-                    <span style={{color:'var(--text2)',marginLeft:10}}>CAE: {p.factura_cae}{p.factura_cae_vto ? ` · vto ${new Date(p.factura_cae_vto+'T00:00:00').toLocaleDateString('es-AR')}` : ''}</span>
+                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid var(--border)',fontSize:'0.8rem',display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+                    <div>
+                      <span style={{fontWeight:700,color:'var(--success)'}}>🧾 Factura {p.factura_tipo || 'C'} {p.factura_nro}</span>
+                      <span style={{color:'var(--text2)',marginLeft:10}}>CAE: {p.factura_cae}{p.factura_cae_vto ? ` · vto ${new Date(p.factura_cae_vto+'T00:00:00').toLocaleDateString('es-AR')}` : ''}</span>
+                    </div>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setFacturaVer(p)}>👁️ Ver factura</button>
                   </div>
                 )}
               </div>
             ))}
+            {facturaVer && <FacturaModal pago={facturaVer} onClose={() => setFacturaVer(null)} />}
           </div>
         </div>
       )}
