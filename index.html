@@ -4540,6 +4540,8 @@ function AdminPagos({ aulaActiva }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [filterAlumno, setFilterAlumno] = useState('');
+  const [filterMes, setFilterMes] = useState('');
+  const [soloSinFacturar, setSoloSinFacturar] = useState(false);
   const [precios, setPrecios] = useState({});         // precio por plan de esta aula
   const [preciosModal, setPreciosModal] = useState(false);
   const [preciosForm, setPreciosForm] = useState({});
@@ -4674,7 +4676,13 @@ function AdminPagos({ aulaActiva }) {
 
   const totalCobrado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
   const proximosVenc = pagos.filter(p => p.proximo_pago && p.proximo_pago >= today);
-  const filtered = filterAlumno ? pagos.filter(p => p.alumno_id === filterAlumno) : pagos;
+  const meses = [...new Set(pagos.filter(p => p.fecha_pago).map(p => p.fecha_pago.slice(0, 7)))].sort().reverse();
+  const mesLabel = (ym) => { const [y, m] = ym.split('-'); const s = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); };
+  let filtered = pagos;
+  if (filterAlumno) filtered = filtered.filter(p => p.alumno_id === filterAlumno);
+  if (filterMes) filtered = filtered.filter(p => (p.fecha_pago || '').slice(0, 7) === filterMes);
+  if (soloSinFacturar) filtered = filtered.filter(p => !p.factura_cae);
+  const sinFacturar = pagos.filter(p => !p.factura_cae).length;
 
   // Alumnos que no tienen ningún pago registrado
   const idsConPago = new Set(pagos.map(p => p.alumno_id));
@@ -4758,6 +4766,12 @@ function AdminPagos({ aulaActiva }) {
             <div style={{fontSize:'0.78rem',color:'var(--text2)',marginTop:2}}>pendientes</div>
           </div>
         )}
+        <div className="card" onClick={() => setSoloSinFacturar(v => !v)} title="Ver los pagos que faltan facturar"
+          style={{padding:'14px 18px',cursor:'pointer',borderColor: soloSinFacturar ? 'var(--accent)' : (sinFacturar>0 ? 'var(--warning)' : 'var(--border)')}}>
+          <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color: sinFacturar>0 ? 'var(--warning)' : 'var(--text2)',marginBottom:6}}>🧾 Sin facturar</div>
+          <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.1rem'}}>{sinFacturar}</div>
+          <div style={{fontSize:'0.78rem',color:'var(--text2)',marginTop:2}}>pago{sinFacturar!==1?'s':''} sin factura</div>
+        </div>
       </div>
 
       {/* Alumnos sin ningún pago registrado */}
@@ -4809,12 +4823,17 @@ function AdminPagos({ aulaActiva }) {
           💡 Configurá el precio de cada plan con el botón <strong>⚙️ Precios de planes</strong> para ver quién completó el pago y a quién le falta.
         </div>
       )}
-      <div style={{display:'flex',gap:12,marginBottom:16,alignItems:'center'}}>
-        <select value={filterAlumno} onChange={e => setFilterAlumno(e.target.value)} style={{flex:1,maxWidth:300}}>
+      <div style={{display:'flex',gap:10,marginBottom:16,alignItems:'center',flexWrap:'wrap'}}>
+        <select value={filterAlumno} onChange={e => setFilterAlumno(e.target.value)} style={{flex:1,minWidth:170,maxWidth:280}}>
           <option value="">Todos los alumnos</option>
           {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
         </select>
-        {filterAlumno && <button className="btn btn-ghost btn-sm" onClick={() => setFilterAlumno('')}>✕ Quitar filtro</button>}
+        <select value={filterMes} onChange={e => setFilterMes(e.target.value)} style={{minWidth:150}}>
+          <option value="">Todos los meses</option>
+          {meses.map(ym => <option key={ym} value={ym}>{mesLabel(ym)}</option>)}
+        </select>
+        <button className={`btn btn-sm ${soloSinFacturar ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSoloSinFacturar(v => !v)}>🧾 Sin facturar</button>
+        {(filterAlumno || filterMes || soloSinFacturar) && <button className="btn btn-ghost btn-sm" onClick={() => { setFilterAlumno(''); setFilterMes(''); setSoloSinFacturar(false); }}>✕ Quitar filtros</button>}
         <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{filtered.length} registros</span>
       </div>
 
