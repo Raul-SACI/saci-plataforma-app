@@ -5193,6 +5193,7 @@ function AdminMateriales({ aulaActiva }) {
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [bulkProgress, setBulkProgress] = useState(null);
   const [expandedTemas, setExpandedTemas] = useState({});
+  const [subCerr, setSubCerr] = useState({});   // subtemas cerrados (por defecto abiertos)
   const [vistaTab, setVistaTab] = useState('temas');
   const [dragTema, setDragTema] = useState(null);
   const [dragOverTema, setDragOverTema] = useState(null);
@@ -5448,10 +5449,17 @@ function AdminMateriales({ aulaActiva }) {
                           {['Tipo','Título','Descarga',''].map(h => <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--text2)'}}>{h}</th>)}
                         </tr></thead>
                         <tbody>
-                          {agruparPorSubtema(tMats).map(g => (
+                          {agruparPorSubtema(tMats).map(g => {
+                            const subKey = `${t.id}__${g.subtema}`;
+                            const subAbierto = g.subtema === '' || !subCerr[subKey];
+                            return (
                             <React.Fragment key={g.subtema || '_sin_'}>
-                              {g.subtema && <tr style={{background:'var(--surface2)'}}><td colSpan={4} style={{padding:'8px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>📁 {g.subtema}</td></tr>}
-                              {g.items.map(m => {
+                              {g.subtema && (
+                                <tr style={{background:'var(--surface2)',cursor:'pointer'}} onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))}>
+                                  <td colSpan={4} style={{padding:'8px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>{subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span></td>
+                                </tr>
+                              )}
+                              {subAbierto && g.items.map(m => {
                             const ti = TIPO_INFO[m.tipo] || { icon:'📄' };
                             return (
                               <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
@@ -5477,7 +5485,8 @@ function AdminMateriales({ aulaActiva }) {
                             );
                               })}
                             </React.Fragment>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     )}
@@ -6435,6 +6444,7 @@ function AlumnoMateriales({ alumno, user }) {
   const [preview, setPreview] = useState(null);
   const [previewFull, setPreviewFull] = useState(false);   // visor de material en pantalla completa
   const [expanded, setExpanded] = useState({});
+  const [subCerr, setSubCerr] = useState({});   // subtemas cerrados (por defecto abiertos)
   const [contadoresVistasMat, setContadoresVistasMat] = useState({});
   const [accesoErrorMat, setAccesoErrorMat] = useState(null);
   const toast = useToast();
@@ -6586,12 +6596,20 @@ function AlumnoMateriales({ alumno, user }) {
             </div>
             {isOpen && (
               <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-                {agruparPorSubtema(tMats).map(g => (
+                {agruparPorSubtema(tMats).map(g => {
+                  const subKey = `${t.id}__${g.subtema}`;
+                  const subAbierto = g.subtema === '' || !subCerr[subKey];
+                  return (
                   <div key={g.subtema || '_sin_'} style={{marginBottom:12}}>
-                    {g.subtema && <div style={{fontWeight:700,fontSize:'0.82rem',color:t.color||'var(--accent)',margin:'2px 0 8px'}}>📁 {g.subtema}</div>}
-                    <div className="grid-2">{g.items.map(m => <MatCard key={m.id} m={m} />)}</div>
+                    {g.subtema && (
+                      <div onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))} style={{fontWeight:700,fontSize:'0.82rem',color:t.color||'var(--accent)',margin:'2px 0 8px',cursor:'pointer',userSelect:'none'}}>
+                        {subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span>
+                      </div>
+                    )}
+                    {subAbierto && <div className="grid-2">{g.items.map(m => <MatCard key={m.id} m={m} />)}</div>}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
