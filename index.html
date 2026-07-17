@@ -4358,12 +4358,17 @@ function AdminPagos({ aulaActiva }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [filterAlumno, setFilterAlumno] = useState('');
+  const [precios, setPrecios] = useState({});         // precio por plan de esta aula
+  const [preciosModal, setPreciosModal] = useState(false);
+  const [preciosForm, setPreciosForm] = useState({});
   const toast = useToast();
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
     // Los pagos no tienen aula: se filtran por los alumnos que pertenecen al aula activa.
     const { data: aData } = await supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre');
+    const { data: aulaRow } = await supabase.from('aulas').select('precios').eq('id', aulaActiva).single();
+    setPrecios(aulaRow?.precios || {});
     const idsAula = (aData || []).map(a => a.id);
     let pData = [];
     if (idsAula.length) {
@@ -4408,6 +4413,15 @@ function AdminPagos({ aulaActiva }) {
     toast('Pago eliminado', 'info'); load();
   };
 
+  const guardarPrecios = async () => {
+    const limpio = {};
+    PLANES.forEach(pl => { const v = parseFloat(preciosForm[pl]); if (!isNaN(v) && v > 0) limpio[pl] = v; });
+    const { error } = await supabase.from('aulas').update({ precios: limpio }).eq('id', aulaActiva);
+    if (error) return toast('Error: ' + error.message, 'error');
+    setPrecios(limpio); setPreciosModal(false);
+    toast('Precios guardados ✅', 'success');
+  };
+
   const openEdit = p => {
     setForm({
       alumno_id: p.alumno_id,
@@ -4428,6 +4442,23 @@ function AdminPagos({ aulaActiva }) {
   const idsConPago = new Set(pagos.map(p => p.alumno_id));
   const alumnosSinPago = alumnos.filter(a => !idsConPago.has(a.id));
 
+  // Precio configurado de un plan y resumen de pago de un alumno.
+  const precioPlan = (plan) => plan ? (parseFloat(precios[plan]) || 0) : 0;
+  const resumenAlumno = (alumnoId) => {
+    const ps = pagos.filter(p => p.alumno_id === alumnoId);
+    if (!ps.length) return { cant: 0, paid: 0, plan: null, esperado: 0, falta: null, completo: null };
+    const plan = ps[0].plan || null;   // plan del pago más reciente (pagos vienen ordenados por fecha desc)
+    const paid = ps.filter(p => p.plan === plan).reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+    const esperado = precioPlan(plan);
+    const falta = esperado > 0 ? Math.max(0, esperado - paid) : null;
+    const completo = esperado > 0 ? paid >= esperado : null;
+    return { cant: ps.length, paid, plan, esperado, falta, completo };
+  };
+  const hayPrecios = PLANES.some(pl => precioPlan(pl) > 0);
+  const incompletos = alumnos
+    .map(a => ({ a, r: resumenAlumno(a.id) }))
+    .filter(x => x.r.cant > 0 && x.r.esperado > 0 && x.r.completo === false);
+
   const planColor = plan => {
     if (plan === 'Parcial') return 'chip-yellow';
     if (plan === 'Final') return 'chip-green';
@@ -4443,7 +4474,10 @@ function AdminPagos({ aulaActiva }) {
           <div className="page-title">💳 Pagos</div>
           <div className="page-subtitle">Total cobrado: <strong style={{color:'var(--success)'}}>$ {totalCobrado.toLocaleString('es-AR', {minimumFractionDigits:2})}</strong></div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={() => { setPreciosForm({ ...precios }); setPreciosModal(true); }}>⚙️ Precios de planes</button>
+          <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
+        </div>
       </div>
 
       {/* Stats rápidas */}
@@ -4482,6 +4516,26 @@ function AdminPagos({ aulaActiva }) {
           <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Tocá un alumno para registrarle un pago directamente.</div>
         </div>
       )}
+
+      {/* Alumnos que pagaron una parte pero les falta completar */}
+      {hayPrecios && incompletos.length > 0 && (
+        <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--accent2)',background:'rgba(255,101,132,0.06)'}}>
+          <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--accent2)',marginBottom:10}}>💸 Pagos incompletos ({incompletos.length})</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {incompletos.map(({ a, r }) => (
+              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id, plan: r.plan || 'Cursado Completo' }); setEditing(null); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar el pago que falta" style={{display:'flex',alignItems:'center',gap:6}}>
+                {a.nombre} <span style={{color:'var(--accent2)',fontWeight:700}}>falta $ {r.falta.toLocaleString('es-AR')}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Pagaron una parte pero no el total del plan. Tocá uno para registrarle el pago que falta.</div>
+        </div>
+      )}
+      {!hayPrecios && (
+        <div className="card" style={{padding:'12px 18px',marginBottom:20,borderColor:'var(--border)',fontSize:'0.82rem',color:'var(--text2)'}}>
+          💡 Configurá el precio de cada plan con el botón <strong>⚙️ Precios de planes</strong> para ver quién completó el pago y a quién le falta.
+        </div>
+      )}
       <div style={{display:'flex',gap:12,marginBottom:16,alignItems:'center'}}>
         <select value={filterAlumno} onChange={e => setFilterAlumno(e.target.value)} style={{flex:1,maxWidth:300}}>
           <option value="">Todos los alumnos</option>
@@ -4490,6 +4544,33 @@ function AdminPagos({ aulaActiva }) {
         {filterAlumno && <button className="btn btn-ghost btn-sm" onClick={() => setFilterAlumno('')}>✕ Quitar filtro</button>}
         <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{filtered.length} registros</span>
       </div>
+
+      {/* Resumen del alumno filtrado: cuánto pagó, cuánto es el plan, si completó o cuánto falta */}
+      {filterAlumno && (() => {
+        const r = resumenAlumno(filterAlumno);
+        const al = alumnos.find(a => a.id === filterAlumno);
+        return (
+          <div className="card" style={{padding:'14px 18px',marginBottom:16,borderColor: r.completo ? 'var(--success)' : (r.completo===false ? 'var(--warning)' : 'var(--border)')}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:16,alignItems:'center',justifyContent:'space-between'}}>
+              <div>
+                <div style={{fontWeight:700}}>{al?.nombre || '—'}</div>
+                <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>Plan: {r.plan || '—'} · {r.cant} pago{r.cant!==1?'s':''}</div>
+              </div>
+              <div style={{display:'flex',gap:22,flexWrap:'wrap',alignItems:'center'}}>
+                <div><div style={{fontSize:'0.68rem',color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Pagó</div><div style={{fontFamily:'Space Mono',fontWeight:700}}>$ {r.paid.toLocaleString('es-AR',{minimumFractionDigits:2})}</div></div>
+                <div><div style={{fontSize:'0.68rem',color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Precio del plan</div><div style={{fontFamily:'Space Mono',fontWeight:700}}>{r.esperado>0 ? '$ '+r.esperado.toLocaleString('es-AR',{minimumFractionDigits:2}) : '—'}</div></div>
+                <div>
+                  {r.esperado<=0
+                    ? <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>Configurá el precio del plan</span>
+                    : r.completo
+                      ? <span className="chip chip-green">✅ Completó el pago</span>
+                      : <span className="chip chip-yellow">⚠️ Falta $ {r.falta.toLocaleString('es-AR',{minimumFractionDigits:2})}</span>}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Tabla */}
       <div className="table-wrap">
@@ -4546,6 +4627,19 @@ function AdminPagos({ aulaActiva }) {
           </table>
         )}
       </div>
+
+      {preciosModal && (
+        <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:12}}>Poné cuánto cuesta cada plan en esta aula. Con esto el sistema calcula lo que le falta pagar a cada alumno.</div>
+          {PLANES.map(pl => (
+            <div className="form-group" key={pl}>
+              <label>{pl}</label>
+              <input type="number" min="0" value={preciosForm[pl] ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: e.target.value }))} placeholder="0 (dejar vacío si no se usa)" />
+            </div>
+          ))}
+          <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={guardarPrecios}>💾 Guardar precios</button>
+        </Modal>
+      )}
 
       {modal && (
         <Modal title={editing ? '✏️ Editar pago' : '➕ Registrar pago'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
