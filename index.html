@@ -5155,6 +5155,15 @@ function AdminVideos({ aulaActiva }) {
   );
 }
 
+// Agrupa materiales por subtema (los "sin subtema" primero, después ordenados natural/numérico: 2024, 2025...).
+function agruparPorSubtema(lista) {
+  const g = {};
+  (lista || []).forEach(m => { const k = (m.subtema || '').trim(); (g[k] = g[k] || []).push(m); });
+  return Object.keys(g)
+    .sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b, 'es', { numeric: true }))
+    .map(k => ({ subtema: k, items: g[k] }));
+}
+
 function AdminMateriales({ aulaActiva }) {
   const TIPO_INFO = {
     pdf:   { icon: '📕', label: 'PDF',    accept: '.pdf' },
@@ -5175,7 +5184,7 @@ function AdminMateriales({ aulaActiva }) {
   const [statsLoading, setStatsLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
-  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', max_vistas: '', publicar_en: '' });
+  const [form, setForm] = useState({ unidad: '', descripcion: '', url: '', tipo: 'pdf', permite_descarga: true, semana: '', tema_id: '', subtema: '', max_vistas: '', publicar_en: '' });
   const [temaForm, setTemaForm] = useState({ nombre: '', descripcion: '', color: '#6c63ff', orden: 0 });
   const [editing, setEditing] = useState(null);
   const [editingTema, setEditingTema] = useState(null);
@@ -5239,6 +5248,7 @@ function AdminMateriales({ aulaActiva }) {
       permite_descarga: form.permite_descarga,
       semana: form.semana || null,
       tema_id: form.tema_id || null,
+      subtema: form.subtema ? form.subtema.trim() : null,
       max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
       publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
       aula_id: aulaActiva,
@@ -5285,6 +5295,7 @@ function AdminMateriales({ aulaActiva }) {
           permite_descarga: form.permite_descarga,
           semana: form.semana || null,
           tema_id: form.tema_id || null,
+          subtema: form.subtema ? form.subtema.trim() : null,
           max_vistas: form.max_vistas ? parseInt(form.max_vistas) : null,
           publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
           aula_id: aulaActiva,
@@ -5349,7 +5360,7 @@ function AdminMateriales({ aulaActiva }) {
   };
 
   const openEdit = m => {
-    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '', publicar_en: m.publicar_en ? new Date(m.publicar_en).toISOString().slice(0,16) : '' });
+    setForm({ unidad: m.unidad || m.titulo || '', descripcion: m.descripcion || '', url: m.url || '', tipo: m.tipo || 'pdf', permite_descarga: m.permite_descarga !== false, semana: m.semana || '', tema_id: m.tema_id || '', subtema: m.subtema || '', max_vistas: m.max_vistas != null ? String(m.max_vistas) : '', publicar_en: m.publicar_en ? new Date(m.publicar_en).toISOString().slice(0,16) : '' });
     setEditing(m.id); setSelectedFile(null); setSelectedFiles([]); setModal(true);
   };
 
@@ -5437,7 +5448,10 @@ function AdminMateriales({ aulaActiva }) {
                           {['Tipo','Título','Descarga',''].map(h => <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--text2)'}}>{h}</th>)}
                         </tr></thead>
                         <tbody>
-                          {tMats.map(m => {
+                          {agruparPorSubtema(tMats).map(g => (
+                            <React.Fragment key={g.subtema || '_sin_'}>
+                              {g.subtema && <tr style={{background:'var(--surface2)'}}><td colSpan={4} style={{padding:'8px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>📁 {g.subtema}</td></tr>}
+                              {g.items.map(m => {
                             const ti = TIPO_INFO[m.tipo] || { icon:'📄' };
                             return (
                               <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
@@ -5461,7 +5475,9 @@ function AdminMateriales({ aulaActiva }) {
                                 </td>
                               </tr>
                             );
-                          })}
+                              })}
+                            </React.Fragment>
+                          ))}
                         </tbody>
                       </table>
                     )}
@@ -5645,6 +5661,14 @@ function AdminMateriales({ aulaActiva }) {
               <option value="">-- Sin tema --</option>
               {temas.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
             </select>
+          </div>
+          <div className="form-group">
+            <label>📁 Subtema (opcional, ej: 2024)</label>
+            <input list="lista-subtemas" value={form.subtema || ''} onChange={e => setForm(p=>({...p,subtema:e.target.value}))} placeholder="Escribí uno nuevo o elegí de la lista" />
+            <datalist id="lista-subtemas">
+              {[...new Set(mats.filter(m => (!form.tema_id || m.tema_id === form.tema_id) && m.subtema).map(m => m.subtema.trim()))].map(s => <option key={s} value={s} />)}
+            </datalist>
+            <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:4}}>Agrupa los materiales dentro del tema (por ejemplo, por año).</div>
           </div>
           <div className="form-group">
             <label>📅 Semana</label>
@@ -6562,7 +6586,12 @@ function AlumnoMateriales({ alumno, user }) {
             </div>
             {isOpen && (
               <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-                <div className="grid-2">{tMats.map(m => <MatCard key={m.id} m={m} />)}</div>
+                {agruparPorSubtema(tMats).map(g => (
+                  <div key={g.subtema || '_sin_'} style={{marginBottom:12}}>
+                    {g.subtema && <div style={{fontWeight:700,fontSize:'0.82rem',color:t.color||'var(--accent)',margin:'2px 0 8px'}}>📁 {g.subtema}</div>}
+                    <div className="grid-2">{g.items.map(m => <MatCard key={m.id} m={m} />)}</div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
