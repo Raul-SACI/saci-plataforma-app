@@ -4415,7 +4415,14 @@ function AdminPagos({ aulaActiva }) {
 
   const guardarPrecios = async () => {
     const limpio = {};
-    PLANES.forEach(pl => { const v = parseFloat(preciosForm[pl]); if (!isNaN(v) && v > 0) limpio[pl] = v; });
+    PLANES.forEach(pl => {
+      const f = preciosForm[pl] || {};
+      const u = parseFloat(f.unico), c = parseFloat(f.cuotas);
+      const obj = {};
+      if (!isNaN(u) && u > 0) obj.unico = u;
+      if (!isNaN(c) && c > 0) obj.cuotas = c;
+      if (Object.keys(obj).length) limpio[pl] = obj;
+    });
     const { error } = await supabase.from('aulas').update({ precios: limpio }).eq('id', aulaActiva);
     if (error) return toast('Error: ' + error.message, 'error');
     setPrecios(limpio); setPreciosModal(false);
@@ -4442,19 +4449,34 @@ function AdminPagos({ aulaActiva }) {
   const idsConPago = new Set(pagos.map(p => p.alumno_id));
   const alumnosSinPago = alumnos.filter(a => !idsConPago.has(a.id));
 
-  // Precio configurado de un plan y resumen de pago de un alumno.
-  const precioPlan = (plan) => plan ? (parseFloat(precios[plan]) || 0) : 0;
+  // Precio de un plan: unico = pago de contado; cuotas = total si paga en partes.
+  const precioPlan = (plan) => {
+    const v = plan ? precios[plan] : null;
+    if (v == null) return { unico: 0, cuotas: 0 };
+    if (typeof v === 'number') return { unico: v, cuotas: v };
+    const u = parseFloat(v.unico) || 0;
+    const c = parseFloat(v.cuotas) || 0;
+    return { unico: u, cuotas: c || u };   // sin precio en cuotas, se usa el de 1 pago
+  };
   const resumenAlumno = (alumnoId) => {
     const ps = pagos.filter(p => p.alumno_id === alumnoId);
     if (!ps.length) return { cant: 0, paid: 0, plan: null, esperado: 0, falta: null, completo: null };
     const plan = ps[0].plan || null;   // plan del pago más reciente (pagos vienen ordenados por fecha desc)
-    const paid = ps.filter(p => p.plan === plan).reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
-    const esperado = precioPlan(plan);
-    const falta = esperado > 0 ? Math.max(0, esperado - paid) : null;
-    const completo = esperado > 0 ? paid >= esperado : null;
+    const delPlan = ps.filter(p => p.plan === plan);
+    const paid = delPlan.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+    const { unico, cuotas } = precioPlan(plan);
+    // Si en un solo pago cubrió el precio de contado, queda saldado con ese precio.
+    const pagoContado = unico > 0 && delPlan.some(p => (parseFloat(p.monto) || 0) >= unico);
+    let esperado, completo, falta;
+    if (pagoContado) { esperado = unico; completo = true; falta = 0; }
+    else {
+      esperado = cuotas || unico;
+      completo = esperado > 0 ? paid >= esperado : null;
+      falta = esperado > 0 ? Math.max(0, esperado - paid) : null;
+    }
     return { cant: ps.length, paid, plan, esperado, falta, completo };
   };
-  const hayPrecios = PLANES.some(pl => precioPlan(pl) > 0);
+  const hayPrecios = PLANES.some(pl => { const o = precioPlan(pl); return o.unico > 0 || o.cuotas > 0; });
   const incompletos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
     .filter(x => x.r.cant > 0 && x.r.esperado > 0 && x.r.completo === false);
@@ -4475,7 +4497,16 @@ function AdminPagos({ aulaActiva }) {
           <div className="page-subtitle">Total cobrado: <strong style={{color:'var(--success)'}}>$ {totalCobrado.toLocaleString('es-AR', {minimumFractionDigits:2})}</strong></div>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button className="btn btn-ghost" onClick={() => { setPreciosForm({ ...precios }); setPreciosModal(true); }}>⚙️ Precios de planes</button>
+          <button className="btn btn-ghost" onClick={() => {
+            const f = {};
+            PLANES.forEach(pl => {
+              const v = precios[pl];
+              if (v == null) f[pl] = { unico: '', cuotas: '' };
+              else if (typeof v === 'number') f[pl] = { unico: String(v), cuotas: '' };
+              else f[pl] = { unico: v.unico != null ? String(v.unico) : '', cuotas: v.cuotas != null ? String(v.cuotas) : '' };
+            });
+            setPreciosForm(f); setPreciosModal(true);
+          }}>⚙️ Precios de planes</button>
           <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
         </div>
       </div>
@@ -4558,7 +4589,7 @@ function AdminPagos({ aulaActiva }) {
               </div>
               <div style={{display:'flex',gap:22,flexWrap:'wrap',alignItems:'center'}}>
                 <div><div style={{fontSize:'0.68rem',color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Pagó</div><div style={{fontFamily:'Space Mono',fontWeight:700}}>$ {r.paid.toLocaleString('es-AR',{minimumFractionDigits:2})}</div></div>
-                <div><div style={{fontSize:'0.68rem',color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Precio del plan</div><div style={{fontFamily:'Space Mono',fontWeight:700}}>{r.esperado>0 ? '$ '+r.esperado.toLocaleString('es-AR',{minimumFractionDigits:2}) : '—'}</div></div>
+                <div><div style={{fontSize:'0.68rem',color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em'}}>Total a pagar</div><div style={{fontFamily:'Space Mono',fontWeight:700}}>{r.esperado>0 ? '$ '+r.esperado.toLocaleString('es-AR',{minimumFractionDigits:2}) : '—'}</div></div>
                 <div>
                   {r.esperado<=0
                     ? <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>Configurá el precio del plan</span>
@@ -4630,11 +4661,20 @@ function AdminPagos({ aulaActiva }) {
 
       {preciosModal && (
         <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>
-          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:12}}>Poné cuánto cuesta cada plan en esta aula. Con esto el sistema calcula lo que le falta pagar a cada alumno.</div>
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Por cada plan, poné el precio <strong>en 1 pago</strong> (contado) y el <strong>total en cuotas</strong> si paga en partes. Ej: Parcial = 110.000 en 1 pago / 120.000 total en cuotas. Si es el mismo, dejá vacío el de cuotas.</div>
           {PLANES.map(pl => (
-            <div className="form-group" key={pl}>
-              <label>{pl}</label>
-              <input type="number" min="0" value={preciosForm[pl] ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: e.target.value }))} placeholder="0 (dejar vacío si no se usa)" />
+            <div key={pl} style={{marginBottom:14,borderBottom:'1px solid var(--border)',paddingBottom:12}}>
+              <div style={{fontWeight:700,marginBottom:8}}>{pl}</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="form-group" style={{margin:0}}>
+                  <label style={{fontSize:'0.76rem'}}>En 1 pago</label>
+                  <input type="number" min="0" value={preciosForm[pl]?.unico ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), unico: e.target.value } }))} placeholder="0" />
+                </div>
+                <div className="form-group" style={{margin:0}}>
+                  <label style={{fontSize:'0.76rem'}}>Total en cuotas</label>
+                  <input type="number" min="0" value={preciosForm[pl]?.cuotas ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), cuotas: e.target.value } }))} placeholder="(opcional)" />
+                </div>
+              </div>
             </div>
           ))}
           <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={guardarPrecios}>💾 Guardar precios</button>
