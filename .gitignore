@@ -1,1 +1,8 @@
 node_modules/
+arca_produccion/
+arca_homologacion/
+*.key
+*.csr
+*.crt
+*.pem
+secrets*.txt
