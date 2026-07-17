@@ -633,6 +633,22 @@ async function generarRecordatorioPagoAlumno(alumnoId, aulaId) {
   } catch {}
 }
 
+// ¿El alumno tiene un pago cuyo plazo (próximo pago) ya venció y sigue sin completar?
+// Solo bloquea si hay precio configurado (si no, no se puede saber si debe → no bloquea).
+async function tienePagoVencido(alumnoId, aulaId) {
+  try {
+    if (!alumnoId || !aulaId) return false;
+    const h = new Date();
+    const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+    const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
+    const { data: ps } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
+    if (!ps || !ps.length) return false;
+    const r = resumenPagoDe(ps, aula?.precios || {});
+    if (r.completo !== false) return false;   // ya pagó o no hay precio → no bloquea
+    return ps.some(p => p.proximo_pago && p.proximo_pago < hoyISO);
+  } catch { return false; }
+}
+
 /* ── SQL necesario en Supabase para el Muro de Novedades ──────────────
    Ejecutar UNA VEZ en SQL Editor de Supabase:
 
@@ -739,6 +755,22 @@ function FotoInput({ label, valor, onFile, captura }) {
       <input type="file" accept="image/*" capture={captura} onChange={e => onFile(e.target.files?.[0] || null)} />
       {valor && <div style={{fontSize:'0.78rem',color:'var(--success)',marginTop:4}}>✅ {valor.name?.slice(0,40) || 'Foto cargada'}</div>}
     </div>
+  );
+}
+
+// Pantalla que ve el alumno con un pago vencido: no puede entrar hasta regularizar.
+function PantallaBloqueoPago({ onLogout }) {
+  return (
+    <div className="login-page"><div className="login-card">
+      <div style={{textAlign:'center', padding:'24px 20px'}}>
+        <div style={{fontSize:'3.4rem', marginBottom:14}}>🔒</div>
+        <div style={{fontWeight:700, fontSize:'1.2rem', marginBottom:10}}>Pago vencido</div>
+        <div style={{color:'var(--text2)', fontSize:'0.92rem', maxWidth:380, margin:'0 auto 22px', lineHeight:1.5}}>
+          Tenés un pago pendiente cuyo plazo ya venció. Comunicate con el docente para poder acceder a la app.
+        </div>
+        <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center'}} onClick={onLogout}>Cerrar sesión</button>
+      </div>
+    </div></div>
   );
 }
 
@@ -890,7 +922,9 @@ function LoginPage({ onLogin }) {
           }
         }
       }
-      onLogin({ user: data.user, isAdmin, alumno });
+      let pagoVencido = false;
+      if (!isAdmin && alumno?.id && alumno?.aula_id) pagoVencido = await tienePagoVencido(alumno.id, alumno.aula_id);
+      onLogin({ user: data.user, isAdmin, alumno, pagoVencido });
       toast('¡Bienvenido a SACi! 🎉', 'success');
     } catch (err) {
       toast(err.message || 'Error al iniciar sesión', 'error');
@@ -7494,7 +7528,9 @@ function App() {
             }
           }
         }
-        const a = { user: u, isAdmin, alumno };
+        let pagoVencido = false;
+        if (!isAdmin && alumno?.id && alumno?.aula_id) pagoVencido = await tienePagoVencido(alumno.id, alumno.aula_id);
+        const a = { user: u, isAdmin, alumno, pagoVencido };
         setAuth(a);
         setPage(isAdmin ? 'dashboard' : 'muro');
         if (!isAdmin && alumno?.id) subscribirPush(alumno.id);
@@ -7524,6 +7560,10 @@ function App() {
   // Alumno que todavía no fue aprobado (pendiente) o fue rechazado: no entra a la app.
   if (!auth.isAdmin && !(auth.alumno && auth.alumno.estado === 'activo'))
     return <PantallaEspera alumno={auth.alumno} onLogout={handleLogout} />;
+
+  // Alumno con un pago vencido sin regularizar: no entra hasta hablar con el docente.
+  if (!auth.isAdmin && auth.pagoVencido)
+    return <PantallaBloqueoPago onLogout={handleLogout} />;
 
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
   const enPreview = !!(auth.isAdmin && preview);
