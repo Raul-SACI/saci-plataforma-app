@@ -77,8 +77,9 @@ function unescapeXml(s: string): string {
 }
 
 async function obtenerTA(sb: any): Promise<{ token: string; sign: string }> {
-  // Reusar el token cacheado si sigue vigente (WSAA no deja pedir uno nuevo mientras haya válido).
-  const { data: cache } = await sb.from("arca_tokens").select("*").eq("servicio", "wsfe").maybeSingle();
+  // Cache por ambiente: el token de homologación NO sirve para producción y viceversa.
+  const key = "wsfe-" + ENV;
+  const { data: cache } = await sb.from("arca_tokens").select("*").eq("servicio", key).maybeSingle();
   if (cache && cache.expira && new Date(cache.expira).getTime() > Date.now() + 120000) {
     return { token: cache.token, sign: cache.sign };
   }
@@ -96,7 +97,7 @@ async function obtenerTA(sb: any): Promise<{ token: string; sign: string }> {
   const sign = ta.match(/<sign>([\s\S]*?)<\/sign>/)?.[1];
   const expira = ta.match(/<expirationTime>([\s\S]*?)<\/expirationTime>/)?.[1];
   if (!token || !sign) throw new Error("WSAA no devolvió token/sign. TA: " + ta.slice(0, 600));
-  await sb.from("arca_tokens").upsert({ servicio: "wsfe", token, sign, expira });
+  await sb.from("arca_tokens").upsert({ servicio: key, token, sign, expira });
   return { token, sign };
 }
 
