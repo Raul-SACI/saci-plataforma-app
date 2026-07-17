@@ -4457,6 +4457,7 @@ function AdminPagos({ aulaActiva }) {
   const [preciosForm, setPreciosForm] = useState({});
   const [arcaProbando, setArcaProbando] = useState(false);
   const [arcaMsg, setArcaMsg] = useState(null);
+  const [facturandoId, setFacturandoId] = useState(null);
   const toast = useToast();
 
   const load = async () => {
@@ -4526,6 +4527,32 @@ function AdminPagos({ aulaActiva }) {
     } catch (e) {
       setArcaMsg({ ok: false, txt: 'No se pudo llamar a la función: ' + (e?.message || e) });
     } finally { setArcaProbando(false); }
+  };
+
+  // Emitir la Factura C de un pago (etapa 2).
+  const facturarPago = async (pago) => {
+    if (pago.factura_cae) return;
+    if (!confirm(`¿Emitir Factura C por $ ${parseFloat(pago.monto).toLocaleString('es-AR')} de ${pago.alumnos?.nombre || 'este alumno'}?`)) return;
+    setFacturandoId(pago.id); setArcaMsg(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=facturar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ pago_id: pago.id }),
+      });
+      const txt = await res.text();
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      console.log('[ARCA facturar]', res.status, txt);
+      if (j && j.ok) {
+        setArcaMsg({ ok: true, txt: `Factura C ${j.nroFmt || j.nro || ''} emitida. CAE: ${j.cae}${j.caeVto ? ' (vto ' + j.caeVto + ')' : ''}` });
+        load();
+      } else {
+        setArcaMsg({ ok: false, txt: (j && j.error) ? j.error : `HTTP ${res.status}: ${txt.slice(0, 500)}` });
+      }
+    } catch (e) {
+      setArcaMsg({ ok: false, txt: 'No se pudo llamar a la función: ' + (e?.message || e) });
+    } finally { setFacturandoId(null); }
   };
 
   const guardarPrecios = async () => {
@@ -4772,7 +4799,10 @@ function AdminPagos({ aulaActiva }) {
                     </td>
                     <td style={{maxWidth:160,color:'var(--text2)',fontSize:'0.8rem',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.notas||'—'}</td>
                     <td>
-                      <div style={{display:'flex',gap:6}}>
+                      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                        {p.factura_cae
+                          ? <span title={`CAE ${p.factura_cae}`} style={{fontSize:'0.72rem',color:'var(--success)',fontWeight:700,whiteSpace:'nowrap'}}>🧾 {p.factura_nro}</span>
+                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===p.id} onClick={() => facturarPago(p)}>{facturandoId===p.id ? '⏳...' : '🧾 Facturar'}</button>}
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
                         <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}>🗑️</button>
                       </div>
@@ -7112,6 +7142,12 @@ function AlumnoPagos({ alumno }) {
                     </div>
                   )}
                 </div>
+                {p.factura_cae && (
+                  <div style={{marginTop:10,paddingTop:10,borderTop:'1px solid var(--border)',fontSize:'0.8rem'}}>
+                    <span style={{fontWeight:700,color:'var(--success)'}}>🧾 Factura {p.factura_tipo || 'C'} {p.factura_nro}</span>
+                    <span style={{color:'var(--text2)',marginLeft:10}}>CAE: {p.factura_cae}{p.factura_cae_vto ? ` · vto ${new Date(p.factura_cae_vto+'T00:00:00').toLocaleDateString('es-AR')}` : ''}</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
