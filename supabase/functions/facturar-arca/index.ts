@@ -37,7 +37,12 @@ function pemFromB64(name: string): string {
 // ── WSAA: crear y firmar el "ticket de acceso" (TRA) ──
 function crearTRA(service: string): string {
   const now = Date.now();
-  const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "-03:00");
+  // Hora local Argentina (UTC-3) sin milisegundos: "YYYY-MM-DDTHH:MM:SS-03:00".
+  const iso = (t: number) => {
+    const d = new Date(t - 3 * 3600 * 1000);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}T${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}-03:00`;
+  };
   return `<?xml version="1.0" encoding="UTF-8"?>
 <loginTicketRequest version="1.0"><header>` +
     `<uniqueId>${Math.floor(now / 1000)}</uniqueId>` +
