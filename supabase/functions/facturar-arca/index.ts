@@ -139,6 +139,7 @@ async function emitir(token: string, sign: string, importe: number) {
     `<ar:ImpOpEx>0</ar:ImpOpEx><ar:ImpIVA>0</ar:ImpIVA><ar:ImpTrib>0</ar:ImpTrib>` +
     `<ar:FchServDesde>${fch}</ar:FchServDesde><ar:FchServHasta>${fch}</ar:FchServHasta><ar:FchVtoPago>${fch}</ar:FchVtoPago>` +
     `<ar:MonId>PES</ar:MonId><ar:MonCotiz>1</ar:MonCotiz>` +
+    `<ar:CondicionIVAReceptorId>5</ar:CondicionIVAReceptorId>` + // 5 = Consumidor Final (RG 5616)
     `</ar:FECAEDetRequest>`;
   const inner = `${authXml(token, sign)}<ar:FeCAEReq>` +
     `<ar:FeCabReq><ar:CantReg>1</ar:CantReg><ar:PtoVta>${PTOVTA}</ar:PtoVta><ar:CbteTipo>${CBTE_TIPO}</ar:CbteTipo></ar:FeCabReq>` +
