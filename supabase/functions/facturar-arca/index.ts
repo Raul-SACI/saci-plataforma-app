@@ -188,7 +188,7 @@ serve(async (req) => {
       const f = await emitir(token, sign, importe);
       await sb.from("pagos").update({
         factura_nro: f.nroFmt, factura_cae: f.cae, factura_cae_vto: f.caeVto,
-        factura_fecha: f.fecha, factura_pto_vta: f.ptoVta, factura_tipo: "C",
+        factura_fecha: f.fecha, factura_pto_vta: f.ptoVta, factura_tipo: "C", factura_env: ENV,
       }).eq("id", pagoId);
       return j({ ok: true, ...f });
     }

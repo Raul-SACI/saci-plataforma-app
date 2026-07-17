@@ -715,7 +715,7 @@ function facturaHTML(pago) {
       <div style="text-align:right"><div>CAE N°: <b>${pago.factura_cae || ''}</b></div>
         <div>Fecha de Vto. de CAE: <b>${fFmt(pago.factura_cae_vto)}</b></div></div>
     </div>
-    <div class="prueba">⚠️ COMPROBANTE EN AMBIENTE DE HOMOLOGACIÓN — SIN VALIDEZ FISCAL</div>
+    ${pago.factura_env === 'prod' ? '' : '<div class="prueba">⚠️ COMPROBANTE EN AMBIENTE DE HOMOLOGACIÓN — SIN VALIDEZ FISCAL</div>'}
   </div>
   <div class="noprint" style="text-align:center;margin-top:14px">
     <button onclick="window.print()" style="padding:8px 16px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button>
