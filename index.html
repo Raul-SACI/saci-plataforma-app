@@ -4455,6 +4455,8 @@ function AdminPagos({ aulaActiva }) {
   const [precios, setPrecios] = useState({});         // precio por plan de esta aula
   const [preciosModal, setPreciosModal] = useState(false);
   const [preciosForm, setPreciosForm] = useState({});
+  const [arcaProbando, setArcaProbando] = useState(false);
+  const [arcaMsg, setArcaMsg] = useState(null);
   const toast = useToast();
 
   const load = async () => {
@@ -4509,17 +4511,21 @@ function AdminPagos({ aulaActiva }) {
 
   // Prueba de conexión con ARCA (etapa 1: solo autenticación).
   const probarArca = async () => {
+    setArcaProbando(true); setArcaMsg(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=auth-test`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session?.access_token}` },
       });
-      const j = await res.json();
-      if (j.ok) toast('ARCA ✅ ' + (j.mensaje || 'Autenticación OK'), 'success');
-      else toast('ARCA ❌ ' + (j.error || 'error desconocido'), 'error');
-      console.log('[ARCA auth-test]', j);
-    } catch (e) { toast('No se pudo llamar a la función: ' + e.message, 'error'); }
+      const txt = await res.text();
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      console.log('[ARCA auth-test]', res.status, txt);
+      if (j && j.ok) setArcaMsg({ ok: true, txt: j.mensaje || 'Autenticación OK' });
+      else setArcaMsg({ ok: false, txt: (j && j.error) ? j.error : `HTTP ${res.status}: ${txt.slice(0, 400) || '(respuesta vacía)'}` });
+    } catch (e) {
+      setArcaMsg({ ok: false, txt: 'No se pudo llamar a la función: ' + (e?.message || e) });
+    } finally { setArcaProbando(false); }
   };
 
   const guardarPrecios = async () => {
@@ -4601,10 +4607,20 @@ function AdminPagos({ aulaActiva }) {
             });
             setPreciosForm(f); setPreciosModal(true);
           }}>⚙️ Precios de planes</button>
-          <button className="btn btn-ghost" onClick={probarArca} title="Probar la conexión con ARCA (facturación)">🔌 Probar ARCA</button>
+          <button className="btn btn-ghost" onClick={probarArca} disabled={arcaProbando} title="Probar la conexión con ARCA (facturación)">{arcaProbando ? '⏳ Probando...' : '🔌 Probar ARCA'}</button>
           <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
         </div>
       </div>
+
+      {arcaMsg && (
+        <div className="card" style={{padding:'12px 16px',marginBottom:16,borderColor: arcaMsg.ok?'var(--success)':'var(--danger)',background: arcaMsg.ok?'rgba(67,233,123,0.08)':'rgba(255,71,87,0.08)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+            <div style={{fontWeight:700,color: arcaMsg.ok?'var(--success)':'var(--danger)'}}>{arcaMsg.ok?'ARCA ✅ Conexión OK':'ARCA ❌ Error'}</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setArcaMsg(null)}>✕</button>
+          </div>
+          <div style={{fontSize:'0.82rem',whiteSpace:'pre-wrap',wordBreak:'break-word',marginTop:6}}>{arcaMsg.txt}</div>
+        </div>
+      )}
 
       {/* Stats rápidas */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:12,marginBottom:20}}>
