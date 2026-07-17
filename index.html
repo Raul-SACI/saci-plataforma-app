@@ -4480,6 +4480,9 @@ function AdminPagos({ aulaActiva }) {
   const incompletos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
     .filter(x => x.r.cant > 0 && x.r.esperado > 0 && x.r.completo === false);
+  const completos = alumnos
+    .map(a => ({ a, r: resumenAlumno(a.id) }))
+    .filter(x => x.r.cant > 0 && x.r.completo === true);
 
   const planColor = plan => {
     if (plan === 'Parcial') return 'chip-yellow';
@@ -4560,6 +4563,21 @@ function AdminPagos({ aulaActiva }) {
             ))}
           </div>
           <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Pagaron una parte pero no el total del plan. Tocá uno para registrarle el pago que falta.</div>
+        </div>
+      )}
+
+      {/* Alumnos que ya completaron el pago del plan */}
+      {hayPrecios && completos.length > 0 && (
+        <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
+          <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--success)',marginBottom:10}}>✅ Pagos completos ({completos.length})</div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {completos.map(({ a, r }) => (
+              <button key={a.id} onClick={() => setFilterAlumno(a.id)} className="btn btn-ghost btn-sm" title="Ver detalle del alumno" style={{display:'flex',alignItems:'center',gap:6}}>
+                {a.nombre} <span style={{color:'var(--success)',fontWeight:700}}>$ {r.paid.toLocaleString('es-AR')}</span>
+              </button>
+            ))}
+          </div>
+          <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Ya pagaron el total de su plan. Tocá uno para ver su detalle.</div>
         </div>
       )}
       {!hayPrecios && (
