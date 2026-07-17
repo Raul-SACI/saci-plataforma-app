@@ -573,6 +573,66 @@ async function crearNovedadAuto(aulaId, { titulo, contenido, tipo = 'info' }) {
   } catch {}
 }
 
+// ── Precios de plan y estado de pago (se usan en Pagos y en los recordatorios) ──
+function precioDePlan(precios, plan) {
+  const v = plan ? (precios || {})[plan] : null;
+  if (v == null) return { unico: 0, cuotas: 0 };
+  if (typeof v === 'number') return { unico: v, cuotas: v };
+  const u = parseFloat(v.unico) || 0, c = parseFloat(v.cuotas) || 0;
+  return { unico: u, cuotas: c || u };
+}
+function resumenPagoDe(ps, precios) {
+  if (!ps || !ps.length) return { cant: 0, paid: 0, plan: null, esperado: 0, falta: null, completo: null };
+  const plan = ps[0].plan || null;   // ps ordenado por fecha desc → el más reciente
+  const delPlan = ps.filter(p => p.plan === plan);
+  const paid = delPlan.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
+  const { unico, cuotas } = precioDePlan(precios, plan);
+  const pagoContado = unico > 0 && delPlan.some(p => (parseFloat(p.monto) || 0) >= unico);
+  let esperado, completo, falta;
+  if (pagoContado) { esperado = unico; completo = true; falta = 0; }
+  else {
+    esperado = cuotas || unico;
+    completo = esperado > 0 ? paid >= esperado : null;
+    falta = esperado > 0 ? Math.max(0, esperado - paid) : null;
+  }
+  return { cant: ps.length, paid, plan, esperado, falta, completo };
+}
+
+// Genera (si corresponde) la Novedad de recordatorio de pago para un alumno.
+// Dispara 3 días antes, 1 día antes y el día del vencimiento. No repite (usa 'ref').
+async function generarRecordatorioPagoAlumno(alumnoId, aulaId) {
+  try {
+    if (!alumnoId || !aulaId) return;
+    const h = new Date();
+    const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+    const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
+    const { data: ps } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
+    if (!ps || !ps.length) return;
+    const r = resumenPagoDe(ps, aula?.precios || {});
+    if (r.completo !== false) {
+      // Ya completó el pago: quitar los recordatorios de pago que le hubieran quedado.
+      if (r.completo === true) { try { await supabase.from('novedades').delete().eq('alumno_id', alumnoId).like('ref', `pagovto-${alumnoId}-%`); } catch {} }
+      return;
+    }
+    const futuros = ps.map(p => p.proximo_pago).filter(Boolean).filter(d => d >= hoyISO).sort();
+    const vto = futuros[0];
+    if (!vto) return;
+    const dias = Math.round((Date.parse(vto + 'T00:00:00') - Date.parse(hoyISO + 'T00:00:00')) / 86400000);
+    if (![0, 1, 3].includes(dias)) return;
+    const ref = `pagovto-${alumnoId}-${vto}-${dias}`;
+    const { data: existe } = await supabase.from('novedades').select('id').eq('ref', ref).limit(1);
+    if (existe && existe.length) return;
+    const cuando = dias === 0 ? 'Hoy vence' : dias === 1 ? 'Falta 1 día para el vencimiento de' : 'Faltan 3 días para el vencimiento de';
+    const vtoFmt = new Date(vto + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'long', year: 'numeric' });
+    const faltaTxt = r.falta != null ? ` Te falta $${r.falta.toLocaleString('es-AR')} del plan ${r.plan}.` : '';
+    await supabase.from('novedades').insert({
+      titulo: '💳 Recordatorio de pago',
+      contenido: `${cuando} tu pago (${vtoFmt}).${faltaTxt} Cuando lo abones, este aviso deja de aparecer.`,
+      tipo: 'aviso', aula_id: aulaId, alumno_id: alumnoId, ref,
+    });
+  } catch {}
+}
+
 /* ── SQL necesario en Supabase para el Muro de Novedades ──────────────
    Ejecutar UNA VEZ en SQL Editor de Supabase:
 
@@ -4449,33 +4509,9 @@ function AdminPagos({ aulaActiva }) {
   const idsConPago = new Set(pagos.map(p => p.alumno_id));
   const alumnosSinPago = alumnos.filter(a => !idsConPago.has(a.id));
 
-  // Precio de un plan: unico = pago de contado; cuotas = total si paga en partes.
-  const precioPlan = (plan) => {
-    const v = plan ? precios[plan] : null;
-    if (v == null) return { unico: 0, cuotas: 0 };
-    if (typeof v === 'number') return { unico: v, cuotas: v };
-    const u = parseFloat(v.unico) || 0;
-    const c = parseFloat(v.cuotas) || 0;
-    return { unico: u, cuotas: c || u };   // sin precio en cuotas, se usa el de 1 pago
-  };
-  const resumenAlumno = (alumnoId) => {
-    const ps = pagos.filter(p => p.alumno_id === alumnoId);
-    if (!ps.length) return { cant: 0, paid: 0, plan: null, esperado: 0, falta: null, completo: null };
-    const plan = ps[0].plan || null;   // plan del pago más reciente (pagos vienen ordenados por fecha desc)
-    const delPlan = ps.filter(p => p.plan === plan);
-    const paid = delPlan.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
-    const { unico, cuotas } = precioPlan(plan);
-    // Si en un solo pago cubrió el precio de contado, queda saldado con ese precio.
-    const pagoContado = unico > 0 && delPlan.some(p => (parseFloat(p.monto) || 0) >= unico);
-    let esperado, completo, falta;
-    if (pagoContado) { esperado = unico; completo = true; falta = 0; }
-    else {
-      esperado = cuotas || unico;
-      completo = esperado > 0 ? paid >= esperado : null;
-      falta = esperado > 0 ? Math.max(0, esperado - paid) : null;
-    }
-    return { cant: ps.length, paid, plan, esperado, falta, completo };
-  };
+  // Precio de un plan y resumen de pago de un alumno (helpers compartidos con los recordatorios).
+  const precioPlan = (plan) => precioDePlan(precios, plan);
+  const resumenAlumno = (alumnoId) => resumenPagoDe(pagos.filter(p => p.alumno_id === alumnoId), precios);
   const hayPrecios = PLANES.some(pl => { const o = precioPlan(pl); return o.unico > 0 || o.cuotas > 0; });
   const incompletos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
@@ -4483,6 +4519,12 @@ function AdminPagos({ aulaActiva }) {
   const completos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
     .filter(x => x.r.cant > 0 && x.r.completo === true);
+
+  // Al abrir Pagos, generar (si toca hoy) los recordatorios de vencimiento de los incompletos.
+  useEffect(() => {
+    if (loading || !aulaActiva) return;
+    incompletos.forEach(({ a }) => generarRecordatorioPagoAlumno(a.id, aulaActiva));
+  }, [loading, aulaActiva]);
 
   const planColor = plan => {
     if (plan === 'Parcial') return 'chip-yellow';
@@ -7039,7 +7081,8 @@ function AdminNovedades({ aulaActiva }) {
       .select('*, likes_novedades(count)')
       .eq('aula_id', aulaActiva)
       .order('created_at', { ascending: false });
-    setNovedades(data || []);
+    // Ocultar del panel del admin las novedades dirigidas a un alumno puntual (recordatorios automáticos).
+    setNovedades((data || []).filter(n => !n.alumno_id));
     setLoading(false);
   };
 
@@ -7195,16 +7238,20 @@ function AlumnoMuro({ alumno }) {
     // El alumno solo ve las novedades de SU aula.
     const miAula = alumno?.aula_id;
     if (!miAula) { setNovedades([]); setLoading(false); return; }
+    // Si hoy corresponde, generar el recordatorio de vencimiento de pago de este alumno.
+    if (alumno?.id) await generarRecordatorioPagoAlumno(alumno.id, miAula);
     const { data: novs } = await supabase
       .from('novedades')
       .select('*')
       .eq('aula_id', miAula)
       .order('destacado', { ascending: false })
       .order('created_at', { ascending: false });
+    // Ve las del aula (sin alumno) + las dirigidas a este alumno (recordatorios de pago).
+    const visibles = (novs || []).filter(n => !n.alumno_id || n.alumno_id === alumno?.id);
 
-    if (novs && alumno?.id) {
+    if (visibles.length && alumno?.id) {
       // Obtener likes de cada novedad + si ya le di like
-      const ids = novs.map(n => n.id);
+      const ids = visibles.map(n => n.id);
       const { data: allLikes } = await supabase
         .from('likes_novedades')
         .select('novedad_id, alumno_id')
@@ -7217,10 +7264,10 @@ function AlumnoMuro({ alumno }) {
         if (l.alumno_id === alumno.id) myMap[l.novedad_id] = true;
       });
 
-      setNovedades(novs.map(n => ({ ...n, _likes: countMap[n.id] || 0 })));
+      setNovedades(visibles.map(n => ({ ...n, _likes: countMap[n.id] || 0 })));
       setMisLikes(myMap);
     } else {
-      setNovedades(novs || []);
+      setNovedades(visibles);
     }
     setLoading(false);
   };
