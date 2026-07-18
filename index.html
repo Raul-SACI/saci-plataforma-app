@@ -882,8 +882,9 @@ function PantallaEspera({ alumno, onLogout }) {
 }
 
 // Formulario de auto-inscripción del alumno: datos + selfie + DNI (frente/dorso) + T&C.
-function RegistroAlumno({ onListo, onCancel }) {
+function RegistroAlumno({ onListo, onCancel, refId }) {
   const [paso, setPaso] = useState(1);
+  const [refNombre, setRefNombre] = useState(null);   // nombre del alumno que invitó (si el link trae ?ref=)
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [dni, setDni] = useState('');
@@ -897,6 +898,17 @@ function RegistroAlumno({ onListo, onCancel }) {
   const [acepta, setAcepta] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+
+  // Si el link trae ?ref=, buscar el nombre del alumno que invitó (para mostrarlo).
+  useEffect(() => {
+    if (!refId) return;
+    (async () => {
+      try {
+        const { data } = await supabase.from('alumnos').select('nombre').eq('id', refId).single();
+        if (data?.nombre) setRefNombre(data.nombre);
+      } catch {}
+    })();
+  }, [refId]);
 
   const subir = async (userId, file, nombreArch) => {
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
@@ -938,12 +950,16 @@ function RegistroAlumno({ onListo, onCancel }) {
       const selfiePath = await subir(userId, selfie, 'selfie');
       const frentePath = await subir(userId, frente, 'dni_frente');
       const dorsoPath = await subir(userId, dorso, 'dni_dorso');
-      const { data: row, error: e2 } = await supabase.from('alumnos').insert({
+      const baseRow = {
         nombre: nombre.trim(), email: email.trim().toLowerCase(), dni: dni.trim(), estado: 'pendiente',
-        selfie_path: selfiePath, dni_frente_path: frentePath, dni_dorso_path: dorsoPath, dispositivos,
+        selfie_path: selfiePath, dni_frente_path: frentePath, dni_dorso_path: dorsoPath,
         tyc_aceptado: true, tyc_fecha: new Date().toISOString(), tyc_version: TYC_VERSION,
-      }).select('*').single();
-      if (e2) throw new Error(e2.message);
+      };
+      // Se intenta guardar con dispositivos + referido; si esas columnas aún no existen, se reintenta sin ellas.
+      let ins = await supabase.from('alumnos').insert({ ...baseRow, dispositivos, referido_por: refId || null }).select('*').single();
+      if (ins.error) ins = await supabase.from('alumnos').insert(baseRow).select('*').single();
+      if (ins.error) throw new Error(ins.error.message);
+      const row = ins.data;
       toast('¡Inscripción enviada! Esperá la aprobación del docente 🎉', 'success');
       onListo({ user: data.user, isAdmin: false, alumno: row });
     } catch (err) {
@@ -972,6 +988,11 @@ function RegistroAlumno({ onListo, onCancel }) {
 
       {paso === 1 && (
         <>
+          {refId && (
+            <div style={{background:'rgba(67,233,123,0.10)',border:'1px solid var(--success)',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:'0.82rem',color:'var(--text)'}}>
+              🎁 {refNombre ? <>Te invitó <b>{refNombre}</b>.</> : 'Entraste por un link de invitación.'} Al inscribirte y hacer tu primer pago, tu invitación le suma un beneficio. ¡Bienvenido/a!
+            </div>
+          )}
           <div className="form-group"><label>👤 Nombre y apellido</label>
             <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre completo" /></div>
           <div className="form-group"><label>📧 Email</label>
@@ -1060,13 +1081,14 @@ function RegistroAlumno({ onListo, onCancel }) {
 }
 
 function LoginPage({ onLogin }) {
-  const [mostrarRegistro, setMostrarRegistro] = useState(false);
+  const refParam = React.useMemo(() => { try { return new URLSearchParams(window.location.search).get('ref'); } catch { return null; } }, []);
+  const [mostrarRegistro, setMostrarRegistro] = useState(!!refParam);
   const [email, setEmail] = useState('');
   const [pass, setPass] = useState('');
   const [loading, setLoading] = useState(false);
   const [bloqueado, setBloqueado] = useState(null);  // nombre del aula cerrada, si corresponde
   const toast = useToast();
-  if (mostrarRegistro) return <RegistroAlumno onListo={onLogin} onCancel={() => setMostrarRegistro(false)} />;
+  if (mostrarRegistro) return <RegistroAlumno onListo={onLogin} onCancel={() => setMostrarRegistro(false)} refId={refParam} />;
 
   const handleLogin = async e => {
     e.preventDefault();
@@ -4193,6 +4215,7 @@ function AprobarInscripciones() {
   const [verId, setVerId] = useState(null);      // alumno cuyas fotos se están mirando
   const [urls, setUrls] = useState({});          // URLs firmadas de las fotos
   const [proc, setProc] = useState(false);
+  const [refNombres, setRefNombres] = useState({});  // { referido_por: nombre }
   const toast = useToast();
 
   const load = async () => {
@@ -4200,6 +4223,14 @@ function AprobarInscripciones() {
       supabase.from('alumnos').select('*').eq('estado', 'pendiente').order('created_at', { ascending: true }),
       supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }),
     ]);
+    // Resolver nombres de quienes refirieron a estos inscriptos (para mostrarlos).
+    try {
+      const refIds = [...new Set((pend || []).map(p => p.referido_por).filter(Boolean))];
+      if (refIds.length) {
+        const { data: refs } = await supabase.from('alumnos').select('id, nombre').in('id', refIds);
+        const map = {}; (refs || []).forEach(r => { map[r.id] = r.nombre; }); setRefNombres(map);
+      }
+    } catch {}
     setPendientes(pend || []);
     setAulas(aus || []);
     setLoading(false);
@@ -4274,6 +4305,9 @@ function AprobarInscripciones() {
                         <div key={i} style={{marginLeft:4}}>{d.tipo === 'celular' ? '📱 IMEI: ' : '💻 MAC: '}{d.id}</div>
                       ))}
                     </div>
+                  )}
+                  {al.referido_por && (
+                    <div style={{fontSize:'0.75rem',color:'var(--success)',marginTop:6,fontWeight:600}}>🎁 Lo refirió: {refNombres[al.referido_por] || '(alumno)'}</div>
                   )}
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => verFotos(al)}>{verId === al.id ? 'Ocultar fotos' : '🖼️ Ver fotos'}</button>
@@ -4553,7 +4587,7 @@ function AdminAlumnos({ aulaActiva }) {
           <button className="btn btn-ghost" onClick={downloadTemplate}>📋 Plantilla</button>
           <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📥 Importar Excel</button>
           <button className="btn btn-ghost" onClick={exportarExcel}>📤 Exportar Excel</button>
-          <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
+          <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
       </div>
       <div className="search-bar" style={{marginBottom:16}}>
@@ -4683,12 +4717,22 @@ function AdminPagos({ aulaActiva }) {
   const [arcaMsg, setArcaMsg] = useState(null);
   const [facturandoId, setFacturandoId] = useState(null);
   const [facturaVer, setFacturaVer] = useState(null);
+  const [refCount, setRefCount] = useState({});       // { referrerId: cant referidos que ya pagaron }
+  const [aplicarDesc, setAplicarDesc] = useState(false); // aplicar descuento por referidos al pago que se registra
   const toast = useToast();
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
     // Los pagos no tienen aula: se filtran por los alumnos que pertenecen al aula activa.
-    const { data: aData } = await supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre');
+    // Se intenta traer las columnas de referidos; si aún no existen (SQL sin correr), se cae al set básico.
+    let aData = null;
+    {
+      const r1 = await supabase.from('alumnos').select('id, nombre, estado, referido_por, ref_desc_usados').eq('aula_id', aulaActiva).order('nombre');
+      if (r1.error) {
+        const r2 = await supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre');
+        aData = r2.data;
+      } else aData = r1.data;
+    }
     const { data: aulaRow } = await supabase.from('aulas').select('precios').eq('id', aulaActiva).single();
     setPrecios(aulaRow?.precios || {});
     const idsAula = (aData || []).map(a => a.id);
@@ -4697,6 +4741,21 @@ function AdminPagos({ aulaActiva }) {
       const { data } = await supabase.from('pagos').select('*, alumnos(nombre, email)').in('alumno_id', idsAula).order('fecha_pago', { ascending: false });
       pData = data || [];
     }
+    // Referidos: contar, por cada alumno de esta aula, cuántos referidos suyos YA hicieron al menos un pago.
+    const refMap = {};
+    try {
+      if (idsAula.length) {
+        const { data: referidos } = await supabase.from('alumnos').select('id, referido_por').in('referido_por', idsAula);
+        const refIds = (referidos || []).map(r => r.id);
+        const conPago = new Set();
+        if (refIds.length) {
+          const { data: pagosRef } = await supabase.from('pagos').select('alumno_id').in('alumno_id', refIds);
+          (pagosRef || []).forEach(p => conPago.add(p.alumno_id));
+        }
+        (referidos || []).forEach(r => { if (conPago.has(r.id)) refMap[r.referido_por] = (refMap[r.referido_por] || 0) + 1; });
+      }
+    } catch {}
+    setRefCount(refMap);
     setPagos(pData); setAlumnos(aData || []); setLoading(false);
   };
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
@@ -4705,28 +4764,46 @@ function AdminPagos({ aulaActiva }) {
     if (!form.alumno_id) return toast('Seleccioná un alumno', 'error');
     if (!form.monto || isNaN(parseFloat(form.monto))) return toast('Ingresá un importe válido', 'error');
     if (!form.plan) return toast('Seleccioná el tipo de plan', 'error');
+
+    // Descuento por referidos (solo en pagos nuevos, si el docente lo activó y hay crédito disponible).
+    const nDesc = (!editing && aplicarDesc) ? descRefDisponible(form.alumno_id) : 0;
+    const montoDesc = montoDescRef(form.plan, nDesc);
+    let montoFinal = parseFloat(form.monto);
+    let notasFinal = form.notas || null;
+    if (nDesc > 0 && montoDesc > 0) {
+      montoFinal = Math.max(0, montoFinal - montoDesc);
+      notasFinal = `${notasFinal ? notasFinal + ' · ' : ''}Descuento ${nDesc * 5}% por referidos (-$${montoDesc.toLocaleString('es-AR')})`;
+    }
+
     const payload = {
       alumno_id: form.alumno_id,
       plan: form.plan,
-      monto: parseFloat(form.monto),
+      monto: montoFinal,
       fecha_pago: form.fecha_pago || today,
       proximo_pago: form.proximo_pago || null,
-      notas: form.notas || null,
+      notas: notasFinal,
     };
     const { error } = editing
       ? await supabase.from('pagos').update(payload).eq('id', editing)
       : await supabase.from('pagos').insert(payload);
     if (error) return toast(error.message, 'error');
+    // Descontar el crédito de referidos usado.
+    if (nDesc > 0 && montoDesc > 0) {
+      try {
+        const al = alumnos.find(a => a.id === form.alumno_id);
+        await supabase.from('alumnos').update({ ref_desc_usados: (al?.ref_desc_usados || 0) + nDesc }).eq('id', form.alumno_id);
+      } catch {}
+    }
     // Si tiene próximo pago, crear recordatorio automático
     if (!editing && form.proximo_pago && form.alumno_id) {
       await supabase.from('recordatorios').insert({
         alumno_id: form.alumno_id,
         fecha: form.proximo_pago,
-        mensaje: `Próximo pago — ${form.plan} — $${parseFloat(form.monto).toLocaleString('es-AR')}`,
+        mensaje: `Próximo pago — ${form.plan} — $${montoFinal.toLocaleString('es-AR')}`,
       });
     }
     toast(editing ? 'Pago actualizado ✏️' : 'Pago registrado 💳', 'success');
-    setModal(false); setEditing(null); setForm(emptyForm); load();
+    setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); load();
   };
 
   const remove = async id => {
@@ -4805,7 +4882,7 @@ function AdminPagos({ aulaActiva }) {
       proximo_pago: p.proximo_pago || '',
       notas: p.notas || '',
     });
-    setEditing(p.id); setModal(true);
+    setEditing(p.id); setAplicarDesc(false); setModal(true);
   };
 
   const totalCobrado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
@@ -4825,6 +4902,20 @@ function AdminPagos({ aulaActiva }) {
   // Precio de un plan y resumen de pago de un alumno (helpers compartidos con los recordatorios).
   const precioPlan = (plan) => precioDePlan(precios, plan);
   const resumenAlumno = (alumnoId) => resumenPagoDe(pagos.filter(p => p.alumno_id === alumnoId), precios);
+  // Descuento por referidos: cuántos 5% le quedan disponibles a un alumno (tope 2, menos los ya usados).
+  const descRefDisponible = (alumnoId) => {
+    const al = alumnos.find(a => a.id === alumnoId);
+    if (!al) return 0;
+    const califican = Math.min(2, refCount[al.id] || 0);
+    return Math.max(0, califican - (al.ref_desc_usados || 0));
+  };
+  // Monto en $ del descuento por referidos = 5% del total del plan × cantidad de referidos aplicados.
+  const montoDescRef = (plan, n) => {
+    if (!n) return 0;
+    const pp = precioPlan(plan);
+    const base = pp.cuotas || pp.unico || 0;
+    return Math.round(base * 0.05 * n);
+  };
   const hayPrecios = PLANES.some(pl => { const o = precioPlan(pl); return o.unico > 0 || o.cuotas > 0; });
   const incompletos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
@@ -4866,7 +4957,7 @@ function AdminPagos({ aulaActiva }) {
             setPreciosForm(f); setPreciosModal(true);
           }}>⚙️ Precios de planes</button>
           <button className="btn btn-ghost" onClick={probarArca} disabled={arcaProbando} title="Probar la conexión con ARCA (facturación)">{arcaProbando ? '⏳ Probando...' : '🔌 Probar ARCA'}</button>
-          <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Registrar pago</button>
+          <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Registrar pago</button>
         </div>
       </div>
 
@@ -4914,7 +5005,7 @@ function AdminPagos({ aulaActiva }) {
           <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--warning)',marginBottom:10}}>⚠️ Alumnos sin pagos registrados ({alumnosSinPago.length})</div>
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {alumnosSinPago.map(a => (
-              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id }); setEditing(null); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar un pago para este alumno" style={{display:'flex',alignItems:'center',gap:6}}>
+              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id }); setEditing(null); setAplicarDesc(false); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar un pago para este alumno" style={{display:'flex',alignItems:'center',gap:6}}>
                 {a.nombre} <span style={{color:'var(--warning)',fontWeight:700}}>+</span>
               </button>
             ))}
@@ -4929,7 +5020,7 @@ function AdminPagos({ aulaActiva }) {
           <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--accent2)',marginBottom:10}}>💸 Pagos incompletos ({incompletos.length})</div>
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {incompletos.map(({ a, r }) => (
-              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id, plan: r.plan || 'Cursado Completo' }); setEditing(null); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar el pago que falta" style={{display:'flex',alignItems:'center',gap:6}}>
+              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id, plan: r.plan || 'Cursado Completo' }); setEditing(null); setAplicarDesc(false); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar el pago que falta" style={{display:'flex',alignItems:'center',gap:6}}>
                 {a.nombre} <span style={{color:'var(--accent2)',fontWeight:700}}>falta $ {r.falta.toLocaleString('es-AR')}</span>
               </button>
             ))}
@@ -5082,11 +5173,11 @@ function AdminPagos({ aulaActiva }) {
       )}
 
       {modal && (
-        <Modal title={editing ? '✏️ Editar pago' : '➕ Registrar pago'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
+        <Modal title={editing ? '✏️ Editar pago' : '➕ Registrar pago'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>
           {/* Alumno */}
           <div className="form-group">
             <label>Alumno</label>
-            <select value={form.alumno_id} onChange={e => setForm(p => ({ ...p, alumno_id: e.target.value }))}>
+            <select value={form.alumno_id} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, alumno_id: v })); setAplicarDesc(false); }}>
               <option value="">-- Seleccionar alumno --</option>
               {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
@@ -5114,6 +5205,30 @@ function AdminPagos({ aulaActiva }) {
             </div>
           </div>
 
+          {/* Descuento por referidos (solo pagos nuevos, si tiene crédito disponible) */}
+          {!editing && form.alumno_id && descRefDisponible(form.alumno_id) > 0 && (() => {
+            const n = descRefDisponible(form.alumno_id);
+            const md = montoDescRef(form.plan, n);
+            const bruto = parseFloat(form.monto) || 0;
+            return (
+              <div style={{border:'1px solid var(--success)',background:'rgba(67,233,123,0.08)',borderRadius:10,padding:'12px 14px',marginBottom:14}}>
+                <label style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer'}}>
+                  <input type="checkbox" checked={aplicarDesc} onChange={e => setAplicarDesc(e.target.checked)} style={{width:'auto',marginTop:3}} />
+                  <span style={{fontSize:'0.84rem'}}>
+                    🎁 <b>Descuento por referidos:</b> tiene <b>{n}</b> referido{n!==1?'s':''} que ya pagó{n!==1?'ron':''}. Aplicar <b>{n*5}% de su plan</b>{md>0 ? <> (<b>–$ {md.toLocaleString('es-AR')}</b>)</> : ''}.
+                    {md<=0 && <span style={{color:'var(--warning)',display:'block',marginTop:4}}>⚠️ Configurá el precio del plan (⚙️) para calcular el monto del descuento.</span>}
+                  </span>
+                </label>
+                {aplicarDesc && md>0 && (
+                  <div style={{marginTop:8,fontSize:'0.82rem',fontWeight:700}}>
+                    Total con descuento: <span style={{color:'var(--success)'}}>$ {Math.max(0, bruto - md).toLocaleString('es-AR')}</span>
+                    <span style={{fontSize:'0.72rem',color:'var(--text2)',fontWeight:400}}> · la factura de ARCA sale por este monto</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Fechas en grid */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <div className="form-group">
@@ -5134,7 +5249,7 @@ function AdminPagos({ aulaActiva }) {
           </div>
 
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
           </div>
         </Modal>
@@ -6391,7 +6506,7 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div className="page-title">📝 Evaluaciones</div>
           <div className="page-subtitle">{evals.filter(e=>e.visible!==false).length} activas · {evals.filter(e=>isVencida(e)).length} vencidas</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
+        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Nueva evaluación</button>
       </div>
 
       {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Agregá un link de Google Forms para empezar." /> : (
@@ -6438,7 +6553,7 @@ function AdminEvaluaciones({ aulaActiva }) {
       )}
 
       {modal && (
-        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
+        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>
           <div className="form-group">
             <label>Título</label>
             <input placeholder="Ej: Parcial 1 — Unidad 1 y 2" value={form.titulo} onChange={e => setForm(p=>({...p,titulo:e.target.value}))} />
@@ -6480,7 +6595,7 @@ function AdminEvaluaciones({ aulaActiva }) {
             )}
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
           </div>
         </Modal>
@@ -7484,7 +7599,7 @@ function AdminNovedades({ aulaActiva }) {
           <div className="page-title">📢 Novedades</div>
           <div className="page-subtitle">Muro de comunicados y avisos</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setAplicarDesc(false); setModal(true); }}>
           ➕ Nueva novedad
         </button>
       </div>
@@ -7576,7 +7691,25 @@ function AlumnoMuro({ alumno }) {
   const [loading, setLoading] = useState(true);
   const [liking, setLiking] = useState({});
   const [misLikes, setMisLikes] = useState({});
+  const [misRef, setMisRef] = useState(null);   // { total, activos } de amigos referidos
   const toast = useToast();
+
+  const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
+  const copiarLink = async () => {
+    try { await navigator.clipboard.writeText(miLink); toast('¡Link copiado! Compartilo con tu amigo 📲', 'success'); }
+    catch { toast('Copiá el link a mano', 'info'); }
+  };
+
+  // Contar los amigos que este alumno ya refirió (para mostrarle el progreso).
+  useEffect(() => {
+    if (!alumno?.id) return;
+    (async () => {
+      try {
+        const { data } = await supabase.from('alumnos').select('estado').eq('referido_por', alumno.id);
+        setMisRef({ total: (data || []).length, activos: (data || []).filter(a => a.estado === 'activo').length });
+      } catch {}
+    })();
+  }, [alumno]);
 
   const TIPOS = {
     info:    { label: 'Información', color: 'var(--accent)',  bg: 'rgba(108,99,255,0.10)', icon: 'ℹ️' },
@@ -7666,6 +7799,23 @@ function AlumnoMuro({ alumno }) {
           <div className="page-title">📢 Novedades</div>
           <div className="page-subtitle">Comunicados y avisos del curso</div>
         </div>
+      </div>
+
+      {/* Invitá a un amigo */}
+      <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
+        <div style={{fontWeight:700,marginBottom:6}}>🎁 Invitá a un amigo y ganás</div>
+        <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>
+          Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás un <b>5% de descuento</b> en tu próxima cuota. Vale por hasta <b>2 amigos</b> (hasta 10%).
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <input readOnly value={miLink} onFocus={e => e.target.select()} style={{flex:1,minWidth:200,fontSize:'0.8rem'}} />
+          <button className="btn btn-primary btn-sm" onClick={copiarLink}>📋 Copiar link</button>
+        </div>
+        {misRef && (
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginTop:10}}>
+            Amigos que ya sumaste: <b style={{color:'var(--success)'}}>{misRef.activos}</b>{misRef.total > misRef.activos ? ` (${misRef.total - misRef.activos} esperando aprobación)` : ''}
+          </div>
+        )}
       </div>
 
       {novedades.length === 0 && <Empty icon="📢" text="No hay novedades publicadas aún" />}
