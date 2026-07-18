@@ -993,6 +993,23 @@ function RegistroAlumno({ onListo, onCancel }) {
       {paso === 2 && (
         <>
           <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:12}}>Registrá los equipos desde los que vas a usar la app. Cargá el <b>IMEI</b> de tu celular (marcá <b>*#06#</b> para verlo) o la <b>dirección MAC</b> de tu PC. Podés agregar más de uno.</div>
+
+          <details style={{marginBottom:12,fontSize:'0.78rem',color:'var(--text2)',border:'1px solid var(--border)',borderRadius:8,padding:'8px 10px',background:'var(--surface)'}}>
+            <summary style={{cursor:'pointer',fontWeight:600,color:'var(--text)'}}>ℹ️ ¿Cómo saco la dirección MAC de mi PC?</summary>
+            <div style={{marginTop:8,lineHeight:1.55}}>
+              <div style={{fontWeight:700,marginTop:4}}>🪟 En Windows</div>
+              <div>1. Apretá la tecla <b>Windows</b>, escribí <b>cmd</b> y abrí "Símbolo del sistema".</div>
+              <div>2. Escribí <b>ipconfig /all</b> y apretá Enter.</div>
+              <div>3. Buscá <b>"Dirección física"</b> — ese es tu MAC (formato XX-XX-XX-XX-XX-XX).</div>
+              <div style={{marginTop:4,fontSize:'0.72rem',fontStyle:'italic'}}>Atajo: Configuración → Red e Internet → Wi-Fi → Propiedades del hardware → "Dirección física (MAC)".</div>
+              <div style={{fontWeight:700,marginTop:10}}>🍎 En Apple (Mac)</div>
+              <div>1. Menú Apple (arriba a la izquierda) → <b>Configuración del Sistema</b>.</div>
+              <div>2. Entrá a <b>Red</b> → <b>Wi-Fi</b> → botón <b>Detalles…</b></div>
+              <div>3. Andá a la pestaña <b>Hardware</b>: ahí figura la <b>"Dirección MAC"</b>.</div>
+              <div style={{marginTop:4,fontSize:'0.72rem',fontStyle:'italic'}}>Atajo: mantené apretada la tecla <b>Opción (⌥)</b> y hacé clic en el ícono de Wi-Fi arriba a la derecha; aparece la "Dirección".</div>
+            </div>
+          </details>
+
           <div style={{display:'flex',gap:8,alignItems:'flex-end',flexWrap:'wrap'}}>
             <div className="form-group" style={{margin:0}}><label>Tipo</label>
               <select value={nuevoDisp.tipo} onChange={e => setNuevoDisp(d => ({ ...d, tipo: e.target.value }))}>
