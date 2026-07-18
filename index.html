@@ -883,6 +883,7 @@ function PantallaEspera({ alumno, onLogout }) {
 
 // Formulario de auto-inscripción del alumno: datos + selfie + DNI (frente/dorso) + T&C.
 function RegistroAlumno({ onListo, onCancel }) {
+  const [paso, setPaso] = useState(1);
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [dni, setDni] = useState('');
@@ -891,8 +892,9 @@ function RegistroAlumno({ onListo, onCancel }) {
   const [selfie, setSelfie] = useState(null);
   const [frente, setFrente] = useState(null);
   const [dorso, setDorso] = useState(null);
+  const [dispositivos, setDispositivos] = useState([]);
+  const [nuevoDisp, setNuevoDisp] = useState({ tipo: 'celular', id: '' });
   const [acepta, setAcepta] = useState(false);
-  const [verTyc, setVerTyc] = useState(false);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -904,11 +906,28 @@ function RegistroAlumno({ onListo, onCancel }) {
     return path;
   };
 
+  const validarPaso1 = () => {
+    if (!nombre.trim() || !email.trim() || !dni.trim() || !pass) return 'Completá nombre, email, DNI y contraseña';
+    if (pass.length < 6) return 'La contraseña debe tener al menos 6 caracteres';
+    if (pass !== pass2) return 'Las contraseñas no coinciden';
+    if (!selfie || !frente || !dorso) return 'Subí la selfie y las dos fotos del DNI (frente y dorso)';
+    return null;
+  };
+  const siguienteDe1 = () => { const err = validarPaso1(); if (err) return toast(err, 'error'); setPaso(2); };
+  const siguienteDe2 = () => { if (!dispositivos.length) return toast('Agregá al menos un dispositivo', 'error'); setPaso(3); };
+
+  const agregarDisp = () => {
+    const id = nuevoDisp.id.trim();
+    if (!id) return toast('Ingresá el número del dispositivo', 'error');
+    setDispositivos(d => [...d, { tipo: nuevoDisp.tipo, id }]);
+    setNuevoDisp({ tipo: nuevoDisp.tipo, id: '' });
+  };
+  const quitarDisp = (i) => setDispositivos(d => d.filter((_, j) => j !== i));
+
   const registrar = async () => {
-    if (!nombre.trim() || !email.trim() || !dni.trim() || !pass) return toast('Completá nombre, email, DNI y contraseña', 'error');
-    if (pass.length < 6) return toast('La contraseña debe tener al menos 6 caracteres', 'error');
-    if (pass !== pass2) return toast('Las contraseñas no coinciden', 'error');
-    if (!selfie || !frente || !dorso) return toast('Subí la selfie y las dos fotos del DNI (frente y dorso)', 'error');
+    const err = validarPaso1();
+    if (err) { setPaso(1); return toast(err, 'error'); }
+    if (!dispositivos.length) { setPaso(2); return toast('Agregá al menos un dispositivo', 'error'); }
     if (!acepta) return toast('Tenés que aceptar los términos y condiciones', 'error');
     setSaving(true);
     try {
@@ -921,7 +940,7 @@ function RegistroAlumno({ onListo, onCancel }) {
       const dorsoPath = await subir(userId, dorso, 'dni_dorso');
       const { data: row, error: e2 } = await supabase.from('alumnos').insert({
         nombre: nombre.trim(), email: email.trim().toLowerCase(), dni: dni.trim(), estado: 'pendiente',
-        selfie_path: selfiePath, dni_frente_path: frentePath, dni_dorso_path: dorsoPath,
+        selfie_path: selfiePath, dni_frente_path: frentePath, dni_dorso_path: dorsoPath, dispositivos,
         tyc_aceptado: true, tyc_fecha: new Date().toISOString(), tyc_version: TYC_VERSION,
       }).select('*').single();
       if (e2) throw new Error(e2.message);
@@ -932,48 +951,93 @@ function RegistroAlumno({ onListo, onCancel }) {
     } finally { setSaving(false); }
   };
 
+  const TITULOS = ['Datos personales', 'Registro de dispositivos', 'Términos y condiciones'];
+
   return (
-    <div className="login-page"><div className="login-card" style={{maxWidth:440}}>
+    <div className="login-page"><div className="login-card" style={{maxWidth:460}}>
       <div className="login-logo"><div className="login-logo-text">SACi</div>
         <div className="login-sub" style={{fontWeight:600}}>Inscripción de nuevo alumno</div>
       </div>
-      <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Completá tus datos y subí tu selfie y las fotos del DNI. El docente va a revisar y aprobar tu inscripción antes de que puedas ingresar.</div>
 
-      <div className="form-group"><label>👤 Nombre y apellido</label>
-        <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre completo" /></div>
-      <div className="form-group"><label>📧 Email</label>
-        <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></div>
-      <div className="form-group"><label>🪪 DNI</label>
-        <input value={dni} onChange={e => setDni(e.target.value)} placeholder="Sin puntos" inputMode="numeric" /></div>
-      <div className="form-group"><label>🔑 Contraseña</label>
-        <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Mínimo 6 caracteres" /></div>
-      <div className="form-group"><label>🔑 Repetir contraseña</label>
-        <input type="password" value={pass2} onChange={e => setPass2(e.target.value)} placeholder="••••••••" /></div>
-
-      <FotoInput label="🤳 Selfie (foto de tu cara)" valor={selfie} onFile={setSelfie} captura="user" />
-      <FotoInput label="🪪 DNI - Frente" valor={frente} onFile={setFrente} captura="environment" />
-      <FotoInput label="🪪 DNI - Dorso" valor={dorso} onFile={setDorso} captura="environment" />
-
-      <div style={{marginTop:6,marginBottom:10}}>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => setVerTyc(v => !v)}>{verTyc ? 'Ocultar' : '📄 Leer'} términos y condiciones</button>
-        {verTyc && (
-          <div style={{maxHeight:200,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:12,marginTop:8,fontSize:'0.74rem',lineHeight:1.5,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)'}}>{TYC_TEXTO}</div>
-        )}
-        <label style={{display:'flex',alignItems:'flex-start',gap:8,marginTop:10,cursor:'pointer',fontSize:'0.82rem'}}>
-          <input type="checkbox" checked={acepta} onChange={e => {
-            if (e.target.checked) {
-              const ok = confirm('¿Seguro/a que leíste detenidamente los términos y condiciones, en especial las SANCIONES por divulgar o grabar el contenido de las clases (cláusulas Octava y Novena)?');
-              setAcepta(ok);
-            } else { setAcepta(false); }
-          }} style={{width:'auto',marginTop:3}} />
-          <span>Declaro ser mayor de edad y <b>acepto los términos y condiciones</b> (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
-        </label>
+      {/* Indicador de pasos */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:4,marginBottom:6}}>
+        {[1,2,3].map(n => (
+          <React.Fragment key={n}>
+            <div style={{width:28,height:28,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700,fontSize:'0.82rem',background: paso>=n ? 'var(--accent)' : 'var(--surface2)', color: paso>=n ? '#fff' : 'var(--text2)'}}>{n}</div>
+            {n<3 && <div style={{width:26,height:2,background: paso>n ? 'var(--accent)' : 'var(--border)'}} />}
+          </React.Fragment>
+        ))}
       </div>
+      <div style={{textAlign:'center',fontWeight:700,fontSize:'0.92rem',marginBottom:14}}>Paso {paso} de 3 · {TITULOS[paso-1]}</div>
 
-      <button className="btn btn-primary" style={{width:'100%',marginTop:6,justifyContent:'center'}} onClick={registrar} disabled={saving}>
-        {saving ? '⏳ Enviando inscripción...' : '✅ Enviar inscripción'}
-      </button>
-      <button type="button" className="btn btn-ghost" style={{width:'100%',marginTop:8,justifyContent:'center'}} onClick={onCancel} disabled={saving}>← Volver al inicio de sesión</button>
+      {paso === 1 && (
+        <>
+          <div className="form-group"><label>👤 Nombre y apellido</label>
+            <input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Tu nombre completo" /></div>
+          <div className="form-group"><label>📧 Email</label>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="tu@email.com" /></div>
+          <div className="form-group"><label>🪪 DNI</label>
+            <input value={dni} onChange={e => setDni(e.target.value)} placeholder="Sin puntos" inputMode="numeric" /></div>
+          <div className="form-group"><label>🔑 Contraseña</label>
+            <input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="Mínimo 6 caracteres" /></div>
+          <div className="form-group"><label>🔑 Repetir contraseña</label>
+            <input type="password" value={pass2} onChange={e => setPass2(e.target.value)} placeholder="••••••••" /></div>
+          <FotoInput label="🤳 Selfie (foto de tu cara)" valor={selfie} onFile={setSelfie} captura="user" />
+          <FotoInput label="🪪 DNI - Frente" valor={frente} onFile={setFrente} captura="environment" />
+          <FotoInput label="🪪 DNI - Dorso" valor={dorso} onFile={setDorso} captura="environment" />
+          <button className="btn btn-primary" style={{width:'100%',marginTop:6,justifyContent:'center'}} onClick={siguienteDe1}>Siguiente →</button>
+          <button type="button" className="btn btn-ghost" style={{width:'100%',marginTop:8,justifyContent:'center'}} onClick={onCancel}>← Volver al inicio de sesión</button>
+        </>
+      )}
+
+      {paso === 2 && (
+        <>
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:12}}>Registrá los equipos desde los que vas a usar la app. Cargá el <b>IMEI</b> de tu celular (marcá <b>*#06#</b> para verlo) o la <b>dirección MAC</b> de tu PC. Podés agregar más de uno.</div>
+          <div style={{display:'flex',gap:8,alignItems:'flex-end',flexWrap:'wrap'}}>
+            <div className="form-group" style={{margin:0}}><label>Tipo</label>
+              <select value={nuevoDisp.tipo} onChange={e => setNuevoDisp(d => ({ ...d, tipo: e.target.value }))}>
+                <option value="celular">📱 Celular (IMEI)</option>
+                <option value="pc">💻 PC (MAC)</option>
+              </select></div>
+            <div className="form-group" style={{margin:0,flex:1,minWidth:150}}><label>{nuevoDisp.tipo === 'celular' ? 'Número IMEI' : 'Dirección MAC'}</label>
+              <input value={nuevoDisp.id} onChange={e => setNuevoDisp(d => ({ ...d, id: e.target.value }))} placeholder={nuevoDisp.tipo === 'celular' ? '15 dígitos' : 'XX:XX:XX:XX:XX:XX'} /></div>
+            <button type="button" className="btn btn-ghost" onClick={agregarDisp}>+ Agregar</button>
+          </div>
+          {dispositivos.length > 0 && (
+            <div style={{marginTop:12,display:'flex',flexDirection:'column',gap:6}}>
+              {dispositivos.map((d, i) => (
+                <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'6px 10px',fontSize:'0.82rem'}}>
+                  <span>{d.tipo === 'celular' ? '📱 IMEI: ' : '💻 MAC: '}{d.id}</span>
+                  <button type="button" className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => quitarDisp(i)}>🗑️</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:'flex',gap:8,marginTop:16}}>
+            <button type="button" className="btn btn-ghost" style={{flex:1,justifyContent:'center'}} onClick={() => setPaso(1)}>← Atrás</button>
+            <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}} onClick={siguienteDe2}>Siguiente →</button>
+          </div>
+        </>
+      )}
+
+      {paso === 3 && (
+        <>
+          <div style={{maxHeight:300,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:12,fontSize:'0.74rem',lineHeight:1.5,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)'}}>{TYC_TEXTO}</div>
+          <label style={{display:'flex',alignItems:'flex-start',gap:8,marginTop:12,cursor:'pointer',fontSize:'0.82rem'}}>
+            <input type="checkbox" checked={acepta} onChange={e => {
+              if (e.target.checked) {
+                const ok = confirm('¿Seguro/a que leíste detenidamente los términos y condiciones, en especial las SANCIONES por divulgar o grabar el contenido de las clases (cláusulas Octava y Novena)?');
+                setAcepta(ok);
+              } else { setAcepta(false); }
+            }} style={{width:'auto',marginTop:3}} />
+            <span>Declaro ser mayor de edad y <b>acepto los términos y condiciones</b> (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
+          </label>
+          <div style={{display:'flex',gap:8,marginTop:16}}>
+            <button type="button" className="btn btn-ghost" style={{flex:1,justifyContent:'center'}} onClick={() => setPaso(2)} disabled={saving}>← Atrás</button>
+            <button className="btn btn-primary" style={{flex:1,justifyContent:'center'}} onClick={registrar} disabled={saving || !acepta}>{saving ? '⏳ Enviando...' : '✅ Enviar inscripción'}</button>
+          </div>
+        </>
+      )}
     </div></div>
   );
 }
@@ -4186,6 +4250,14 @@ function AprobarInscripciones() {
                   <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>📧 {al.email}</div>
                   <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>🪪 DNI: {al.dni || '—'}</div>
                   <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:4}}>Inscripto: {fmtFecha(al.created_at)}{al.tyc_aceptado ? ' · ✅ aceptó T&C' : ''}</div>
+                  {Array.isArray(al.dispositivos) && al.dispositivos.length > 0 && (
+                    <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:6}}>
+                      <b>Dispositivos:</b>
+                      {al.dispositivos.map((d, i) => (
+                        <div key={i} style={{marginLeft:4}}>{d.tipo === 'celular' ? '📱 IMEI: ' : '💻 MAC: '}{d.id}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => verFotos(al)}>{verId === al.id ? 'Ocultar fotos' : '🖼️ Ver fotos'}</button>
               </div>
