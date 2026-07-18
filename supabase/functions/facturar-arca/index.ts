@@ -177,20 +177,22 @@ serve(async (req) => {
 
     if (action === "facturar") {
       const body = await req.json().catch(() => ({}));
-      const pagoId = body.pago_id;
-      if (!pagoId) return j({ ok: false, error: "Falta pago_id" }, 400);
-      const { data: pago } = await sb.from("pagos").select("*").eq("id", pagoId).single();
-      if (!pago) return j({ ok: false, error: "Pago no encontrado" }, 404);
-      if (pago.factura_cae) return j({ ok: true, yaFacturado: true, nro: pago.factura_nro, cae: pago.factura_cae });
-      const importe = parseFloat(pago.monto);
+      // Puede facturar un pago (tabla 'pagos') o una extensión ('extensiones_video').
+      const tabla = body.tabla === "extensiones_video" ? "extensiones_video" : "pagos";
+      const id = body.id || body.pago_id;
+      if (!id) return j({ ok: false, error: "Falta id" }, 400);
+      const { data: rec } = await sb.from(tabla).select("*").eq("id", id).single();
+      if (!rec) return j({ ok: false, error: "Registro no encontrado" }, 404);
+      if (rec.factura_cae) return j({ ok: true, yaFacturado: true, nro: rec.factura_nro, cae: rec.factura_cae });
+      const importe = parseFloat(rec.monto);
       if (!importe || importe <= 0) return j({ ok: false, error: "Importe inválido" }, 400);
 
       const { token, sign } = await obtenerTA(sb);
       const f = await emitir(token, sign, importe);
-      await sb.from("pagos").update({
+      await sb.from(tabla).update({
         factura_nro: f.nroFmt, factura_cae: f.cae, factura_cae_vto: f.caeVto,
         factura_fecha: f.fecha, factura_pto_vta: f.ptoVta, factura_tipo: "C", factura_env: ENV,
-      }).eq("id", pagoId);
+      }).eq("id", id);
       return j({ ok: true, ...f });
     }
 

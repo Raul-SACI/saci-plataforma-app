@@ -3667,7 +3667,33 @@ function AdminExtensiones({ aulaActiva }) {
   const [modal, setModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ alumno_id: '', video_id: '' });
+  const [facturandoId, setFacturandoId] = useState(null);
+  const [facturaVer, setFacturaVer] = useState(null);
+  const [arcaMsg, setArcaMsg] = useState(null);
   const toast = useToast();
+
+  // Emitir la Factura C de una extensión (misma función de ARCA que en Pagos).
+  const facturarExt = async (ext) => {
+    if (ext.factura_cae) return;
+    if (!confirm(`¿Emitir Factura C por $ ${parseFloat(ext.monto).toLocaleString('es-AR')} de ${ext.alumnos?.nombre || 'este alumno'}?`)) return;
+    setFacturandoId(ext.id); setArcaMsg(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setArcaMsg({ ok: false, txt: 'Tu sesión venció. Cerrá sesión y volvé a entrar, y reintentá.' }); setFacturandoId(null); return; }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=facturar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ tabla: 'extensiones_video', id: ext.id }),
+      });
+      const txt = await res.text();
+      let j = null; try { j = JSON.parse(txt); } catch {}
+      console.log('[ARCA facturar ext]', res.status, txt);
+      if (j && j.ok) { setArcaMsg({ ok: true, txt: `Factura C ${j.nroFmt || ''} emitida. CAE: ${j.cae}` }); load(); }
+      else setArcaMsg({ ok: false, txt: (j && j.error) ? j.error : `HTTP ${res.status}: ${txt.slice(0, 500)}` });
+    } catch (e) {
+      setArcaMsg({ ok: false, txt: 'No se pudo llamar a la función: ' + (e?.message || e) });
+    } finally { setFacturandoId(null); }
+  };
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
@@ -3820,7 +3846,14 @@ function AdminExtensiones({ aulaActiva }) {
                   <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{e.estado === 'pagado' ? fmt(e.vence_en) : '—'}</td>
                   <td>{chipEstado(e)}</td>
                   <td>
-                    <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => eliminar(e)}>🗑️</button>
+                    <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+                      {e.estado === 'pagado' && Number(e.monto) > 0 && (
+                        e.factura_cae
+                          ? <button className="btn btn-ghost btn-sm" title="Ver / imprimir factura" onClick={() => setFacturaVer(e)} style={{color:'var(--success)',fontWeight:700,fontSize:'0.72rem',whiteSpace:'nowrap'}}>🧾 {e.factura_nro}</button>
+                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===e.id} onClick={() => facturarExt(e)}>{facturandoId===e.id ? '⏳...' : '🧾 Facturar'}</button>
+                      )}
+                      <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => eliminar(e)}>🗑️</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -3828,6 +3861,18 @@ function AdminExtensiones({ aulaActiva }) {
           </table>
         </div>
       )}
+
+      {arcaMsg && (
+        <div className="card" style={{padding:'12px 16px',marginTop:12,borderColor: arcaMsg.ok?'var(--success)':'var(--danger)',background: arcaMsg.ok?'rgba(67,233,123,0.08)':'rgba(255,71,87,0.08)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+            <div style={{fontWeight:700,color: arcaMsg.ok?'var(--success)':'var(--danger)'}}>{arcaMsg.ok?'Factura ✅':'ARCA ❌ Error'}</div>
+            <button className="btn btn-ghost btn-sm" onClick={() => setArcaMsg(null)}>✕</button>
+          </div>
+          <div style={{fontSize:'0.82rem',whiteSpace:'pre-wrap',wordBreak:'break-word',marginTop:6}}>{arcaMsg.txt}</div>
+        </div>
+      )}
+
+      {facturaVer && <FacturaModal pago={facturaVer} onClose={() => setFacturaVer(null)} />}
 
       {modal && (
         <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setModal(false)}>
