@@ -2298,19 +2298,48 @@ function AdminDashboard({ setPage, aulaActiva }) {
     </div>
   );
 }
+// ─── SISTEMA ADMINISTRATIVO ───────────────────────────────────────────
+// Contiene la MSA (matriz) y Fragmentaciones como sub-pestañas.
+function SistemaAdministrativo({ alumno, aulaActiva, esAdmin }) {
+  const [sub, setSub] = useState('msa');
+  const SUBS = [
+    { id: 'msa', icon: '🧩', label: 'MSA' },
+    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones' },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 12px 6px', paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
+        {SUBS.map(s => (
+          <button key={s.id} onClick={() => setSub(s.id)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
+            border: `1px solid ${sub === s.id ? 'var(--accent2)' : 'var(--border)'}`,
+            background: sub === s.id ? 'var(--accent2)' : 'transparent',
+            color: sub === s.id ? '#fff' : 'var(--text)',
+            cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap'
+          }}>
+            <span>{s.icon}</span><span>{s.label}</span>
+          </button>
+        ))}
+      </div>
+      {sub === 'msa'
+        ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
+        : <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />}
+    </div>
+  );
+}
+
 // ─── SALA DE JUEGOS ───────────────────────────────────────────────────
 // Contenedor con pestañas. Cada pestaña es una herramienta de práctica.
 function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
   const [tab, setTab] = useState('msa');
 
   const JUEGOS = [
-    { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
+    { id: 'msa', icon: '🧩', label: 'Sistema Administrativo', listo: true },
     { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
     { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: true },
     { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: true },
-    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
   ];
 
   const Proximamente = ({ nombre }) => (
@@ -2356,11 +2385,9 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
       {/* Contenido de la pestaña activa */}
       <div style={{margin:'0 -12px'}}>
         {tab === 'msa'
-          ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
+          ? <SistemaAdministrativo alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'contab'
           ? <DiagramaContab alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
-          : tab === 'fragmentaciones'
-          ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'organigramas'
           ? <Organigramas alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'informes'
