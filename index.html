@@ -2309,8 +2309,9 @@ function AdminDashboard({ setPage, aulaActiva }) {
 function SistemaAdministrativo({ alumno, aulaActiva, esAdmin }) {
   const [sub, setSub] = useState('msa');
   const SUBS = [
-    { id: 'msa', icon: '🧩', label: 'MSA' },
-    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones' },
+    { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
+    { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
+    { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
   ];
   return (
     <div>
@@ -2324,12 +2325,25 @@ function SistemaAdministrativo({ alumno, aulaActiva, esAdmin }) {
             cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap'
           }}>
             <span>{s.icon}</span><span>{s.label}</span>
+            {!s.listo && <span style={{ fontSize: '0.6rem', opacity: 0.7, marginLeft: 2 }}>🚧</span>}
           </button>
         ))}
       </div>
       {sub === 'msa'
         ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
-        : <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />}
+        : sub === 'fragmentaciones'
+        ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+        : (
+          <div className="page-content fade-in">
+            <div style={{ textAlign: 'center', padding: '70px 20px' }}>
+              <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>🚧</div>
+              <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 8 }}>Cursogramas</div>
+              <div style={{ color: 'var(--text2)', fontSize: '0.9rem', maxWidth: 420, margin: '0 auto' }}>
+                Esta herramienta está en construcción. Muy pronto vas a poder practicar acá.
+              </div>
+            </div>
+          </div>
+        )}
     </div>
   );
 }
@@ -2344,7 +2358,6 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
     { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
     { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: true },
-    { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: true },
   ];
 
