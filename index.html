@@ -80,9 +80,15 @@
   .fade-in-scale { animation: fadeInScale 0.4s ease forwards; }
 
   /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--surface); }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* Scroll horizontal visible (ej: tablas anchas de Informes) */
+  .scroll-x { scrollbar-color: var(--text2) var(--surface2); }
+  .scroll-x::-webkit-scrollbar { height: 12px; }
+  .scroll-x::-webkit-scrollbar-track { background: var(--surface2); border-radius: 6px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: var(--text2); border-radius: 6px; }
 
   /* Layout */
   .app-shell { display: flex; min-height: 100vh; }
@@ -2561,6 +2567,11 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
   const tdComp = { border: '1px solid var(--border)', padding: '3px 7px', textAlign: 'center', fontSize: '0.74rem', fontWeight: 700, background: 'rgba(58,70,88,0.12)', color: 'var(--text)', whiteSpace: 'nowrap' };
   const tdRowH = { border: '1px solid var(--border)', padding: '3px 9px', fontSize: '0.76rem', fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' };
   const inpCell = { width: 52, border: 'none', background: 'transparent', textAlign: 'center', fontSize: '0.74rem', padding: '4px 2px', color: 'var(--text)' };
+  // Ancho de la primera columna: se ajusta al título más largo (períodos / columnas / filas).
+  const lblLen = Math.max((cfg.perHeader || '').length, (cfg.colHeader || '').length, (cfg.filaHeader || '').length, 7);
+  const cornerW = Math.min(300, Math.max(150, lblLen * 8 + 46));
+  // Alto mínimo de la celda con diagonal, para que no quede apretada con pocos niveles.
+  const cornerH = Math.max(46, nivelRows * 26);
 
   // Celdas de encabezado de niveles para UN bloque (período o variación)
   const nivelCells = (i, prefix) => {
@@ -2753,12 +2764,12 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
           Agregá al menos un nivel de columnas con un valor para dibujar el cuadro.
         </div>
       ) : (
-        <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+        <div className="scroll-x" style={{ overflowX: 'auto', maxWidth: '100%', paddingBottom: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
           <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
             <thead>
               <tr>
                 {/* Franja de arriba: título de los períodos (ej: AÑOS) */}
-                <th rowSpan={nivelRows > 0 ? 1 : headerRows} style={{ ...stCorner, minWidth: 150, textAlign: 'left', padding: '4px 10px' }}>{cfg.perHeader || ''}</th>
+                <th rowSpan={nivelRows > 0 ? 1 : headerRows} style={{ ...stCorner, width: cornerW, minWidth: cornerW, textAlign: 'left', padding: '4px 10px' }}>{cfg.perHeader || ''}</th>
                 {cfg.periodos.map((p, i) => <th key={p.id} colSpan={perColCount} style={stPer}>{(p.nombre || '—')} ({i + 1})</th>)}
                 {showVar && <th colSpan={varColCount} style={stVar}>VARIACIÓN % ({(P1.nombre || '2')} / {(P0.nombre || '1')})</th>}
               </tr>
@@ -2766,7 +2777,7 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                 <tr key={niv.id}>
                   {/* Celda de la esquina con diagonal: columnas (↗) y filas (↙) */}
                   {i === 0 && (
-                    <th rowSpan={nivelRows} style={{ ...stCorner, minWidth: 150, padding: 0, position: 'relative', backgroundImage: 'linear-gradient(to top right, transparent calc(50% - 0.7px), var(--text2) calc(50% - 0.7px), var(--text2) calc(50% + 0.7px), transparent calc(50% + 0.7px))' }}>
+                    <th rowSpan={nivelRows} style={{ ...stCorner, width: cornerW, minWidth: cornerW, height: cornerH, padding: 0, position: 'relative', backgroundImage: 'linear-gradient(to top right, transparent calc(50% - 0.7px), var(--text2) calc(50% - 0.7px), var(--text2) calc(50% + 0.7px), transparent calc(50% + 0.7px))' }}>
                       <span style={{ position: 'absolute', top: 5, right: 10, fontSize: '0.7rem', fontWeight: 700 }}>{cfg.colHeader || ''}</span>
                       <span style={{ position: 'absolute', bottom: 5, left: 10, fontSize: '0.7rem', fontWeight: 700 }}>{cfg.filaHeader || ''}</span>
                     </th>
