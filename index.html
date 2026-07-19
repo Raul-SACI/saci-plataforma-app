@@ -2384,7 +2384,8 @@ function infVacio() {
     filaTotal: true,
     periodos: [{ id: nidInf(), nombre: '' }, { id: nidInf(), nombre: '' }],
     niveles: [{ id: nidInf(), nombre: '', valores: [{ id: nidInf(), nombre: '' }] }],
-    calc: { totalCol: true, variacion: false, composicion: false, acumulado: false },
+    calc: { totalCol: true, totalUnid: false, variacion: false, composicion: false, acumulado: false },
+    varBase: '', varComp: '',
     datos: {},
   };
 }
@@ -2456,6 +2457,7 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
   const addNivel = () => setCfg(c => ({ ...c, niveles: [...c.niveles, { id: nidInf(), nombre: '', valores: [{ id: nidInf(), nombre: '' }] }] }));
   const delNivel = (id) => setCfg(c => ({ ...c, niveles: c.niveles.filter(n => n.id !== id) }));
   const setValor = (nId, vId, nombre) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: n.valores.map(v => v.id === vId ? { ...v, nombre } : v) } : n) }));
+  const setValorTipo = (nId, vId, tipo) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: n.valores.map(v => v.id === vId ? { ...v, tipo } : v) } : n) }));
   const addValor = (nId) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: [...n.valores, { id: nidInf(), nombre: '' }] } : n) }));
   const delValor = (nId, vId) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: n.valores.length > 1 ? n.valores.filter(v => v.id !== vId) : n.valores } : n) }));
   const setCalc = (k, v) => setCfg(c => ({ ...c, calc: { ...c.calc, [k]: v } }));
@@ -2477,26 +2479,40 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
 
   const nivelRows = nivelesActivos.length;
   const headerRows = 1 + nivelRows;
-  const efTotal = cfg.calc.totalCol && dataLeaves.length > 0;
-  const efComp = cfg.calc.composicion && dataLeaves.length > 0;
-  const efAcum = cfg.calc.acumulado && dataLeaves.length > 0;
-  const varColCount = dataLeaves.length + (efTotal ? 1 : 0);
+
+  // Clasificación de columnas por tipo, para NO mezclar $ con unidades en los totales.
+  const valorTipo = (vid) => { for (const niv of cfg.niveles) { const v = (niv.valores || []).find(x => x.id === vid); if (v) return v.tipo || ''; } return ''; };
+  const leafTipo = (leaf) => { for (const vid of leaf.path) { const t = valorTipo(vid); if (t) return t; } return ''; };
+  const hayTipos = dataLeaves.some(l => leafTipo(l));                                   // ¿marcó $ / unidades?
+  const moneyLeaves = hayTipos ? dataLeaves.filter(l => leafTipo(l) === 'monto') : dataLeaves;  // sin marcar → todas
+  const unitLeaves = dataLeaves.filter(l => leafTipo(l) === 'unidad');
+
+  const efTotal = cfg.calc.totalCol && moneyLeaves.length > 0;
+  const efUnid = cfg.calc.totalUnid && unitLeaves.length > 0;
+  const efComp = cfg.calc.composicion && moneyLeaves.length > 0;
+  const efAcum = cfg.calc.acumulado && moneyLeaves.length > 0;
+  const varColCount = dataLeaves.length + (efTotal ? 1 : 0) + (efUnid ? 1 : 0);
   const perColCount = varColCount + (efComp ? 1 : 0) + (efAcum ? 1 : 0);
   const showVar = cfg.calc.variacion && cfg.periodos.length >= 2;
-  const P0 = cfg.periodos[0], P1 = cfg.periodos[1];
+  const P0 = cfg.periodos.find(p => p.id === cfg.varBase) || cfg.periodos[0];
+  const P1 = cfg.periodos.find(p => p.id === cfg.varComp) || cfg.periodos[1] || cfg.periodos[0];
 
   // ── Cálculos ──
   const dkey = (perId, leafKey, filaId) => `${perId}::${leafKey}::${filaId}`;
   const num = (k) => { const v = parseFloat(cfg.datos[k]); return isNaN(v) ? 0 : v; };
   const hayAlguno = (keys) => keys.some(k => { const v = cfg.datos[k]; return v !== undefined && v !== '' && !isNaN(parseFloat(v)); });
-  const totFilaPer = (perId, filaId) => { const ks = dataLeaves.map(l => dkey(perId, l.key, filaId)); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const sumaFila = (perId, filaId, leaves) => { const ks = leaves.map(l => dkey(perId, l.key, filaId)); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const sumaCol = (perId, leaves) => { const ks = []; cfg.filas.forEach(f => leaves.forEach(l => ks.push(dkey(perId, l.key, f.id)))); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const totFila$ = (perId, filaId) => sumaFila(perId, filaId, moneyLeaves);
+  const totFilaU = (perId, filaId) => sumaFila(perId, filaId, unitLeaves);
   const totColLeaf = (perId, leafKey) => { const ks = cfg.filas.map(f => dkey(perId, leafKey, f.id)); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
-  const totColPer = (perId) => { const ks = []; cfg.filas.forEach(f => dataLeaves.forEach(l => ks.push(dkey(perId, l.key, f.id)))); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const totCol$ = (perId) => sumaCol(perId, moneyLeaves);
+  const totColU = (perId) => sumaCol(perId, unitLeaves);
   const vari = (viejo, nuevo) => (viejo == null || nuevo == null || viejo === 0) ? null : (nuevo - viejo) / viejo;
-  // % de composición: cuánto pesa la fila sobre el total del período.
-  const compPer = (perId, filaId) => { const t = totFilaPer(perId, filaId); const g = totColPer(perId); return (t == null || !g) ? null : t / g; };
-  // Acumulado: suma corrida del total del período hacia abajo (en el orden de las filas).
-  const acumPer = (perId, filaId) => { let sum = 0; for (const f of cfg.filas) { const t = totFilaPer(perId, f.id); if (t != null) sum += t; if (f.id === filaId) return (t == null) ? null : sum; } return null; };
+  // % de composición: cuánto pesa la fila sobre el total ($) del período.
+  const compPer = (perId, filaId) => { const t = totFila$(perId, filaId); const g = totCol$(perId); return (t == null || !g) ? null : t / g; };
+  // Acumulado: suma corrida del total ($) del período hacia abajo (en el orden de las filas).
+  const acumPer = (perId, filaId) => { let sum = 0; for (const f of cfg.filas) { const t = totFila$(perId, f.id); if (t != null) sum += t; if (f.id === filaId) return (t == null) ? null : sum; } return null; };
   const fmtN = (x) => x == null ? '' : x.toLocaleString('es-AR', { maximumFractionDigits: 2 });
   const fmtP = (x) => x == null ? '' : (x * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '%';
 
@@ -2541,8 +2557,12 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
       }
     });
     if (efTotal) {
-      if (esVar) { const v = vari(totFilaPer(P0.id, fila.id), totFilaPer(P1.id, fila.id)); out.push(<td key={`vt-${fila.id}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(v)}</td>); }
-      else out.push(<td key={`t-${perId}-${fila.id}`} style={tdCalc}>{fmtN(totFilaPer(perId, fila.id))}</td>);
+      if (esVar) { const v = vari(totFila$(P0.id, fila.id), totFila$(P1.id, fila.id)); out.push(<td key={`vt-${fila.id}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(v)}</td>); }
+      else out.push(<td key={`t-${perId}-${fila.id}`} style={tdCalc}>{fmtN(totFila$(perId, fila.id))}</td>);
+    }
+    if (efUnid) {
+      if (esVar) { const v = vari(totFilaU(P0.id, fila.id), totFilaU(P1.id, fila.id)); out.push(<td key={`vu-${fila.id}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(v)}</td>); }
+      else out.push(<td key={`u-${perId}-${fila.id}`} style={tdCalc}>{fmtN(totFilaU(perId, fila.id))}</td>);
     }
     if (!esVar && efComp) out.push(<td key={`c-${perId}-${fila.id}`} style={tdComp}>{fmtP(compPer(perId, fila.id))}</td>);
     if (!esVar && efAcum) out.push(<td key={`a-${perId}-${fila.id}`} style={tdCalc}>{fmtN(acumPer(perId, fila.id))}</td>);
@@ -2638,7 +2658,12 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                         {n.valores.map(v => (
                           <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 7, padding: '2px 4px 2px 6px', background: 'var(--surface2)' }}>
-                            <input value={v.nombre} onChange={e => setValor(n.id, v.id, e.target.value)} placeholder="valor…" style={{ border: 'none', background: 'transparent', color: 'var(--text)', fontSize: '0.76rem', width: 78 }} />
+                            <input value={v.nombre} onChange={e => setValor(n.id, v.id, e.target.value)} placeholder="valor…" style={{ border: 'none', background: 'transparent', color: 'var(--text)', fontSize: '0.76rem', width: 70 }} />
+                            <select value={v.tipo || ''} onChange={e => setValorTipo(n.id, v.id, e.target.value)} title="¿Esta columna es plata o cantidad?" style={{ border: '1px solid var(--border)', borderRadius: 5, background: 'var(--surface)', color: 'var(--text)', fontSize: '0.68rem', padding: '1px 2px' }}>
+                              <option value="">tipo</option>
+                              <option value="monto">$ pesos</option>
+                              <option value="unidad"># unidades</option>
+                            </select>
                             <button onClick={() => delValor(n.id, v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, fontSize: '0.68rem' }}>✕</button>
                           </span>
                         ))}
@@ -2647,6 +2672,7 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                     </div>
                   ))}
                   <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={addNivel}>+ agregar nivel</button>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text2)' }}>💡 Marcá con <b>$ pesos</b> las columnas de plata y con <b># unidades</b> las de cantidad. El Total en $ suma solo las de plata (no se pueden mezclar).</div>
                 </div>
               </div>
 
@@ -2654,11 +2680,14 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
               <div>
                 <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>🧮 Cálculos automáticos (prendé los que quieras)</div>
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={cfg.calc.totalCol} onChange={e => setCalc('totalCol', e.target.checked)} style={{ width: 'auto' }} /> Total (columna y fila)
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }} title="Suma las columnas marcadas como $ pesos">
+                    <input type="checkbox" checked={cfg.calc.totalCol} onChange={e => setCalc('totalCol', e.target.checked)} style={{ width: 'auto' }} /> Total en $
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }} title="Suma las columnas marcadas como # unidades">
+                    <input type="checkbox" checked={cfg.calc.totalUnid} onChange={e => setCalc('totalUnid', e.target.checked)} style={{ width: 'auto' }} /> Total en unidades
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={cfg.calc.variacion} onChange={e => setCalc('variacion', e.target.checked)} style={{ width: 'auto' }} /> Variación % (compara período 2 vs 1)
+                    <input type="checkbox" checked={cfg.calc.variacion} onChange={e => setCalc('variacion', e.target.checked)} style={{ width: 'auto' }} /> Variación %
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }} title="Cuánto pesa cada fila sobre el total del período">
                     <input type="checkbox" checked={cfg.calc.composicion} onChange={e => setCalc('composicion', e.target.checked)} style={{ width: 'auto' }} /> % de composición
@@ -2667,6 +2696,19 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                     <input type="checkbox" checked={cfg.calc.acumulado} onChange={e => setCalc('acumulado', e.target.checked)} style={{ width: 'auto' }} /> Acumulado (mes a mes)
                   </label>
                 </div>
+                {cfg.calc.variacion && cfg.periodos.length >= 2 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10, fontSize: '0.8rem' }}>
+                    <span style={{ color: 'var(--text2)' }}>Comparar:</span>
+                    <select value={cfg.varComp || (P1 && P1.id) || ''} onChange={e => setCfg(c => ({ ...c, varComp: e.target.value }))} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem' }}>
+                      {cfg.periodos.map((p, i) => <option key={p.id} value={p.id}>{p.nombre || `Período ${i + 1}`}</option>)}
+                    </select>
+                    <span style={{ color: 'var(--text2)' }}>contra (base):</span>
+                    <select value={cfg.varBase || (P0 && P0.id) || ''} onChange={e => setCfg(c => ({ ...c, varBase: e.target.value }))} style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem' }}>
+                      {cfg.periodos.map((p, i) => <option key={p.id} value={p.id}>{p.nombre || `Período ${i + 1}`}</option>)}
+                    </select>
+                    <span style={{ color: 'var(--text2)', fontSize: '0.72rem' }}>La variación se calcula (comparado − base) / base.</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2684,11 +2726,9 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
           <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
             <thead>
               <tr>
-                <th rowSpan={headerRows} style={{ ...stCorner, minWidth: 140, padding: 0 }}>
-                  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: headerRows * 24, backgroundImage: 'linear-gradient(to top right, transparent calc(50% - 0.7px), var(--text2) calc(50% - 0.7px), var(--text2) calc(50% + 0.7px), transparent calc(50% + 0.7px))' }}>
-                    <span style={{ position: 'absolute', top: 3, right: 8, fontSize: '0.68rem', fontWeight: 700 }}>{cfg.colHeader || ''}</span>
-                    <span style={{ position: 'absolute', bottom: 3, left: 8, fontSize: '0.68rem', fontWeight: 700 }}>{cfg.filaHeader || ''}</span>
-                  </div>
+                <th rowSpan={headerRows} style={{ ...stCorner, minWidth: 150, padding: 0, position: 'relative', backgroundImage: 'linear-gradient(to top right, transparent calc(50% - 0.7px), var(--text2) calc(50% - 0.7px), var(--text2) calc(50% + 0.7px), transparent calc(50% + 0.7px))' }}>
+                  <span style={{ position: 'absolute', top: 5, right: 10, fontSize: '0.7rem', fontWeight: 700 }}>{cfg.colHeader || ''}</span>
+                  <span style={{ position: 'absolute', bottom: 5, left: 10, fontSize: '0.7rem', fontWeight: 700 }}>{cfg.filaHeader || ''}</span>
                 </th>
                 {cfg.periodos.map((p, i) => <th key={p.id} colSpan={perColCount} style={stPer}>{(p.nombre || '—')} ({i + 1})</th>)}
                 {showVar && <th colSpan={varColCount} style={stVar}>VARIACIÓN % ({(P1.nombre || '2')} / {(P0.nombre || '1')})</th>}
@@ -2698,7 +2738,8 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                   {cfg.periodos.map(p => (
                     <React.Fragment key={p.id}>
                       {nivelCells(i, `${p.id}-${i}`)}
-                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total</th>}
+                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total $</th>}
+                      {i === 0 && efUnid && <th rowSpan={nivelRows} style={stTot}>Total u.</th>}
                       {i === 0 && efComp && <th rowSpan={nivelRows} style={stComp}>% comp.</th>}
                       {i === 0 && efAcum && <th rowSpan={nivelRows} style={stTot}>Acum.</th>}
                     </React.Fragment>
@@ -2706,7 +2747,8 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                   {showVar && (
                     <React.Fragment>
                       {nivelCells(i, `var-${i}`)}
-                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total</th>}
+                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total $</th>}
+                      {i === 0 && efUnid && <th rowSpan={nivelRows} style={stTot}>Total u.</th>}
                     </React.Fragment>
                   )}
                 </tr>
@@ -2726,15 +2768,17 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
                   {cfg.periodos.map(p => (
                     <React.Fragment key={p.id}>
                       {dataLeaves.map(l => <td key={`tc-${p.id}-${l.key}`} style={tdCalc}>{fmtN(totColLeaf(p.id, l.key))}</td>)}
-                      {efTotal && <td style={tdCalc}>{fmtN(totColPer(p.id))}</td>}
-                      {efComp && <td style={tdComp}>{fmtP(totColPer(p.id) ? 1 : null)}</td>}
-                      {efAcum && <td style={tdCalc}>{fmtN(totColPer(p.id))}</td>}
+                      {efTotal && <td style={tdCalc}>{fmtN(totCol$(p.id))}</td>}
+                      {efUnid && <td style={tdCalc}>{fmtN(totColU(p.id))}</td>}
+                      {efComp && <td style={tdComp}>{fmtP(totCol$(p.id) ? 1 : null)}</td>}
+                      {efAcum && <td style={tdCalc}>{fmtN(totCol$(p.id))}</td>}
                     </React.Fragment>
                   ))}
                   {showVar && (
                     <React.Fragment>
                       {dataLeaves.map(l => <td key={`tv-${l.key}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totColLeaf(P0.id, l.key), totColLeaf(P1.id, l.key)))}</td>)}
-                      {efTotal && <td style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totColPer(P0.id), totColPer(P1.id)))}</td>}
+                      {efTotal && <td style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totCol$(P0.id), totCol$(P1.id)))}</td>}
+                      {efUnid && <td style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totColU(P0.id), totColU(P1.id)))}</td>}
                     </React.Fragment>
                   )}
                 </tr>
