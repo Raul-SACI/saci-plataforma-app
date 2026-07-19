@@ -2307,7 +2307,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
     { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
     { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
     { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
-    { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: false },
+    { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: true },
     { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: true },
     { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
@@ -2363,8 +2363,376 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'organigramas'
           ? <Organigramas alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+          : tab === 'informes'
+          ? <InformesDireccion alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
       </div>
+    </div>
+  );
+}
+
+// ─── INFORMES PARA LA DIRECCIÓN ───────────────────────────────────────
+// Constructor de informes de doble entrada (editor libre): el usuario define
+// las variables (filas, períodos, niveles de columnas) y el sistema arma el
+// cuadro con encabezados anidados y calcula Totales y Variación %.
+function nidInf() { return Math.random().toString(36).slice(2, 9); }
+function infVacio() {
+  return {
+    filaHeader: 'PERÍODO',
+    filas: [{ id: nidInf(), nombre: '' }],
+    filaTotal: true,
+    periodos: [{ id: nidInf(), nombre: '' }, { id: nidInf(), nombre: '' }],
+    niveles: [{ id: nidInf(), nombre: '', valores: [{ id: nidInf(), nombre: '' }] }],
+    calc: { totalCol: true, variacion: false, composicion: false, acumulado: false },
+    datos: {},
+  };
+}
+
+function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
+  const [lista, setLista] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [cfg, setCfg] = useState(infVacio());
+  const [defOpen, setDefOpen] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = !!actual?.soloLectura;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    try {
+      if (esAdmin) {
+        const { data } = await supabase.from('inf_informes').select('id, titulo, publicada, updated_at').eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+        setLista(data || []);
+      } else {
+        const [mios, pub] = await Promise.all([
+          supabase.from('inf_informes').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+          supabase.from('inf_informes').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+        ]);
+        setLista(mios.data || []); setPublicados(pub.data || []);
+      }
+    } catch {}
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const nuevo = () => { setActual(null); setTitulo(''); setCfg(infVacio()); setDefOpen(true); };
+  const cargar = async (id, lectura = false) => {
+    const { data } = await supabase.from('inf_informes').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setCfg({ ...infVacio(), ...(data.config || {}) });
+    setDefOpen(false);
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título al informe', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), config: cfg, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else payload.alumno_id = alumno?.id;
+    let error;
+    if (actual?.id && !actual?.soloLectura) ({ error } = await supabase.from('inf_informes').update(payload).eq('id', actual.id));
+    else { const { data, error: e2 } = await supabase.from('inf_informes').insert(payload).select('id').single(); error = e2; if (data) setActual({ id: data.id, ...payload }); }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Informe publicado ✅' : publicar === false ? 'Informe despublicado' : 'Informe guardado ✅', 'success');
+    load();
+  };
+  const eliminar = async (id) => { if (!confirm('¿Eliminar este informe?')) return; const { error } = await supabase.from('inf_informes').delete().eq('id', id); if (error) return toast('Error: ' + error.message, 'error'); if (actual?.id === id) nuevo(); load(); };
+
+  // ── Editores de la definición ──
+  const setFila = (id, nombre) => setCfg(c => ({ ...c, filas: c.filas.map(f => f.id === id ? { ...f, nombre } : f) }));
+  const addFila = () => setCfg(c => ({ ...c, filas: [...c.filas, { id: nidInf(), nombre: '' }] }));
+  const delFila = (id) => setCfg(c => ({ ...c, filas: c.filas.length > 1 ? c.filas.filter(f => f.id !== id) : c.filas }));
+  const setPer = (id, nombre) => setCfg(c => ({ ...c, periodos: c.periodos.map(p => p.id === id ? { ...p, nombre } : p) }));
+  const addPer = () => setCfg(c => ({ ...c, periodos: [...c.periodos, { id: nidInf(), nombre: '' }] }));
+  const delPer = (id) => setCfg(c => ({ ...c, periodos: c.periodos.length > 1 ? c.periodos.filter(p => p.id !== id) : c.periodos }));
+  const setNivelNombre = (id, nombre) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === id ? { ...n, nombre } : n) }));
+  const addNivel = () => setCfg(c => ({ ...c, niveles: [...c.niveles, { id: nidInf(), nombre: '', valores: [{ id: nidInf(), nombre: '' }] }] }));
+  const delNivel = (id) => setCfg(c => ({ ...c, niveles: c.niveles.filter(n => n.id !== id) }));
+  const setValor = (nId, vId, nombre) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: n.valores.map(v => v.id === vId ? { ...v, nombre } : v) } : n) }));
+  const addValor = (nId) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: [...n.valores, { id: nidInf(), nombre: '' }] } : n) }));
+  const delValor = (nId, vId) => setCfg(c => ({ ...c, niveles: c.niveles.map(n => n.id === nId ? { ...n, valores: n.valores.length > 1 ? n.valores.filter(v => v.id !== vId) : n.valores } : n) }));
+  const setCalc = (k, v) => setCfg(c => ({ ...c, calc: { ...c.calc, [k]: v } }));
+  const setDato = (key, val) => setCfg(c => ({ ...c, datos: { ...c.datos, [key]: val } }));
+
+  // ── Estructura calculada ──
+  const nivelesActivos = cfg.niveles.filter(n => (n.valores || []).some(v => true) && n.valores.length);
+  const dataLeaves = React.useMemo(() => {
+    let leaves = [{ key: '', path: [] }];
+    for (const niv of cfg.niveles) {
+      const vals = niv.valores || [];
+      if (!vals.length) continue;
+      const next = [];
+      for (const l of leaves) for (const v of vals) next.push({ key: l.key ? l.key + '_' + v.id : v.id, path: [...l.path, v.id] });
+      leaves = next;
+    }
+    return (leaves[0] && leaves[0].path.length) ? leaves : [];
+  }, [cfg.niveles]);
+
+  const nivelRows = nivelesActivos.length;
+  const headerRows = 1 + nivelRows;
+  const efTotal = cfg.calc.totalCol && dataLeaves.length > 0;
+  const perColCount = dataLeaves.length + (efTotal ? 1 : 0);
+  const showVar = cfg.calc.variacion && cfg.periodos.length >= 2;
+  const P0 = cfg.periodos[0], P1 = cfg.periodos[1];
+
+  // ── Cálculos ──
+  const dkey = (perId, leafKey, filaId) => `${perId}::${leafKey}::${filaId}`;
+  const num = (k) => { const v = parseFloat(cfg.datos[k]); return isNaN(v) ? 0 : v; };
+  const hayAlguno = (keys) => keys.some(k => { const v = cfg.datos[k]; return v !== undefined && v !== '' && !isNaN(parseFloat(v)); });
+  const totFilaPer = (perId, filaId) => { const ks = dataLeaves.map(l => dkey(perId, l.key, filaId)); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const totColLeaf = (perId, leafKey) => { const ks = cfg.filas.map(f => dkey(perId, leafKey, f.id)); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const totColPer = (perId) => { const ks = []; cfg.filas.forEach(f => dataLeaves.forEach(l => ks.push(dkey(perId, l.key, f.id)))); return hayAlguno(ks) ? ks.reduce((s, k) => s + num(k), 0) : null; };
+  const vari = (viejo, nuevo) => (viejo == null || nuevo == null || viejo === 0) ? null : (nuevo - viejo) / viejo;
+  const fmtN = (x) => x == null ? '' : x.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+  const fmtP = (x) => x == null ? '' : (x * 100).toLocaleString('es-AR', { maximumFractionDigits: 0 }) + '%';
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>Cargando…</div>;
+  if (!miAula) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  // Estilos de tabla
+  const thBase = { border: '1px solid var(--border)', padding: '3px 7px', fontSize: '0.7rem', fontWeight: 700, textAlign: 'center', whiteSpace: 'nowrap' };
+  const stPer = { ...thBase, background: '#e8a200', color: '#1a1a1a' };
+  const stVar = { ...thBase, background: '#8f9296', color: '#fff' };
+  const stNiv = { ...thBase, background: 'var(--surface2)', color: 'var(--text)' };
+  const stTot = { ...thBase, background: '#243447', color: '#fff' };
+  const stCorner = { ...thBase, background: 'var(--surface2)' };
+  const tdData = { border: '1px solid var(--border)', padding: 0, textAlign: 'center' };
+  const tdCalc = { border: '1px solid var(--border)', padding: '3px 7px', textAlign: 'center', fontSize: '0.74rem', fontWeight: 700, background: '#243447', color: '#fff', whiteSpace: 'nowrap' };
+  const tdVar = { border: '1px solid var(--border)', padding: '3px 7px', textAlign: 'center', fontSize: '0.74rem', fontWeight: 600, background: 'rgba(143,146,150,0.12)', whiteSpace: 'nowrap' };
+  const tdRowH = { border: '1px solid var(--border)', padding: '3px 9px', fontSize: '0.76rem', fontWeight: 700, textAlign: 'left', whiteSpace: 'nowrap' };
+  const inpCell = { width: 52, border: 'none', background: 'transparent', textAlign: 'center', fontSize: '0.74rem', padding: '4px 2px', color: 'var(--text)' };
+
+  // Celdas de encabezado de niveles para UN bloque (período o variación)
+  const nivelCells = (i, prefix) => {
+    const niv = nivelesActivos[i];
+    const sizesAfter = nivelesActivos.slice(i + 1).reduce((a, n) => a * n.valores.length, 1);
+    const repeat = nivelesActivos.slice(0, i).reduce((a, n) => a * n.valores.length, 1);
+    const cells = [];
+    for (let r = 0; r < repeat; r++) niv.valores.forEach(v => cells.push(<th key={`${prefix}-${r}-${v.id}`} colSpan={sizesAfter} style={stNiv}>{v.nombre || '—'}</th>));
+    return cells;
+  };
+
+  // Fila de datos de un bloque (período o variación) para una fila dada
+  const celdasDeFila = (fila, perId, esVar) => {
+    const out = [];
+    dataLeaves.forEach(l => {
+      if (esVar) {
+        const v = vari(num0Null(P0.id, l.key, fila.id), num0Null(P1.id, l.key, fila.id));
+        out.push(<td key={`${perId}-${l.key}-${fila.id}`} style={tdVar}>{fmtP(v)}</td>);
+      } else {
+        const k = dkey(perId, l.key, fila.id);
+        out.push(<td key={k} style={tdData}><input value={cfg.datos[k] ?? ''} onChange={e => setDato(k, e.target.value)} disabled={soloLectura} inputMode="decimal" style={inpCell} /></td>);
+      }
+    });
+    if (efTotal) {
+      if (esVar) { const v = vari(totFilaPer(P0.id, fila.id), totFilaPer(P1.id, fila.id)); out.push(<td key={`vt-${fila.id}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(v)}</td>); }
+      else out.push(<td key={`t-${perId}-${fila.id}`} style={tdCalc}>{fmtN(totFilaPer(perId, fila.id))}</td>);
+    }
+    return out;
+  };
+  // valor puntual (para variación por celda) devolviendo null si no cargado
+  function num0Null(perId, leafKey, filaId) { const raw = cfg.datos[dkey(perId, leafKey, filaId)]; if (raw === undefined || raw === '' || isNaN(parseFloat(raw))) return null; return parseFloat(raw); }
+
+  const guardados = esAdmin ? lista : lista;
+
+  return (
+    <div className="page-content fade-in" style={{ paddingTop: 8 }}>
+      {/* Informes guardados */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-primary btn-sm" onClick={nuevo}>+ Nuevo informe</button>
+        {guardados.map(d => (
+          <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 8, padding: '2px 4px 2px 8px', background: actual?.id === d.id ? 'var(--surface2)' : 'transparent' }}>
+            <span onClick={() => cargar(d.id)} style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: actual?.id === d.id ? 700 : 500 }}>{d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}</span>
+            {esAdmin && <button onClick={() => eliminar(d.id)} title="Eliminar" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.72rem', opacity: 0.6, padding: 0 }}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text2)', fontWeight: 600 }}>📢 Del docente:</span>
+          {publicados.map(d => <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargar(d.id, true)}>{d.titulo || '(sin título)'}</button>)}
+        </div>
+      )}
+
+      {/* Título */}
+      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del informe (ej: Ventas 2019 vs 2018 por sucursal)" disabled={soloLectura}
+        style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 12 }} />
+
+      {/* Panel de definición de variables */}
+      {!soloLectura && (
+        <div className="card" style={{ padding: 0, marginBottom: 16, borderColor: 'var(--accent)' }}>
+          <div onClick={() => setDefOpen(o => !o)} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', padding: '12px 16px', background: 'rgba(108,99,255,0.06)' }}>
+            <div style={{ fontWeight: 700 }}>⚙️ 1) Definí las variables</div>
+            <span>{defOpen ? '▲' : '▼'}</span>
+          </div>
+          {defOpen && (
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {/* Filas */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>📋 Filas (lo que va a la izquierda)</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text2)' }}>Encabezado:</span>
+                  <input value={cfg.filaHeader} onChange={e => setCfg(c => ({ ...c, filaHeader: e.target.value }))} placeholder="Ej: PERÍODO / SUCURSAL" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem', width: 190 }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={cfg.filaTotal} onChange={e => setCfg(c => ({ ...c, filaTotal: e.target.checked }))} style={{ width: 'auto' }} /> Fila de Total
+                  </label>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {cfg.filas.map(f => (
+                    <span key={f.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 7, padding: '2px 4px 2px 6px' }}>
+                      <input value={f.nombre} onChange={e => setFila(f.id, e.target.value)} placeholder="fila…" style={{ border: 'none', background: 'transparent', color: 'var(--text)', fontSize: '0.78rem', width: 96 }} />
+                      <button onClick={() => delFila(f.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, fontSize: '0.7rem' }}>✕</button>
+                    </span>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={addFila}>+ fila</button>
+                </div>
+              </div>
+
+              {/* Períodos */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>📅 Períodos / bloques a comparar (columnas grandes)</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {cfg.periodos.map((p, i) => (
+                    <span key={p.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 7, padding: '2px 4px 2px 6px' }}>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--text2)', fontWeight: 700 }}>({i + 1})</span>
+                      <input value={p.nombre} onChange={e => setPer(p.id, e.target.value)} placeholder="Ej: Año 2018" style={{ border: 'none', background: 'transparent', color: 'var(--text)', fontSize: '0.78rem', width: 100 }} />
+                      <button onClick={() => delPer(p.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, fontSize: '0.7rem' }}>✕</button>
+                    </span>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" onClick={addPer}>+ período</button>
+                </div>
+              </div>
+
+              {/* Niveles de columnas */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>🧱 Niveles de las columnas (se abren de mayor a menor)</div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text2)', marginBottom: 8 }}>Cada nivel se aplica dentro de cada período. Ej: Sucursal → Rubro → Medida (Q/$).</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {cfg.niveles.map((n, i) => (
+                    <div key={n.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--text2)', fontWeight: 700 }}>Nivel {i + 1}</span>
+                        <input value={n.nombre} onChange={e => setNivelNombre(n.id, e.target.value)} placeholder="Nombre del nivel (ej: Sucursal)" style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem', flex: 1, minWidth: 120 }} />
+                        <button onClick={() => delNivel(n.id)} className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }}>🗑️</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        {n.valores.map(v => (
+                          <span key={v.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 7, padding: '2px 4px 2px 6px', background: 'var(--surface2)' }}>
+                            <input value={v.nombre} onChange={e => setValor(n.id, v.id, e.target.value)} placeholder="valor…" style={{ border: 'none', background: 'transparent', color: 'var(--text)', fontSize: '0.76rem', width: 78 }} />
+                            <button onClick={() => delValor(n.id, v.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.5, fontSize: '0.68rem' }}>✕</button>
+                          </span>
+                        ))}
+                        <button className="btn btn-ghost btn-sm" onClick={() => addValor(n.id)}>+ valor</button>
+                      </div>
+                    </div>
+                  ))}
+                  <button className="btn btn-ghost btn-sm" style={{ alignSelf: 'flex-start' }} onClick={addNivel}>+ agregar nivel</button>
+                </div>
+              </div>
+
+              {/* Cálculos */}
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>🧮 Cálculos automáticos (prendé los que quieras)</div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={cfg.calc.totalCol} onChange={e => setCalc('totalCol', e.target.checked)} style={{ width: 'auto' }} /> Total (columna y fila)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={cfg.calc.variacion} onChange={e => setCalc('variacion', e.target.checked)} style={{ width: 'auto' }} /> Variación % (compara período 2 vs 1)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', color: 'var(--text2)', cursor: 'not-allowed' }} title="Llega en la próxima etapa">
+                    <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} /> % de composición <span style={{ fontSize: '0.68rem' }}>(etapa 2)</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.8rem', color: 'var(--text2)', cursor: 'not-allowed' }} title="Llega en la próxima etapa">
+                    <input type="checkbox" checked={false} disabled style={{ width: 'auto' }} /> Acumulado <span style={{ fontSize: '0.68rem' }}>(etapa 2)</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Cuadro generado */}
+      <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 8 }}>📊 2) Completá el cuadro</div>
+      {perColCount === 0 ? (
+        <div className="card" style={{ padding: 20, textAlign: 'center', color: 'var(--text2)', fontSize: '0.85rem' }}>
+          Agregá al menos un nivel de columnas con un valor para dibujar el cuadro.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto', paddingBottom: 8 }}>
+          <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
+            <thead>
+              <tr>
+                <th rowSpan={headerRows} style={{ ...stCorner, minWidth: 110, textAlign: 'left' }}>{cfg.filaHeader || 'PERÍODO'}</th>
+                {cfg.periodos.map((p, i) => <th key={p.id} colSpan={perColCount} style={stPer}>{(p.nombre || '—')} ({i + 1})</th>)}
+                {showVar && <th colSpan={perColCount} style={stVar}>VARIACIÓN % ({(P1.nombre || '2')} / {(P0.nombre || '1')})</th>}
+              </tr>
+              {nivelesActivos.map((niv, i) => (
+                <tr key={niv.id}>
+                  {cfg.periodos.map(p => (
+                    <React.Fragment key={p.id}>
+                      {nivelCells(i, `${p.id}-${i}`)}
+                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total</th>}
+                    </React.Fragment>
+                  ))}
+                  {showVar && (
+                    <React.Fragment>
+                      {nivelCells(i, `var-${i}`)}
+                      {i === 0 && efTotal && <th rowSpan={nivelRows} style={stTot}>Total</th>}
+                    </React.Fragment>
+                  )}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {cfg.filas.map(fila => (
+                <tr key={fila.id}>
+                  <td style={tdRowH}>{fila.nombre || '—'}</td>
+                  {cfg.periodos.map(p => <React.Fragment key={p.id}>{celdasDeFila(fila, p.id, false)}</React.Fragment>)}
+                  {showVar && <React.Fragment>{celdasDeFila(fila, 'var', true)}</React.Fragment>}
+                </tr>
+              ))}
+              {cfg.filaTotal && (
+                <tr>
+                  <td style={{ ...tdRowH, background: 'var(--surface2)' }}>TOTAL</td>
+                  {cfg.periodos.map(p => (
+                    <React.Fragment key={p.id}>
+                      {dataLeaves.map(l => <td key={`tc-${p.id}-${l.key}`} style={tdCalc}>{fmtN(totColLeaf(p.id, l.key))}</td>)}
+                      {efTotal && <td style={tdCalc}>{fmtN(totColPer(p.id))}</td>}
+                    </React.Fragment>
+                  ))}
+                  {showVar && (
+                    <React.Fragment>
+                      {dataLeaves.map(l => <td key={`tv-${l.key}`} style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totColLeaf(P0.id, l.key), totColLeaf(P1.id, l.key)))}</td>)}
+                      {efTotal && <td style={{ ...tdVar, fontWeight: 700 }}>{fmtP(vari(totColPer(P0.id), totColPer(P1.id)))}</td>}
+                    </React.Fragment>
+                  )}
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Acciones */}
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? '⏳ Guardando…' : '💾 Guardar informe'}</button>
+          {esAdmin && actual?.id && !actual?.soloLectura && (
+            actual.publicada
+              ? <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>
+              : <button className="btn btn-ghost" onClick={() => guardar(true)} disabled={saving}>📢 Publicar a los alumnos</button>
+          )}
+        </div>
+      )}
+      {soloLectura && <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text2)' }}>👁 Estás viendo un informe del docente (solo lectura).</div>}
     </div>
   );
 }
