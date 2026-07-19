@@ -2378,7 +2378,8 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
 function nidInf() { return Math.random().toString(36).slice(2, 9); }
 function infVacio() {
   return {
-    filaHeader: 'PERÍODO',
+    filaHeader: '',
+    colHeader: '',
     filas: [{ id: nidInf(), nombre: '' }],
     filaTotal: true,
     periodos: [{ id: nidInf(), nombre: '' }, { id: nidInf(), nombre: '' }],
@@ -2577,8 +2578,10 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
               <div>
                 <div style={{ fontWeight: 700, fontSize: '0.84rem', marginBottom: 6 }}>📋 Filas (lo que va a la izquierda)</div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.76rem', color: 'var(--text2)' }}>Encabezado:</span>
-                  <input value={cfg.filaHeader} onChange={e => setCfg(c => ({ ...c, filaHeader: e.target.value }))} placeholder="Ej: PERÍODO / SUCURSAL" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem', width: 190 }} />
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text2)' }}>Título columnas (↗ arriba):</span>
+                  <input value={cfg.colHeader} onChange={e => setCfg(c => ({ ...c, colHeader: e.target.value }))} placeholder="Ej: Sucursal" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem', width: 150 }} />
+                  <span style={{ fontSize: '0.76rem', color: 'var(--text2)' }}>Título filas (↙ abajo):</span>
+                  <input value={cfg.filaHeader} onChange={e => setCfg(c => ({ ...c, filaHeader: e.target.value }))} placeholder="Ej: Clientes" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem', width: 150 }} />
                   <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.78rem', cursor: 'pointer' }}>
                     <input type="checkbox" checked={cfg.filaTotal} onChange={e => setCfg(c => ({ ...c, filaTotal: e.target.checked }))} style={{ width: 'auto' }} /> Fila de Total
                   </label>
@@ -2670,7 +2673,12 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
           <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
             <thead>
               <tr>
-                <th rowSpan={headerRows} style={{ ...stCorner, minWidth: 110, textAlign: 'left' }}>{cfg.filaHeader || 'PERÍODO'}</th>
+                <th rowSpan={headerRows} style={{ ...stCorner, minWidth: 140, padding: 0 }}>
+                  <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: headerRows * 24, backgroundImage: 'linear-gradient(to top right, transparent calc(50% - 0.7px), var(--text2) calc(50% - 0.7px), var(--text2) calc(50% + 0.7px), transparent calc(50% + 0.7px))' }}>
+                    <span style={{ position: 'absolute', top: 3, right: 8, fontSize: '0.68rem', fontWeight: 700 }}>{cfg.colHeader || ''}</span>
+                    <span style={{ position: 'absolute', bottom: 3, left: 8, fontSize: '0.68rem', fontWeight: 700 }}>{cfg.filaHeader || ''}</span>
+                  </div>
+                </th>
                 {cfg.periodos.map((p, i) => <th key={p.id} colSpan={perColCount} style={stPer}>{(p.nombre || '—')} ({i + 1})</th>)}
                 {showVar && <th colSpan={perColCount} style={stVar}>VARIACIÓN % ({(P1.nombre || '2')} / {(P0.nombre || '1')})</th>}
               </tr>
