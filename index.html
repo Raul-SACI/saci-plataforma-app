@@ -4085,6 +4085,25 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
     document.addEventListener('mouseup', soltar);
   };
 
+  // Redimensionar una caja (ancho y alto) arrastrando la manija de la esquina inferior derecha.
+  const startResize = (e, id) => {
+    if (soloLectura || modoConectar) return;
+    e.preventDefault(); e.stopPropagation();
+    const boxEl = e.currentTarget.closest('.og-box');
+    const rect = boxEl.getBoundingClientRect();
+    const c = cajas.find(x => x.id === id);
+    const sx = e.clientX, sy = e.clientY;
+    const ow = c.w || rect.width, oh = c.h || rect.height;
+    const mover = (ev) => {
+      const nw = Math.max(70, Math.round(ow + (ev.clientX - sx)));
+      const nh = Math.max(40, Math.round(oh + (ev.clientY - sy)));
+      setCajas(cs => cs.map(x => x.id === id ? { ...x, w: nw, h: nh } : x));
+    };
+    const soltar = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', soltar); };
+    document.addEventListener('mousemove', mover);
+    document.addEventListener('mouseup', soltar);
+  };
+
   // Conectar dos cajas: clic en la primera, clic en la segunda (repetir para borrar la línea).
   const clickConectar = (id) => {
     if (!modoConectar) return;
@@ -4099,7 +4118,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   };
   const escala = bw / OG_BW;
   const hh = OG_HH * escala;
-  const centro = (id) => { const c = cajas.find(x => x.id === id); return c ? { x: c.x + bw / 2, y: c.y + hh } : null; };
+  const centro = (id) => { const c = cajas.find(x => x.id === id); if (!c) return null; return { x: c.x + (c.w || bw) / 2, y: c.y + (c.h ? c.h / 2 : hh) }; };
 
   const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setCajas([nuevaCaja(40, 40)]); setConexiones([]); setBw(OG_BW); setColorAbierto(null); setModoConectar(false); setConFrom(null); };
   const cargarOrg = async (id, lectura = false) => {
@@ -4144,8 +4163,8 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
 
   const inpDato = { padding:'6px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)' };
-  const cw = Math.max(760, ...cajas.map(c => c.x + bw), 0) + 60;
-  const ch = Math.max(420, ...cajas.map(c => c.y + 78), 0) + 60;
+  const cw = Math.max(760, ...cajas.map(c => c.x + (c.w || bw)), 0) + 60;
+  const ch = Math.max(420, ...cajas.map(c => c.y + (c.h || 78)), 0) + 60;
 
   return (
     <div className="page-content fade-in" style={{paddingTop:8}}>
@@ -4231,12 +4250,13 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
               const rows = Math.min(4, Math.max(2, Math.ceil(((c.texto || '').length || 1) / 16)));
               return (
                 <div key={c.id} className={`og-box ${sel ? 'og-sel' : ''}`}
-                  style={{ left: c.x, top: c.y, width: bw, background: col.bg, borderColor: col.border, zIndex: sel ? 8 : 5, cursor: modoConectar ? 'pointer' : 'default' }}
+                  style={{ left: c.x, top: c.y, width: c.w || bw, height: c.h || undefined, display: 'flex', flexDirection: 'column', background: col.bg, borderColor: col.border, zIndex: sel ? 8 : 5, cursor: modoConectar ? 'pointer' : 'default' }}
                   onClick={() => { if (modoConectar) clickConectar(c.id); }}>
                   {!soloLectura && !modoConectar && <div className="og-handle" onMouseDown={(e) => startDrag(e, c.id)} title="Arrastrá para mover">⠿⠿⠿</div>}
-                  <textarea value={c.texto} readOnly={soloLectura} rows={rows}
+                  <textarea value={c.texto} readOnly={soloLectura} rows={c.h ? undefined : rows}
                     onChange={e => setTextoCaja(c.id, e.target.value)} placeholder={soloLectura ? '' : '...'}
-                    style={{ color: col.text, userSelect: 'text', pointerEvents: modoConectar ? 'none' : 'auto', fontSize: (0.68 * escala).toFixed(3) + 'rem' }} />
+                    style={{ color: col.text, userSelect: 'text', pointerEvents: modoConectar ? 'none' : 'auto', fontSize: (0.68 * escala).toFixed(3) + 'rem', flex: c.h ? 1 : undefined }} />
+                  {!soloLectura && !modoConectar && <div onMouseDown={(e) => startResize(e, c.id)} title="Arrastrá para cambiar el tamaño" style={{ position: 'absolute', right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize', background: 'linear-gradient(135deg, transparent 45%, rgba(0,0,0,0.4) 45%, rgba(0,0,0,0.4) 60%, transparent 60%)', zIndex: 9 }} />}
                   {!soloLectura && (
                     <div className="og-ctrls">
                       <button title="Color" onClick={(e) => { e.stopPropagation(); setColorAbierto(a => a === c.id ? null : c.id); }}
@@ -5090,7 +5110,7 @@ function AdminAlumnos({ aulaActiva }) {
           <button className="btn btn-ghost" onClick={downloadTemplate}>📋 Plantilla</button>
           <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📥 Importar Excel</button>
           <button className="btn btn-ghost" onClick={exportarExcel}>📤 Exportar Excel</button>
-          <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Nuevo alumno</button>
+          <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
       </div>
       <div className="search-bar" style={{marginBottom:16}}>
@@ -7009,7 +7029,7 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div className="page-title">📝 Evaluaciones</div>
           <div className="page-subtitle">{evals.filter(e=>e.visible!==false).length} activas · {evals.filter(e=>isVencida(e)).length} vencidas</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Nueva evaluación</button>
+        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
       </div>
 
       {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Agregá un link de Google Forms para empezar." /> : (
@@ -7056,7 +7076,7 @@ function AdminEvaluaciones({ aulaActiva }) {
       )}
 
       {modal && (
-        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>
+        <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
           <div className="form-group">
             <label>Título</label>
             <input placeholder="Ej: Parcial 1 — Unidad 1 y 2" value={form.titulo} onChange={e => setForm(p=>({...p,titulo:e.target.value}))} />
@@ -7098,7 +7118,7 @@ function AdminEvaluaciones({ aulaActiva }) {
             )}
           </div>
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
-            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
           </div>
         </Modal>
@@ -8102,7 +8122,7 @@ function AdminNovedades({ aulaActiva }) {
           <div className="page-title">📢 Novedades</div>
           <div className="page-subtitle">Muro de comunicados y avisos</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setAplicarDesc(false); setModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
           ➕ Nueva novedad
         </button>
       </div>
