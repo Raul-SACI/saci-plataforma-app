@@ -2425,7 +2425,7 @@ function ControlInterno({ alumno, aulaActiva, esAdmin }) {
   const [sub, setSub] = useState('actividades');
   const SUBS = [
     { id: 'actividades', icon: '🛡️', label: 'Matriz de Actividades de Control', listo: true },
-    { id: 'riesgos', icon: '⚠️', label: 'Matriz de Riesgos', listo: false },
+    { id: 'riesgos', icon: '⚠️', label: 'Matriz de Riesgos', listo: true },
   ];
   return (
     <div>
@@ -2445,17 +2445,7 @@ function ControlInterno({ alumno, aulaActiva, esAdmin }) {
       </div>
       {sub === 'actividades'
         ? <MatrizActividades alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
-        : (
-          <div className="page-content fade-in">
-            <div style={{ textAlign: 'center', padding: '70px 20px' }}>
-              <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>🚧</div>
-              <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 8 }}>Matriz de Riesgos</div>
-              <div style={{ color: 'var(--text2)', fontSize: '0.9rem', maxWidth: 420, margin: '0 auto' }}>
-                La armamos en el próximo paso. Contame qué estructura de columnas querés para esta matriz.
-              </div>
-            </div>
-          </div>
-        )}
+        : <MatrizRiesgos alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />}
     </div>
   );
 }
@@ -2683,6 +2673,191 @@ function MatrizActividades({ alumno, aulaActiva, esAdmin }) {
       {!soloLectura && (
         <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={addCiclo}>+ Agregar ciclo</button>
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? '⏳ Guardando…' : '💾 Guardar matriz'}</button>
+          {esAdmin && actual?.id && !actual?.soloLectura && (
+            actual.publicada
+              ? <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>
+              : <button className="btn btn-ghost" onClick={() => guardar(true)} disabled={saving}>📢 Publicar a los alumnos</button>
+          )}
+        </div>
+      )}
+      {soloLectura && <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text2)' }}>👁 Estás viendo una matriz del docente (solo lectura).</div>}
+    </div>
+  );
+}
+
+// Matriz de Riesgos: 4 cuadrantes fijos donde el alumno ubica cada riesgo
+// según Impacto (eje X) y Probabilidad de materialización (eje Y).
+const CUAD = [
+  { n: 'I', nombre: 'Riesgos de Atención Inmediata', color: '#e5484d' },
+  { n: 'II', nombre: 'Riesgos de Atención Periódica', color: '#f0932b' },
+  { n: 'III', nombre: 'Riesgos Controlados', color: '#2bad4e' },
+  { n: 'IV', nombre: 'Riesgos de Seguimiento', color: '#2f6fed' },
+];
+function cuadranteDe(x, y) { if (y >= 5 && x >= 5) return CUAD[0]; if (y >= 5 && x < 5) return CUAD[1]; if (y < 5 && x < 5) return CUAD[2]; return CUAD[3]; }
+function matRieVacia() { return { riesgos: [] }; }
+
+function MatrizRiesgos({ alumno, aulaActiva, esAdmin }) {
+  const [lista, setLista] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [cfg, setCfg] = useState(matRieVacia());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const chartRef = useRef(null);
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = !!actual?.soloLectura;
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    try {
+      if (esAdmin) {
+        const { data } = await supabase.from('ci_matrices').select('id, titulo, publicada, updated_at').eq('es_admin', true).eq('tipo', 'riesgos').eq('aula_id', miAula).order('updated_at', { ascending: false });
+        setLista(data || []);
+      } else {
+        const [mios, pub] = await Promise.all([
+          supabase.from('ci_matrices').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).eq('tipo', 'riesgos').order('updated_at', { ascending: false }),
+          supabase.from('ci_matrices').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('tipo', 'riesgos').eq('aula_id', miAula).order('updated_at', { ascending: false }),
+        ]);
+        setLista(mios.data || []); setPublicados(pub.data || []);
+      }
+    } catch {}
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const nuevo = () => { setActual(null); setTitulo(''); setCfg(matRieVacia()); };
+  const cargar = async (id, lectura = false) => {
+    const { data } = await supabase.from('ci_matrices').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setCfg({ ...matRieVacia(), ...(data.config || {}) });
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título a la matriz', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), tipo: 'riesgos', config: cfg, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else payload.alumno_id = alumno?.id;
+    let error;
+    if (actual?.id && !actual?.soloLectura) ({ error } = await supabase.from('ci_matrices').update(payload).eq('id', actual.id));
+    else { const { data, error: e2 } = await supabase.from('ci_matrices').insert(payload).select('id').single(); error = e2; if (data) setActual({ id: data.id, ...payload }); }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Matriz publicada ✅' : publicar === false ? 'Matriz despublicada' : 'Matriz guardada ✅', 'success');
+    load();
+  };
+  const eliminar = async (id) => { if (!confirm('¿Eliminar esta matriz?')) return; const { error } = await supabase.from('ci_matrices').delete().eq('id', id); if (error) return toast('Error: ' + error.message, 'error'); if (actual?.id === id) nuevo(); load(); };
+
+  const addRiesgo = () => setCfg(c => { const n = c.riesgos.length; return { ...c, riesgos: [...c.riesgos, { id: nidCI(), nombre: '', x: 2.5 + (n % 2) * 5, y: 7.5 - (Math.floor(n / 2) % 2) * 5 }] }; });
+  const delRiesgo = (id) => setCfg(c => ({ ...c, riesgos: c.riesgos.filter(r => r.id !== id) }));
+  const setNombre = (id, nombre) => setCfg(c => ({ ...c, riesgos: c.riesgos.map(r => r.id === id ? { ...r, nombre } : r) }));
+  const startDragDot = (e, id) => {
+    if (soloLectura || !chartRef.current) return;
+    e.preventDefault();
+    const rect = chartRef.current.getBoundingClientRect();
+    const mover = (ev) => {
+      let x = ((ev.clientX - rect.left) / rect.width) * 10;
+      let y = (1 - (ev.clientY - rect.top) / rect.height) * 10;
+      x = Math.max(0, Math.min(10, x)); y = Math.max(0, Math.min(10, y));
+      setCfg(c => ({ ...c, riesgos: c.riesgos.map(r => r.id === id ? { ...r, x, y } : r) }));
+    };
+    const up = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mover); document.addEventListener('mouseup', up);
+  };
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>Cargando…</div>;
+  if (!miAula) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const CH = 440;  // lado del gráfico
+  const quadStyle = (bg, pos) => ({ position: 'absolute', width: '50%', height: '50%', ...pos, background: bg, display: 'flex', alignItems: pos.top === 0 ? 'flex-start' : 'flex-end', justifyContent: 'center', padding: 8, boxSizing: 'border-box' });
+  const quadLbl = { fontSize: '0.72rem', fontWeight: 700, textAlign: 'center', lineHeight: 1.2 };
+
+  return (
+    <div className="page-content fade-in" style={{ paddingTop: 8 }}>
+      {/* Matrices guardadas */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-primary btn-sm" onClick={nuevo}>+ Nueva matriz</button>
+        {lista.map(d => (
+          <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 8, padding: '2px 4px 2px 8px', background: actual?.id === d.id ? 'var(--surface2)' : 'transparent' }}>
+            <span onClick={() => cargar(d.id)} style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: actual?.id === d.id ? 700 : 500 }}>{d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}</span>
+            {esAdmin && <button onClick={() => eliminar(d.id)} title="Eliminar" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.72rem', opacity: 0.6, padding: 0 }}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text2)', fontWeight: 600 }}>📢 Del docente:</span>
+          {publicados.map(d => <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargar(d.id, true)}>{d.titulo || '(sin título)'}</button>)}
+        </div>
+      )}
+
+      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Riesgos — Ventas)" disabled={soloLectura}
+        style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 14 }} />
+
+      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+        {/* Gráfico */}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {/* Eje Y (rótulo + escala) */}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontWeight: 700, fontSize: '0.82rem', height: CH, display: 'flex', alignItems: 'center', color: 'var(--text)' }}>Probabilidad de Materialización</div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: CH, fontSize: '0.7rem', color: 'var(--text2)', paddingRight: 2 }}>
+            <span>10</span><span>5</span><span>0</span>
+          </div>
+          <div>
+            <div ref={chartRef} style={{ position: 'relative', width: CH, height: CH, border: '2px solid #333', boxSizing: 'border-box', background: 'var(--surface)' }}>
+              {/* Cuadrantes */}
+              <div style={quadStyle('rgba(240,147,43,0.16)', { top: 0, left: 0 })}><span style={{ ...quadLbl, color: '#b06a10' }}>II · {CUAD[1].nombre}</span></div>
+              <div style={quadStyle('rgba(229,72,77,0.16)', { top: 0, right: 0 })}><span style={{ ...quadLbl, color: '#b5232a' }}>I · {CUAD[0].nombre}</span></div>
+              <div style={quadStyle('rgba(43,173,78,0.16)', { bottom: 0, left: 0 })}><span style={{ ...quadLbl, color: '#1c7d38' }}>III · {CUAD[2].nombre}</span></div>
+              <div style={quadStyle('rgba(47,111,237,0.16)', { bottom: 0, right: 0 })}><span style={{ ...quadLbl, color: '#1f4fb0' }}>IV · {CUAD[3].nombre}</span></div>
+              {/* Ejes divisorios */}
+              <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 2, background: '#333', transform: 'translateX(-1px)' }} />
+              <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 2, background: '#333', transform: 'translateY(-1px)' }} />
+              {/* Puntos */}
+              {cfg.riesgos.map((r, i) => (
+                <div key={r.id} onMouseDown={e => startDragDot(e, r.id)}
+                  title={r.nombre || `Riesgo ${i + 1}`}
+                  style={{ position: 'absolute', left: `${(r.x / 10) * 100}%`, top: `${(1 - r.y / 10) * 100}%`, transform: 'translate(-50%,-50%)', width: 26, height: 26, borderRadius: '50%', background: '#2f4bd6', border: '2px solid #fff', boxShadow: '0 1px 4px rgba(0,0,0,0.4)', color: '#fff', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: soloLectura ? 'default' : 'grab', zIndex: 5 }}>
+                  {i + 1}
+                </div>
+              ))}
+            </div>
+            {/* Eje X (escala + rótulo) */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', width: CH, fontSize: '0.7rem', color: 'var(--text2)', marginTop: 2 }}><span>0</span><span>5</span><span>10</span></div>
+            <div style={{ textAlign: 'center', width: CH, fontWeight: 700, fontSize: '0.82rem', marginTop: 2 }}>Impacto del Riesgo</div>
+          </div>
+        </div>
+
+        {/* Lista de riesgos */}
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Riesgos</div>
+            {!soloLectura && <button className="btn btn-primary btn-sm" onClick={addRiesgo}>+ Agregar riesgo</button>}
+          </div>
+          {cfg.riesgos.length === 0 && <div style={{ fontSize: '0.82rem', color: 'var(--text2)', padding: '10px 0' }}>Agregá un riesgo y arrastrá su punto al cuadrante que corresponda.</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {cfg.riesgos.map((r, i) => {
+              const q = cuadranteDe(r.x, r.y);
+              return (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px' }}>
+                  <span style={{ flexShrink: 0, width: 24, height: 24, borderRadius: '50%', background: '#2f4bd6', color: '#fff', fontSize: '0.72rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{i + 1}</span>
+                  <input value={r.nombre} readOnly={soloLectura} onChange={e => setNombre(r.id, e.target.value)} placeholder={`Riesgo ${i + 1}`} style={{ flex: 1, minWidth: 100, border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem' }} />
+                  <span style={{ flexShrink: 0, fontSize: '0.68rem', fontWeight: 700, color: '#fff', background: q.color, borderRadius: 6, padding: '2px 7px' }}>{q.n}</span>
+                  {!soloLectura && <button onClick={() => delRiesgo(r.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', fontSize: '0.8rem' }}>🗑️</button>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
           <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? '⏳ Guardando…' : '💾 Guardar matriz'}</button>
           {esAdmin && actual?.id && !actual?.soloLectura && (
             actual.publicada
