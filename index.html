@@ -4035,6 +4035,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   const [tipoSocietario, setTipoSocietario] = useState('');
   const [cajas, setCajas] = useState([nuevaCaja(40, 40)]);
   const [conexiones, setConexiones] = useState([]);
+  const [bw, setBw] = useState(OG_BW);   // ancho de las cajas (ajustable); la letra escala con esto
   const [modoConectar, setModoConectar] = useState(false);
   const [conFrom, setConFrom] = useState(null);
   const [colorAbierto, setColorAbierto] = useState(null);
@@ -4096,9 +4097,11 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
     });
     setConFrom(null);
   };
-  const centro = (id) => { const c = cajas.find(x => x.id === id); return c ? { x: c.x + OG_BW / 2, y: c.y + OG_HH } : null; };
+  const escala = bw / OG_BW;
+  const hh = OG_HH * escala;
+  const centro = (id) => { const c = cajas.find(x => x.id === id); return c ? { x: c.x + bw / 2, y: c.y + hh } : null; };
 
-  const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setCajas([nuevaCaja(40, 40)]); setConexiones([]); setColorAbierto(null); setModoConectar(false); setConFrom(null); };
+  const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setCajas([nuevaCaja(40, 40)]); setConexiones([]); setBw(OG_BW); setColorAbierto(null); setModoConectar(false); setConFrom(null); };
   const cargarOrg = async (id, lectura = false) => {
     const { data } = await supabase.from('org_organigramas').select('*').eq('id', id).single();
     if (!data) return;
@@ -4108,12 +4111,13 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
     setTipoSocietario(data.tipo_societario || '');
     const l = lienzoDesde(data.arbol);
     setCajas(l.cajas.length ? l.cajas : [nuevaCaja(40, 40)]); setConexiones(l.conexiones);
+    setBw(data.arbol?.bw || OG_BW);
     setColorAbierto(null); setModoConectar(false); setConFrom(null);
   };
   const guardar = async (publicar = null) => {
     if (!titulo.trim()) return toast('Ponele un título al organigrama', 'error');
     setSaving(true);
-    const payload = { titulo: titulo.trim(), tipo_empresa: tipoEmpresa, tipo_societario: tipoSocietario, arbol: { cajas, conexiones }, aula_id: miAula, updated_at: new Date().toISOString() };
+    const payload = { titulo: titulo.trim(), tipo_empresa: tipoEmpresa, tipo_societario: tipoSocietario, arbol: { cajas, conexiones, bw }, aula_id: miAula, updated_at: new Date().toISOString() };
     if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
     else { payload.alumno_id = alumno?.id; }
     let error;
@@ -4140,7 +4144,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   if (!miAula) return <div style={{padding:30,textAlign:'center',color:'var(--text2)'}}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
 
   const inpDato = { padding:'6px 10px', borderRadius:8, border:'1px solid var(--border)', background:'var(--surface)', color:'var(--text)' };
-  const cw = Math.max(760, ...cajas.map(c => c.x + OG_BW), 0) + 60;
+  const cw = Math.max(760, ...cajas.map(c => c.x + bw), 0) + 60;
   const ch = Math.max(420, ...cajas.map(c => c.y + 78), 0) + 60;
 
   return (
@@ -4205,9 +4209,13 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
             {modoConectar
               ? <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Clic en una caja y después en otra para unirlas (o repetí el par para borrar la línea).</span>
               : <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Arrastrá cada caja desde la manija ⠿ de arriba para moverla. Pasá el mouse sobre la caja para el color 🎨 y 🗑️.</span>}
+            <label style={{display:'flex',alignItems:'center',gap:6,fontSize:'0.72rem',color:'var(--text2)',marginLeft:'auto'}}>
+              📐 Tamaño de cajas
+              <input type="range" min="80" max="200" step="2" value={bw} onChange={e => setBw(parseInt(e.target.value))} style={{width:110}} />
+            </label>
           </div>
         )}
-        <div style={{overflow:'auto', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
+        <div className="scroll-x" style={{overflow:'auto', maxWidth:'100%', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
           <div className="og-canvas" style={{width:cw, height:ch}}>
             <svg width={cw} height={ch} style={{position:'absolute',top:0,left:0,pointerEvents:'none',zIndex:1}}>
               {conexiones.map((k, i) => {
@@ -4223,12 +4231,12 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
               const rows = Math.min(4, Math.max(2, Math.ceil(((c.texto || '').length || 1) / 16)));
               return (
                 <div key={c.id} className={`og-box ${sel ? 'og-sel' : ''}`}
-                  style={{ left: c.x, top: c.y, background: col.bg, borderColor: col.border, zIndex: sel ? 8 : 5, cursor: modoConectar ? 'pointer' : 'default' }}
+                  style={{ left: c.x, top: c.y, width: bw, background: col.bg, borderColor: col.border, zIndex: sel ? 8 : 5, cursor: modoConectar ? 'pointer' : 'default' }}
                   onClick={() => { if (modoConectar) clickConectar(c.id); }}>
                   {!soloLectura && !modoConectar && <div className="og-handle" onMouseDown={(e) => startDrag(e, c.id)} title="Arrastrá para mover">⠿⠿⠿</div>}
                   <textarea value={c.texto} readOnly={soloLectura} rows={rows}
                     onChange={e => setTextoCaja(c.id, e.target.value)} placeholder={soloLectura ? '' : '...'}
-                    style={{ color: col.text, userSelect: 'text', pointerEvents: modoConectar ? 'none' : 'auto' }} />
+                    style={{ color: col.text, userSelect: 'text', pointerEvents: modoConectar ? 'none' : 'auto', fontSize: (0.68 * escala).toFixed(3) + 'rem' }} />
                   {!soloLectura && (
                     <div className="og-ctrls">
                       <button title="Color" onClick={(e) => { e.stopPropagation(); setColorAbierto(a => a === c.id ? null : c.id); }}
