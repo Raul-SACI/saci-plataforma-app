@@ -4036,6 +4036,8 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   const [cajas, setCajas] = useState([nuevaCaja(40, 40)]);
   const [conexiones, setConexiones] = useState([]);
   const [bw, setBw] = useState(OG_BW);   // ancho de las cajas (ajustable); la letra escala con esto
+  const scrollRef = useRef(null);
+  const [sb, setSb] = useState({ thumbW: 0, thumbL: 0, need: false });
   const [modoConectar, setModoConectar] = useState(false);
   const [conFrom, setConFrom] = useState(null);
   const [colorAbierto, setColorAbierto] = useState(null);
@@ -4119,6 +4121,27 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
   const escala = bw / OG_BW;
   const hh = OG_HH * escala;
   const centro = (id) => { const c = cajas.find(x => x.id === id); if (!c) return null; return { x: c.x + (c.w || bw) / 2, y: c.y + (c.h ? c.h / 2 : hh) }; };
+
+  // Barra de scroll horizontal propia (las nativas overlay no siempre se ven).
+  const refreshSb = () => {
+    const el = scrollRef.current; if (!el) return;
+    const total = el.scrollWidth, vis = el.clientWidth;
+    const need = total > vis + 2;
+    const thumbW = need ? Math.max(40, vis * vis / total) : vis;
+    const thumbL = need ? (el.scrollLeft / (total - vis)) * (vis - thumbW) : 0;
+    setSb({ thumbW, thumbL, need });
+  };
+  const startBarDrag = (e) => {
+    e.preventDefault();
+    const el = scrollRef.current; if (!el) return;
+    const total = el.scrollWidth, vis = el.clientWidth;
+    const thumbW = Math.max(40, vis * vis / total), denom = (vis - thumbW) || 1;
+    const sx = e.clientX, sl = el.scrollLeft;
+    const mover = (ev) => { el.scrollLeft = sl + (ev.clientX - sx) * (total - vis) / denom; refreshSb(); };
+    const up = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mover); document.addEventListener('mouseup', up);
+  };
+  useEffect(() => { const t = setTimeout(refreshSb, 30); return () => clearTimeout(t); }, [loading, miAula, cajas, bw, actual]);
 
   const nuevoOrg = () => { setActual(null); setTitulo(''); setTipoEmpresa(''); setTipoSocietario(''); setCajas([nuevaCaja(40, 40)]); setConexiones([]); setBw(OG_BW); setColorAbierto(null); setModoConectar(false); setConFrom(null); };
   const cargarOrg = async (id, lectura = false) => {
@@ -4234,7 +4257,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
             </label>
           </div>
         )}
-        <div className="scroll-x" style={{overflow:'auto', maxWidth:'100%', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
+        <div ref={scrollRef} onScroll={refreshSb} className="scroll-x" style={{overflow:'auto', maxWidth:'100%', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
           <div className="og-canvas" style={{width:cw, height:ch}}>
             <svg width={cw} height={ch} style={{position:'absolute',top:0,left:0,pointerEvents:'none',zIndex:1}}>
               {conexiones.map((k, i) => {
@@ -4278,6 +4301,11 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
             })}
           </div>
         </div>
+        {sb.need && (
+          <div style={{ height: 14, marginTop: 6, background: 'var(--surface2)', borderRadius: 7, position: 'relative' }} title="Deslizá para ver el resto del organigrama">
+            <div onMouseDown={startBarDrag} style={{ position: 'absolute', top: 0, height: 14, width: sb.thumbW, left: sb.thumbL, background: 'var(--text2)', borderRadius: 7, cursor: 'grab' }} />
+          </div>
+        )}
       </div>
     </div>
   );
