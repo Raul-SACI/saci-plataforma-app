@@ -2355,7 +2355,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
 
   const JUEGOS = [
     { id: 'msa', icon: '🧩', label: 'Sistema Administrativo', listo: true },
-    { id: 'control', icon: '🛡️', label: 'Control Interno', listo: false },
+    { id: 'control', icon: '🛡️', label: 'Control Interno', listo: true },
     { id: 'contab', icon: '📒', label: 'Diagramas de Contabilidad', listo: true },
     { id: 'informes', icon: '📑', label: 'Informes para la Dirección', listo: true },
     { id: 'organigramas', icon: '🗂️', label: 'Organigramas', listo: true },
@@ -2405,6 +2405,8 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
       <div style={{margin:'0 -12px'}}>
         {tab === 'msa'
           ? <SistemaAdministrativo alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+          : tab === 'control'
+          ? <ControlInterno alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'contab'
           ? <DiagramaContab alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'organigramas'
@@ -2413,6 +2415,283 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           ? <InformesDireccion alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
       </div>
+    </div>
+  );
+}
+
+// ─── CONTROL INTERNO ──────────────────────────────────────────────────
+// Contiene la Matriz de Actividades de Control y la Matriz de Riesgos.
+function ControlInterno({ alumno, aulaActiva, esAdmin }) {
+  const [sub, setSub] = useState('actividades');
+  const SUBS = [
+    { id: 'actividades', icon: '🛡️', label: 'Matriz de Actividades de Control', listo: true },
+    { id: 'riesgos', icon: '⚠️', label: 'Matriz de Riesgos', listo: false },
+  ];
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', margin: '0 12px 6px', paddingBottom: 8, borderBottom: '1px dashed var(--border)' }}>
+        {SUBS.map(s => (
+          <button key={s.id} onClick={() => setSub(s.id)} style={{
+            display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8,
+            border: `1px solid ${sub === s.id ? 'var(--accent2)' : 'var(--border)'}`,
+            background: sub === s.id ? 'var(--accent2)' : 'transparent',
+            color: sub === s.id ? '#fff' : 'var(--text)',
+            cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap'
+          }}>
+            <span>{s.icon}</span><span>{s.label}</span>
+            {!s.listo && <span style={{ fontSize: '0.6rem', opacity: 0.7, marginLeft: 2 }}>🚧</span>}
+          </button>
+        ))}
+      </div>
+      {sub === 'actividades'
+        ? <MatrizActividades alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
+        : (
+          <div className="page-content fade-in">
+            <div style={{ textAlign: 'center', padding: '70px 20px' }}>
+              <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>🚧</div>
+              <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 8 }}>Matriz de Riesgos</div>
+              <div style={{ color: 'var(--text2)', fontSize: '0.9rem', maxWidth: 420, margin: '0 auto' }}>
+                La armamos en el próximo paso. Contame qué estructura de columnas querés para esta matriz.
+              </div>
+            </div>
+          </div>
+        )}
+    </div>
+  );
+}
+
+// Matriz de Actividades de Control: jerarquía Ciclo → Operación (con Objetivo y
+// Tipo de objetivo) → Riesgo → Actividad de control (con columnas opcionales).
+function nidCI() { return Math.random().toString(36).slice(2, 9); }
+const ciAct = () => ({ id: nidCI(), actividad: '', tipoAct: '', oportunidad: '', responsable: '' });
+const ciRie = () => ({ id: nidCI(), riesgo: '', actividades: [ciAct()] });
+const ciOpe = () => ({ id: nidCI(), operacion: '', objetivo: '', tipoObjetivo: '', riesgos: [ciRie()] });
+const ciCic = () => ({ id: nidCI(), nombre: '', operaciones: [ciOpe()] });
+function matActVacia() { return { cols: { tipoAct: true, oportunidad: false, responsable: false }, ciclos: [ciCic()] }; }
+
+function MatrizActividades({ alumno, aulaActiva, esAdmin }) {
+  const [lista, setLista] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [cfg, setCfg] = useState(matActVacia());
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const scrollRef = useRef(null);
+  const [sb, setSb] = useState({ thumbW: 0, thumbL: 0, need: false });
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = !!actual?.soloLectura;
+  const cols = cfg.cols || {};
+
+  // Barra de scroll horizontal propia (las nativas overlay no siempre se ven).
+  const refreshSb = () => {
+    const el = scrollRef.current; if (!el) return;
+    const total = el.scrollWidth, vis = el.clientWidth;
+    const need = total > vis + 2;
+    const thumbW = need ? Math.max(40, vis * vis / total) : vis;
+    const thumbL = need ? (el.scrollLeft / (total - vis)) * (vis - thumbW) : 0;
+    setSb({ thumbW, thumbL, need });
+  };
+  const startBarDrag = (e) => {
+    e.preventDefault();
+    const el = scrollRef.current; if (!el) return;
+    const total = el.scrollWidth, vis = el.clientWidth;
+    const thumbW = Math.max(40, vis * vis / total), denom = (vis - thumbW) || 1;
+    const sx = e.clientX, sl = el.scrollLeft;
+    const mover = (ev) => { el.scrollLeft = sl + (ev.clientX - sx) * (total - vis) / denom; refreshSb(); };
+    const up = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mover); document.addEventListener('mouseup', up);
+  };
+  useEffect(() => { const t = setTimeout(refreshSb, 30); return () => clearTimeout(t); }, [loading, miAula, cfg, actual]);
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    try {
+      if (esAdmin) {
+        const { data } = await supabase.from('ci_matrices').select('id, titulo, publicada, updated_at').eq('es_admin', true).eq('tipo', 'actividades').eq('aula_id', miAula).order('updated_at', { ascending: false });
+        setLista(data || []);
+      } else {
+        const [mios, pub] = await Promise.all([
+          supabase.from('ci_matrices').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).eq('tipo', 'actividades').order('updated_at', { ascending: false }),
+          supabase.from('ci_matrices').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('tipo', 'actividades').eq('aula_id', miAula).order('updated_at', { ascending: false }),
+        ]);
+        setLista(mios.data || []); setPublicados(pub.data || []);
+      }
+    } catch {}
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const nuevo = () => { setActual(null); setTitulo(''); setCfg(matActVacia()); };
+  const cargar = async (id, lectura = false) => {
+    const { data } = await supabase.from('ci_matrices').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    setCfg({ ...matActVacia(), ...(data.config || {}) });
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título a la matriz', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), tipo: 'actividades', config: cfg, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else payload.alumno_id = alumno?.id;
+    let error;
+    if (actual?.id && !actual?.soloLectura) ({ error } = await supabase.from('ci_matrices').update(payload).eq('id', actual.id));
+    else { const { data, error: e2 } = await supabase.from('ci_matrices').insert(payload).select('id').single(); error = e2; if (data) setActual({ id: data.id, ...payload }); }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Matriz publicada ✅' : publicar === false ? 'Matriz despublicada' : 'Matriz guardada ✅', 'success');
+    load();
+  };
+  const eliminar = async (id) => { if (!confirm('¿Eliminar esta matriz?')) return; const { error } = await supabase.from('ci_matrices').delete().eq('id', id); if (error) return toast('Error: ' + error.message, 'error'); if (actual?.id === id) nuevo(); load(); };
+
+  // ── Editores de la jerarquía ──
+  const setCol = (k, v) => setCfg(c => ({ ...c, cols: { ...c.cols, [k]: v } }));
+  const setCiclos = (fn) => setCfg(c => ({ ...c, ciclos: fn(c.ciclos) }));
+  const mapC = (cid, fn) => setCiclos(cs => cs.map(c => c.id === cid ? fn(c) : c));
+  const mapO = (cid, oid, fn) => mapC(cid, c => ({ ...c, operaciones: c.operaciones.map(o => o.id === oid ? fn(o) : o) }));
+  const mapR = (cid, oid, rid, fn) => mapO(cid, oid, o => ({ ...o, riesgos: o.riesgos.map(r => r.id === rid ? fn(r) : r) }));
+  const addCiclo = () => setCiclos(cs => [...cs, ciCic()]);
+  const delCiclo = (cid) => setCiclos(cs => cs.length > 1 ? cs.filter(c => c.id !== cid) : cs);
+  const setCicloNombre = (cid, nombre) => mapC(cid, c => ({ ...c, nombre }));
+  const addOper = (cid) => mapC(cid, c => ({ ...c, operaciones: [...c.operaciones, ciOpe()] }));
+  const delOper = (cid, oid) => mapC(cid, c => ({ ...c, operaciones: c.operaciones.length > 1 ? c.operaciones.filter(o => o.id !== oid) : c.operaciones }));
+  const setOper = (cid, oid, patch) => mapO(cid, oid, o => ({ ...o, ...patch }));
+  const addRie = (cid, oid) => mapO(cid, oid, o => ({ ...o, riesgos: [...o.riesgos, ciRie()] }));
+  const delRie = (cid, oid, rid) => mapO(cid, oid, o => ({ ...o, riesgos: o.riesgos.length > 1 ? o.riesgos.filter(r => r.id !== rid) : o.riesgos }));
+  const setRie = (cid, oid, rid, riesgo) => mapR(cid, oid, rid, r => ({ ...r, riesgo }));
+  const addAct = (cid, oid, rid) => mapR(cid, oid, rid, r => ({ ...r, actividades: [...r.actividades, ciAct()] }));
+  const delAct = (cid, oid, rid, aid) => mapR(cid, oid, rid, r => ({ ...r, actividades: r.actividades.length > 1 ? r.actividades.filter(a => a.id !== aid) : r.actividades }));
+  const setAct = (cid, oid, rid, aid, patch) => mapR(cid, oid, rid, r => ({ ...r, actividades: r.actividades.map(a => a.id === aid ? { ...a, ...patch } : a) }));
+
+  const rCount = r => Math.max(1, r.actividades.length);
+  const oCount = o => Math.max(1, o.riesgos.reduce((s, r) => s + rCount(r), 0));
+  const cCount = c => Math.max(1, c.operaciones.reduce((s, o) => s + oCount(o), 0));
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>Cargando…</div>;
+  if (!miAula) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const th = { border: '1px solid var(--border)', padding: '5px 8px', fontSize: '0.72rem', fontWeight: 700, textAlign: 'center', background: '#f5c518', color: '#1a1a1a', whiteSpace: 'nowrap' };
+  const tdBase = { border: '1px solid var(--border)', padding: 4, verticalAlign: 'top', background: 'var(--surface)' };
+  const tdCiclo = { ...tdBase, background: 'var(--surface2)', minWidth: 150, maxWidth: 170 };
+  const ancho = { operacion: 150, objetivo: 150, tipoObjetivo: 100, riesgo: 190, actividad: 240, tipoAct: 100, oportunidad: 110, responsable: 120 };
+  const taStyle = (w) => ({ width: w, minWidth: w, border: '1px solid transparent', borderRadius: 6, background: 'transparent', color: 'var(--text)', fontSize: '0.76rem', fontFamily: 'inherit', resize: 'vertical', padding: '4px 6px', minHeight: 46, lineHeight: 1.3 });
+  const Ctrl = ({ onAdd, onDel, addLabel, canDel }) => (
+    !soloLectura ? <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+      <button onClick={onAdd} className="btn btn-ghost btn-sm" style={{ fontSize: '0.66rem', padding: '2px 6px' }}>{addLabel}</button>
+      {canDel && <button onClick={onDel} className="btn btn-ghost btn-sm" style={{ fontSize: '0.66rem', padding: '2px 6px', color: 'var(--danger)' }}>🗑️</button>}
+    </div> : null
+  );
+
+  const filas = [];
+  cfg.ciclos.forEach(c => c.operaciones.forEach((o, oi) => o.riesgos.forEach((r, ri) => r.actividades.forEach((a, ai) => {
+    const fCiclo = oi === 0 && ri === 0 && ai === 0;
+    const fOper = ri === 0 && ai === 0;
+    const fRie = ai === 0;
+    filas.push(
+      <tr key={a.id}>
+        {fCiclo && (
+          <td rowSpan={cCount(c)} style={tdCiclo}>
+            <textarea value={c.nombre} readOnly={soloLectura} onChange={e => setCicloNombre(c.id, e.target.value)} placeholder="Ciclo (ej: Devolución de ventas…)" style={{ ...taStyle(150), fontWeight: 700, color: 'var(--accent2)', textAlign: 'center' }} />
+            <Ctrl onAdd={() => addOper(c.id)} onDel={() => delCiclo(c.id)} addLabel="+ Operación" canDel={cfg.ciclos.length > 1} />
+          </td>
+        )}
+        {fOper && (
+          <td rowSpan={oCount(o)} style={tdBase}>
+            <textarea value={o.operacion} readOnly={soloLectura} onChange={e => setOper(c.id, o.id, { operacion: e.target.value })} placeholder="Operación" style={taStyle(ancho.operacion)} />
+            <Ctrl onAdd={() => addRie(c.id, o.id)} onDel={() => delOper(c.id, o.id)} addLabel="+ Riesgo" canDel={c.operaciones.length > 1} />
+          </td>
+        )}
+        {fOper && <td rowSpan={oCount(o)} style={tdBase}><textarea value={o.objetivo} readOnly={soloLectura} onChange={e => setOper(c.id, o.id, { objetivo: e.target.value })} placeholder="Objetivo" style={taStyle(ancho.objetivo)} /></td>}
+        {fOper && <td rowSpan={oCount(o)} style={tdBase}><textarea value={o.tipoObjetivo} readOnly={soloLectura} onChange={e => setOper(c.id, o.id, { tipoObjetivo: e.target.value })} placeholder="Tipo de objetivo" style={taStyle(ancho.tipoObjetivo)} /></td>}
+        {fRie && (
+          <td rowSpan={rCount(r)} style={tdBase}>
+            <textarea value={r.riesgo} readOnly={soloLectura} onChange={e => setRie(c.id, o.id, r.id, e.target.value)} placeholder="Riesgo" style={taStyle(ancho.riesgo)} />
+            <Ctrl onAdd={() => addAct(c.id, o.id, r.id)} onDel={() => delRie(c.id, o.id, r.id)} addLabel="+ Actividad" canDel={o.riesgos.length > 1} />
+          </td>
+        )}
+        <td style={tdBase}>
+          <textarea value={a.actividad} readOnly={soloLectura} onChange={e => setAct(c.id, o.id, r.id, a.id, { actividad: e.target.value })} placeholder="Actividad de control" style={taStyle(ancho.actividad)} />
+          {!soloLectura && r.actividades.length > 1 && <div style={{ textAlign: 'right' }}><button onClick={() => delAct(c.id, o.id, r.id, a.id)} className="btn btn-ghost btn-sm" style={{ fontSize: '0.66rem', padding: '2px 6px', color: 'var(--danger)' }}>🗑️ actividad</button></div>}
+        </td>
+        {cols.tipoAct && <td style={tdBase}><textarea value={a.tipoAct} readOnly={soloLectura} onChange={e => setAct(c.id, o.id, r.id, a.id, { tipoAct: e.target.value })} placeholder="Proceso / Sistema / Estructura" style={taStyle(ancho.tipoAct)} /></td>}
+        {cols.oportunidad && <td style={tdBase}><textarea value={a.oportunidad} readOnly={soloLectura} onChange={e => setAct(c.id, o.id, r.id, a.id, { oportunidad: e.target.value })} placeholder="Preventivo / Detectivo" style={taStyle(ancho.oportunidad)} /></td>}
+        {cols.responsable && <td style={tdBase}><textarea value={a.responsable} readOnly={soloLectura} onChange={e => setAct(c.id, o.id, r.id, a.id, { responsable: e.target.value })} placeholder="Responsable" style={taStyle(ancho.responsable)} /></td>}
+      </tr>
+    );
+  }))));
+
+  return (
+    <div className="page-content fade-in" style={{ paddingTop: 8 }}>
+      {/* Matrices guardadas */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-primary btn-sm" onClick={nuevo}>+ Nueva matriz</button>
+        {lista.map(d => (
+          <span key={d.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 8, padding: '2px 4px 2px 8px', background: actual?.id === d.id ? 'var(--surface2)' : 'transparent' }}>
+            <span onClick={() => cargar(d.id)} style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: actual?.id === d.id ? 700 : 500 }}>{d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}</span>
+            {esAdmin && <button onClick={() => eliminar(d.id)} title="Eliminar" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.72rem', opacity: 0.6, padding: 0 }}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: '0.76rem', color: 'var(--text2)', fontWeight: 600 }}>📢 Del docente:</span>
+          {publicados.map(d => <button key={d.id} className="btn btn-ghost btn-sm" onClick={() => cargar(d.id, true)}>{d.titulo || '(sin título)'}</button>)}
+        </div>
+      )}
+
+      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Actividades de Control — Ventas)" disabled={soloLectura}
+        style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 12 }} />
+
+      {/* Columnas opcionales */}
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12, fontSize: '0.8rem' }}>
+          <span style={{ color: 'var(--text2)', fontWeight: 600 }}>Columnas opcionales:</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}><input type="checkbox" checked={!!cols.tipoAct} onChange={e => setCol('tipoAct', e.target.checked)} style={{ width: 'auto' }} /> Tipo de actividad</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}><input type="checkbox" checked={!!cols.oportunidad} onChange={e => setCol('oportunidad', e.target.checked)} style={{ width: 'auto' }} /> Oportunidad</label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}><input type="checkbox" checked={!!cols.responsable} onChange={e => setCol('responsable', e.target.checked)} style={{ width: 'auto' }} /> Responsable</label>
+        </div>
+      )}
+
+      {/* Tabla */}
+      <div ref={scrollRef} onScroll={refreshSb} style={{ overflow: 'auto', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 8 }}>
+        <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
+          <thead>
+            <tr>
+              <th style={th}>Ciclo</th>
+              <th style={th}>Operación</th>
+              <th style={th}>Objetivo</th>
+              <th style={th}>Tipo de objetivo</th>
+              <th style={th}>Riesgo</th>
+              <th style={th}>Actividad de control</th>
+              {cols.tipoAct && <th style={th}>Tipo de actividad</th>}
+              {cols.oportunidad && <th style={th}>Oportunidad</th>}
+              {cols.responsable && <th style={th}>Responsable</th>}
+            </tr>
+          </thead>
+          <tbody>{filas}</tbody>
+        </table>
+      </div>
+      {sb.need && (
+        <div style={{ height: 14, marginTop: 6, background: 'var(--surface2)', borderRadius: 7, position: 'relative' }} title="Deslizá para ver el resto de la matriz">
+          <div onMouseDown={startBarDrag} style={{ position: 'absolute', top: 0, height: 14, width: sb.thumbW, left: sb.thumbL, background: 'var(--text2)', borderRadius: 7, cursor: 'grab' }} />
+        </div>
+      )}
+
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost" onClick={addCiclo}>+ Agregar ciclo</button>
+          <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? '⏳ Guardando…' : '💾 Guardar matriz'}</button>
+          {esAdmin && actual?.id && !actual?.soloLectura && (
+            actual.publicada
+              ? <button className="btn btn-ghost" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>
+              : <button className="btn btn-ghost" onClick={() => guardar(true)} disabled={saving}>📢 Publicar a los alumnos</button>
+          )}
+        </div>
+      )}
+      {soloLectura && <div style={{ marginTop: 12, fontSize: '0.8rem', color: 'var(--text2)' }}>👁 Estás viendo una matriz del docente (solo lectura).</div>}
     </div>
   );
 }
