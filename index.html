@@ -1331,7 +1331,7 @@ function AdminPlanificacion({ aulaActiva }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const PLAN_COLORES = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4'];
-  const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'', color:'' });
+  const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'', color:'', horario_especial:'' });
   const [saving, setSaving] = useState(false);
   const toast = useToast();
 
@@ -1353,17 +1353,17 @@ function AdminPlanificacion({ aulaActiva }) {
   const openDay = fecha => {
     const ex = planDocente[fecha];
     setModal({ fecha, id: ex?.id||null });
-    setForm({ videos: ex?.videos||'', videos_grabados: ex?.videos_grabados||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'', color: ex?.color||'' });
+    setForm({ videos: ex?.videos||'', videos_grabados: ex?.videos_grabados||'', material: ex?.material||'', prueba: ex?.prueba||'', ejercicio: ex?.ejercicio||'', otros: ex?.otros||'', color: ex?.color||'', horario_especial: ex?.horario_especial||'' });
   };
 
   const save = async () => {
     setSaving(true);
-    const isEmpty = !form.color && !form.videos.trim() && !form.videos_grabados.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
+    const isEmpty = !form.color && !form.horario_especial.trim() && !form.videos.trim() && !form.videos_grabados.trim() && !form.material.trim() && !form.prueba.trim() && !form.ejercicio.trim() && !form.otros.trim();
     if (isEmpty) {
       if (modal.id) { await supabase.from('planificacion_docente').delete().eq('id',modal.id); toast('Planificación eliminada','info'); }
       setSaving(false); setModal(null); load(); return;
     }
-    const payload = { fecha: modal.fecha, color: form.color||null, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null, aula_id: aulaActiva };
+    const payload = { fecha: modal.fecha, color: form.color||null, horario_especial: form.horario_especial.trim()||null, videos: form.videos.trim()||null, videos_grabados: form.videos_grabados.trim()||null, material: form.material.trim()||null, prueba: form.prueba.trim()||null, ejercicio: form.ejercicio.trim()||null, otros: form.otros.trim()||null, aula_id: aulaActiva };
     // Buscamos por fecha Y aula: la misma fecha puede estar planificada en otras aulas.
     const { data: existing } = await supabase.from('planificacion_docente').select('id').eq('fecha', modal.fecha).eq('aula_id', aulaActiva).maybeSingle();
     const { error } = existing
@@ -1412,6 +1412,11 @@ function AdminPlanificacion({ aulaActiva }) {
                     onMouseOut={e=>e.currentTarget.style.background=cellBg}
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':'var(--text)',marginBottom:6}}>{d}</div>
+                    {plan?.horario_especial && (
+                      <div title={`Horario especial: ${plan.horario_especial}`} style={{display:'flex',alignItems:'center',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'1px 5px',fontSize:'0.56rem',fontWeight:700,marginBottom:5,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                        ⏰ {plan.horario_especial}
+                      </div>
+                    )}
                     {hasContent ? (
                       <div style={{display:'flex',flexDirection:'column',gap:2}}>
                         {PLAN_CAMPOS.map(c => plan[c.key] ? (
@@ -1444,6 +1449,15 @@ function AdminPlanificacion({ aulaActiva }) {
               />
             </div>
           ))}
+          <div className="form-group">
+            <label>⏰ Horario especial de clase en vivo</label>
+            <input
+              value={form.horario_especial}
+              onChange={e => setForm(p=>({...p,horario_especial:e.target.value}))}
+              placeholder="Ej: Hoy 20:00 hs (solo si cambia el horario habitual)"
+            />
+            <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:3}}>Si lo cargás, el alumno ve un aviso ⏰ destacado en ese día. Dejalo vacío si la clase es en el horario de siempre.</div>
+          </div>
           <div className="form-group">
             <label>🎨 Color del día</label>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
@@ -1659,6 +1673,11 @@ function AlumnoPlanificacion({ alumno }) {
                     style={{minHeight:96,borderRadius:10,border:isToday?`2px solid ${bdr}`:`1px solid ${bdr}`,background:bg,padding:'6px 8px',cursor:'pointer',transition:'background 0.15s',opacity:isPast&&!hasContent?0.4:1}}
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':isPast?'var(--text2)':'var(--text)',marginBottom:5}}>{d}</div>
+                    {planDocente[fecha]?.horario_especial && (
+                      <div title={`Horario especial: ${planDocente[fecha].horario_especial}`} style={{display:'flex',alignItems:'center',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'1px 5px',fontSize:'0.56rem',fontWeight:700,marginBottom:5,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                        ⏰ {planDocente[fecha].horario_especial}
+                      </div>
+                    )}
                     {items.length > 0 && (
                       <div style={{display:'flex',flexDirection:'column',gap:3,overflow:'hidden'}}>
                         {items.map((it,idx) => (
@@ -1688,6 +1707,11 @@ function AlumnoPlanificacion({ alumno }) {
 
       {modal && (
         <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${PLAN_MESES[mes]} ${año}`} onClose={()=>setModal(null)}>
+          {planDocente[modal.fecha]?.horario_especial && (
+            <div style={{display:'flex',alignItems:'center',gap:8,background:'rgba(255,107,53,0.14)',border:'1px solid #ff6b35',borderRadius:8,padding:'8px 12px',marginBottom:14,fontSize:'0.84rem',fontWeight:600}}>
+              ⏰ <span><b>Horario especial de clase en vivo:</b> {planDocente[modal.fecha].horario_especial}</span>
+            </div>
+          )}
           {modal.items.length > 0 && (
             <div style={{fontSize:'0.78rem',color:'var(--text2)',marginBottom:14,lineHeight:1.5}}>
               Marcá lo que ya hiciste o usá <strong>↔ Mover</strong> para reorganizar una tarea a otro día del mes.
