@@ -101,17 +101,35 @@ async function obtenerTA(sb: any): Promise<{ token: string; sign: string }> {
   return { token, sign };
 }
 
-// ── WSFE: llamada SOAP genérica ──
+// ── WSFE: llamada SOAP genérica (con reintentos ante caídas de ARCA) ──
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function wsfe(metodo: string, bodyInner: string): Promise<string> {
   const soap = `<?xml version="1.0" encoding="UTF-8"?>` +
     `<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ar="http://ar.gov.afip.dif.FEV1/">` +
     `<soap:Body><ar:${metodo}>${bodyInner}</ar:${metodo}></soap:Body></soap:Envelope>`;
-  const resp = await fetch(URLS.wsfe, {
-    method: "POST",
-    headers: { "Content-Type": "text/xml; charset=utf-8", "SOAPAction": `http://ar.gov.afip.dif.FEV1/${metodo}` },
-    body: soap,
-  });
-  return await resp.text();
+  let ultStatus = 0, ultTexto = "";
+  for (let intento = 0; intento < 3; intento++) {
+    try {
+      const resp = await fetch(URLS.wsfe, {
+        method: "POST",
+        headers: { "Content-Type": "text/xml; charset=utf-8", "SOAPAction": `http://ar.gov.afip.dif.FEV1/${metodo}` },
+        body: soap,
+      });
+      const txt = await resp.text();
+      ultStatus = resp.status; ultTexto = txt;
+      // Si vino XML (comprobante o SOAP fault), lo devolvemos para que el llamador lo procese.
+      const pareceXml = txt.includes("<soap") || txt.trimStart().startsWith("<?xml") || txt.includes("Envelope");
+      if (pareceXml) return txt;
+    } catch (e) {
+      ultStatus = 0; ultTexto = String((e as Error)?.message || e);
+    }
+    // No es XML (ARCA caído / 503 / gateway HTML) → esperar y reintentar.
+    if (intento < 2) await dormir(1500);
+  }
+  const noDisp = [502, 503, 504].includes(ultStatus) || /service unavailable|<html|<h1|bad gateway|timeout/i.test(ultTexto);
+  throw new Error(noDisp
+    ? `El servidor de ARCA no está disponible en este momento (HTTP ${ultStatus || "sin respuesta"}). Esto es una caída temporal de ARCA, no de la app. Esperá unos minutos y volvé a intentar.`
+    : `ARCA respondió algo inesperado (HTTP ${ultStatus}). ${String(ultTexto).slice(0, 300)}`);
 }
 
 function authXml(token: string, sign: string): string {
