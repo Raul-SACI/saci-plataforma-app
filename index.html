@@ -4805,7 +4805,7 @@ function AdminExtensiones({ aulaActiva }) {
   const [filtro, setFiltro] = useState('todas');   // todas | pagado | pendiente | rechazado
   const [modal, setModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ alumno_id: '', video_id: '' });
+  const [form, setForm] = useState({ alumnos_ids: [], videos_ids: [], modo: '24hs', fecha: '' });
   const [facturandoId, setFacturandoId] = useState(null);
   const [facturaVer, setFacturaVer] = useState(null);
   const [arcaMsg, setArcaMsg] = useState(null);
@@ -4859,24 +4859,33 @@ function AdminExtensiones({ aulaActiva }) {
   };
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
-  // Habilita 24hs manualmente, sin cobrar. Sirve para destrabar un pago fallido
-  // o para darle tiempo extra a un alumno por decisión del docente.
+  // Habilita acceso manualmente (sin cobrar) a uno o varios alumnos, en uno o varios
+  // videos, por 24hs o hasta una fecha elegida. Sirve para destrabar pagos fallidos
+  // o dar tiempo extra por decisión del docente.
+  const toggleId = (campo, id) => setForm(p => ({ ...p, [campo]: p[campo].includes(id) ? p[campo].filter(x => x !== id) : [...p[campo], id] }));
+  const toggleTodos = (campo, lista) => setForm(p => ({ ...p, [campo]: p[campo].length === lista.length ? [] : lista.map(x => x.id) }));
   const habilitarManual = async () => {
-    if (!form.alumno_id || !form.video_id) return toast('Elegí alumno y video', 'error');
+    if (!form.alumnos_ids.length || !form.videos_ids.length) return toast('Elegí al menos un alumno y un video', 'error');
+    let venceISO;
+    if (form.modo === 'fecha') {
+      if (!form.fecha) return toast('Elegí la fecha de vencimiento', 'error');
+      const d = new Date(form.fecha);
+      if (isNaN(d.getTime()) || d <= new Date()) return toast('La fecha tiene que ser futura', 'error');
+      venceISO = d.toISOString();
+    } else {
+      venceISO = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    }
     setSaving(true);
-    const { error } = await supabase.from('extensiones_video').insert({
-      video_id: form.video_id,
-      alumno_id: form.alumno_id,
-      vence_en: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      monto: 0,
-      estado: 'pagado',
-      mp_payment_id: 'MANUAL',
-    });
+    const filas = [];
+    form.alumnos_ids.forEach(aid => form.videos_ids.forEach(vid => filas.push({
+      video_id: vid, alumno_id: aid, vence_en: venceISO, monto: 0, estado: 'pagado', mp_payment_id: 'MANUAL',
+    })));
+    const { error } = await supabase.from('extensiones_video').insert(filas);
     setSaving(false);
     if (error) return toast('Error: ' + error.message, 'error');
-    toast('24hs habilitadas ✅', 'success');
+    toast(`Habilitada${filas.length !== 1 ? 's' : ''} ${filas.length} extensión${filas.length !== 1 ? 'es' : ''} ✅`, 'success');
     setModal(false);
-    setForm({ alumno_id: '', video_id: '' });
+    setForm({ alumnos_ids: [], videos_ids: [], modo: '24hs', fecha: '' });
     load();
   };
 
@@ -4920,8 +4929,8 @@ function AdminExtensiones({ aulaActiva }) {
           <div className="page-title">⏱️ Extensiones</div>
           <div className="page-subtitle">Compras de 24hs extra por video</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({alumno_id:'',video_id:''}); setModal(true); }}>
-          + Habilitar 24hs manualmente
+        <button className="btn btn-primary" onClick={() => { setForm({alumnos_ids:[],videos_ids:[],modo:'24hs',fecha:''}); setModal(true); }}>
+          + Habilitar Manualmente
         </button>
       </div>
 
@@ -5015,35 +5024,70 @@ function AdminExtensiones({ aulaActiva }) {
 
       {modal && (
         <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setModal(false)}>
-          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:460}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:520}}>
             <div className="modal-header">
-              <h3>⏱️ Habilitar 24hs manualmente</h3>
+              <h3>⏱️ Habilitar Manualmente</h3>
               <button className="modal-close" onClick={() => setModal(false)}>✕</button>
             </div>
             <div className="modal-body">
               <div style={{background:'var(--surface2)',borderRadius:10,padding:12,marginBottom:16,fontSize:'0.84rem',color:'var(--text2)'}}>
-                Le da al alumno 24hs de acceso a un video, <strong style={{color:'var(--text)'}}>sin cobrarle</strong>.
-                Sirve para destrabar un pago que falló o para darle tiempo extra.
+                Da acceso <strong style={{color:'var(--text)'}}>sin cobrar</strong> a uno o varios alumnos, en uno o varios videos. Se crea una habilitación por cada combinación alumno–video.
               </div>
+
+              {/* Alumnos (multi) */}
               <div className="form-group">
-                <label>Alumno *</label>
-                <select value={form.alumno_id} onChange={e=>setForm(p=>({...p,alumno_id:e.target.value}))}>
-                  <option value="">— Elegir alumno —</option>
-                  {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-                </select>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <label style={{margin:0}}>Alumnos * <span style={{color:'var(--text2)',fontWeight:400}}>({form.alumnos_ids.length} elegidos)</span></label>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleTodos('alumnos_ids', alumnos)}>{form.alumnos_ids.length===alumnos.length && alumnos.length ? 'Ninguno' : 'Todos'}</button>
+                </div>
+                <div style={{maxHeight:150,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:6,marginTop:4,display:'flex',flexDirection:'column',gap:2}}>
+                  {alumnos.length === 0 ? <div style={{fontSize:'0.8rem',color:'var(--text2)',padding:6}}>No hay alumnos en esta aula.</div>
+                   : alumnos.map(a => (
+                    <label key={a.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 6px',borderRadius:6,cursor:'pointer',fontSize:'0.84rem'}}>
+                      <input type="checkbox" checked={form.alumnos_ids.includes(a.id)} onChange={() => toggleId('alumnos_ids', a.id)} style={{width:'auto'}} />
+                      {a.nombre}
+                    </label>
+                  ))}
+                </div>
               </div>
+
+              {/* Videos (multi) */}
               <div className="form-group">
-                <label>Video *</label>
-                <select value={form.video_id} onChange={e=>setForm(p=>({...p,video_id:e.target.value}))}>
-                  <option value="">— Elegir video —</option>
-                  {videos.map(v => <option key={v.id} value={v.id}>{v.titulo}</option>)}
-                </select>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <label style={{margin:0}}>Videos * <span style={{color:'var(--text2)',fontWeight:400}}>({form.videos_ids.length} elegidos)</span></label>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => toggleTodos('videos_ids', videos)}>{form.videos_ids.length===videos.length && videos.length ? 'Ninguno' : 'Todos'}</button>
+                </div>
+                <div style={{maxHeight:150,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:6,marginTop:4,display:'flex',flexDirection:'column',gap:2}}>
+                  {videos.length === 0 ? <div style={{fontSize:'0.8rem',color:'var(--text2)',padding:6}}>No hay videos en esta aula.</div>
+                   : videos.map(v => (
+                    <label key={v.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 6px',borderRadius:6,cursor:'pointer',fontSize:'0.84rem'}}>
+                      <input type="checkbox" checked={form.videos_ids.includes(v.id)} onChange={() => toggleId('videos_ids', v.id)} style={{width:'auto'}} />
+                      {v.titulo}
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Duración */}
+              <div className="form-group">
+                <label>Duración del acceso</label>
+                <div style={{display:'flex',gap:8,marginTop:4,flexWrap:'wrap'}}>
+                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'8px 12px',border:`2px solid ${form.modo==='24hs'?'var(--accent)':'var(--border)'}`,borderRadius:10,fontSize:'0.84rem',fontWeight:600,flex:1,justifyContent:'center'}}>
+                    <input type="radio" name="dur" checked={form.modo==='24hs'} onChange={()=>setForm(p=>({...p,modo:'24hs'}))} style={{width:'auto',margin:0}} /> ⏱️ 24 horas
+                  </label>
+                  <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',padding:'8px 12px',border:`2px solid ${form.modo==='fecha'?'var(--accent)':'var(--border)'}`,borderRadius:10,fontSize:'0.84rem',fontWeight:600,flex:1,justifyContent:'center'}}>
+                    <input type="radio" name="dur" checked={form.modo==='fecha'} onChange={()=>setForm(p=>({...p,modo:'fecha'}))} style={{width:'auto',margin:0}} /> 📅 Hasta una fecha
+                  </label>
+                </div>
+                {form.modo==='fecha' && (
+                  <input type="datetime-local" value={form.fecha} onChange={e=>setForm(p=>({...p,fecha:e.target.value}))} style={{marginTop:8}} />
+                )}
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setModal(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={habilitarManual} disabled={saving}>
-                {saving ? 'Habilitando...' : 'Habilitar 24hs'}
+                {saving ? 'Habilitando...' : `Habilitar${form.alumnos_ids.length&&form.videos_ids.length?` (${form.alumnos_ids.length*form.videos_ids.length})`:''}`}
               </button>
             </div>
           </div>
