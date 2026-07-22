@@ -870,16 +870,23 @@ function PantallaBloqueoPago({ onLogout }) {
 
 // Pantalla que ve el alumno que se registró pero todavía no fue aprobado (o fue rechazado).
 function PantallaEspera({ alumno, onLogout }) {
-  const rechazado = alumno && alumno.estado === 'rechazado';
+  const estado = alumno?.estado;
+  const rechazado = estado === 'rechazado';
+  const inactivo = estado === 'inactivo';
+  const icono = rechazado ? '🚫' : inactivo ? '🔒' : '⏳';
+  const titulo = rechazado ? 'Inscripción no aprobada' : inactivo ? 'Acceso dado de baja' : 'Esperando aprobación del Docente';
+  const texto = rechazado
+    ? 'Tu inscripción no fue aprobada. Si creés que es un error, comunicate con el docente.'
+    : inactivo
+      ? 'Tu acceso a la plataforma fue dado de baja. Si creés que es un error, comunicate con el docente.'
+      : 'Tu inscripción fue recibida. En cuanto el docente la revise y apruebe, vas a poder ingresar. Volvé a entrar más tarde.';
   return (
     <div className="login-page"><div className="login-card">
       <div style={{textAlign:'center', padding:'24px 20px'}}>
-        <div style={{fontSize:'3.4rem', marginBottom:14}}>{rechazado ? '🚫' : '⏳'}</div>
-        <div style={{fontWeight:700, fontSize:'1.25rem', marginBottom:10}}>{rechazado ? 'Inscripción no aprobada' : 'Esperando aprobación del Docente'}</div>
+        <div style={{fontSize:'3.4rem', marginBottom:14}}>{icono}</div>
+        <div style={{fontWeight:700, fontSize:'1.25rem', marginBottom:10}}>{titulo}</div>
         <div style={{color:'var(--text2)', fontSize:'0.92rem', maxWidth:360, margin:'0 auto 22px', lineHeight:1.5}}>
-          {rechazado
-            ? 'Tu inscripción no fue aprobada. Si creés que es un error, comunicate con el docente.'
-            : 'Tu inscripción fue recibida. En cuanto el docente la revise y apruebe, vas a poder ingresar. Volvé a entrar más tarde.'}
+          {texto}
         </div>
         <button className="btn btn-ghost" style={{width:'100%',justifyContent:'center'}} onClick={onLogout}>Cerrar sesión</button>
       </div>
