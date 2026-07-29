@@ -7963,6 +7963,12 @@ function AlumnoVideos({ alumno, user }) {
               {venceProximo(v) ? '⚠️ Vence' : '⌛ Disponible hasta'} el {fmtVence(v.vence_en)}
             </div>
           )}
+          {puedeComprarExtension(v) && (
+            <button onClick={e => { e.stopPropagation(); setVencidoAviso(v); }}
+              style={{marginTop:5,display:'inline-flex',alignItems:'center',gap:5,background:'var(--success)',color:'#fff',border:'none',borderRadius:20,padding:'3px 10px',fontSize:'0.68rem',fontWeight:700,cursor:'pointer'}}>
+              💳 Comprar visualización · ${Number(v.precio_extension).toLocaleString('es-AR')}
+            </button>
+          )}
         </div>
       </div>
     );
