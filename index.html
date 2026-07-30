@@ -4808,13 +4808,17 @@ function AdminFinanzas() {
   const [aulaSel, setAulaSel] = useState('todas');
   const [loading, setLoading] = useState(true);
   const [faltaSql, setFaltaSql] = useState(false);
+  const [alumnosCount, setAlumnosCount] = useState({});   // aula_id -> cantidad de alumnos
 
   const load = async () => {
     setLoading(true); setFaltaSql(false);
     const { data: au } = await supabase.from('aulas').select('id, nombre').order('created_at', { ascending: false });
-    const pr = await supabase.from('pagos').select('monto, fecha_pago, aula_id');
-    const ex = await supabase.from('extensiones_video').select('monto, created_at, aula_id, estado');
+    const pr = await supabase.from('pagos').select('monto, fecha_pago, aula_id, factura_cae');
+    const ex = await supabase.from('extensiones_video').select('monto, created_at, aula_id, estado, factura_cae');
     if (pr.error || ex.error) { setFaltaSql(true); setLoading(false); return; }
+    const { data: al } = await supabase.from('alumnos').select('aula_id');
+    const cnt = {}; (al || []).forEach(a => { if (a.aula_id) cnt[a.aula_id] = (cnt[a.aula_id] || 0) + 1; });
+    setAlumnosCount(cnt);
     setAulas(au || []);
     setPagos(pr.data || []);
     setExts((ex.data || []).filter(e => e.estado === 'pagado' && (parseFloat(e.monto) || 0) > 0));
@@ -4828,13 +4832,14 @@ function AdminFinanzas() {
   const filas = React.useMemo(() => {
     const coincide = (aid) => aulaSel === 'todas' || aid === aulaSel;
     const map = {};
-    const get = (ym) => (map[ym] = map[ym] || { pagos: 0, ext: 0 });
-    pagos.forEach(p => { if (!p.fecha_pago || !coincide(p.aula_id)) return; get(p.fecha_pago.slice(0, 7)).pagos += parseFloat(p.monto) || 0; });
-    exts.forEach(e => { if (!e.created_at || !coincide(e.aula_id)) return; get(e.created_at.slice(0, 7)).ext += parseFloat(e.monto) || 0; });
-    return Object.entries(map).map(([ym, v]) => ({ ym, pagos: v.pagos, ext: v.ext, total: v.pagos + v.ext })).sort((a, b) => b.ym.localeCompare(a.ym));
+    const get = (ym) => (map[ym] = map[ym] || { pagos: 0, ext: 0, fact: 0 });
+    pagos.forEach(p => { if (!p.fecha_pago || !coincide(p.aula_id)) return; const m = parseFloat(p.monto) || 0; const g = get(p.fecha_pago.slice(0, 7)); g.pagos += m; if (p.factura_cae) g.fact += m; });
+    exts.forEach(e => { if (!e.created_at || !coincide(e.aula_id)) return; const m = parseFloat(e.monto) || 0; const g = get(e.created_at.slice(0, 7)); g.ext += m; if (e.factura_cae) g.fact += m; });
+    return Object.entries(map).map(([ym, v]) => ({ ym, pagos: v.pagos, ext: v.ext, fact: v.fact, total: v.pagos + v.ext })).sort((a, b) => b.ym.localeCompare(a.ym));
   }, [pagos, exts, aulaSel]);
 
-  const tot = filas.reduce((s, f) => ({ pagos: s.pagos + f.pagos, ext: s.ext + f.ext, total: s.total + f.total }), { pagos: 0, ext: 0, total: 0 });
+  const tot = filas.reduce((s, f) => ({ pagos: s.pagos + f.pagos, ext: s.ext + f.ext, fact: s.fact + f.fact, total: s.total + f.total }), { pagos: 0, ext: 0, fact: 0, total: 0 });
+  const alumnosSel = aulaSel === 'todas' ? Object.values(alumnosCount).reduce((s, n) => s + n, 0) : (alumnosCount[aulaSel] || 0);
 
   return (
     <div className="page-content fade-in">
@@ -4871,12 +4876,34 @@ function AdminFinanzas() {
               <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>Total ingresos</div>
               <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: 'var(--success)' }}>{money(tot.total)}</div>
             </div>
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>🧾 Facturado (ARCA)</div>
+              <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: tot.fact >= tot.total ? 'var(--success)' : 'var(--warning)' }}>{money(tot.fact)}</div>
+              {tot.total - tot.fact > 0 && <div style={{ fontSize: '0.7rem', color: 'var(--warning)', marginTop: 3 }}>Sin facturar: {money(tot.total - tot.fact)}</div>}
+            </div>
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>👥 Alumnos {aulaSel === 'todas' ? '(todas)' : ''}</div>
+              <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: 'var(--text)' }}>{alumnosSel}</div>
+            </div>
           </div>
+
+          {aulaSel === 'todas' && aulas.length > 0 && (
+            <div className="card" style={{ padding: '14px 18px', marginBottom: 20 }}>
+              <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: 8 }}>👥 Alumnos por aula</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {aulas.map(a => (
+                  <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', fontSize: '0.82rem' }}>
+                    {a.nombre} <b style={{ color: 'var(--accent)' }}>{alumnosCount[a.id] || 0}</b>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="table-wrap">
             {filas.length === 0 ? <Empty icon="📈" text="No hay ingresos registrados para esta selección" /> : (
               <table>
-                <thead><tr><th>Mes</th><th>💳 Pagos (cuotas)</th><th>⏱️ Extensiones</th><th>Total</th></tr></thead>
+                <thead><tr><th>Mes</th><th>💳 Pagos (cuotas)</th><th>⏱️ Extensiones</th><th>Total</th><th>🧾 Facturado</th></tr></thead>
                 <tbody>
                   {filas.map(f => (
                     <tr key={f.ym}>
@@ -4884,6 +4911,7 @@ function AdminFinanzas() {
                       <td style={{ fontFamily: 'Space Mono' }}>{money(f.pagos)}</td>
                       <td style={{ fontFamily: 'Space Mono' }}>{money(f.ext)}</td>
                       <td style={{ fontFamily: 'Space Mono', fontWeight: 700, color: 'var(--success)' }}>{money(f.total)}</td>
+                      <td style={{ fontFamily: 'Space Mono', color: f.fact >= f.total ? 'var(--text)' : 'var(--warning)' }} title={f.fact < f.total ? `Sin facturar: ${money(f.total - f.fact)}` : 'Todo facturado'}>{money(f.fact)}{f.fact < f.total ? ' ⚠️' : ''}</td>
                     </tr>
                   ))}
                   <tr style={{ borderTop: '2px solid var(--border)' }}>
@@ -4891,13 +4919,14 @@ function AdminFinanzas() {
                     <td style={{ fontFamily: 'Space Mono', fontWeight: 700 }}>{money(tot.pagos)}</td>
                     <td style={{ fontFamily: 'Space Mono', fontWeight: 700 }}>{money(tot.ext)}</td>
                     <td style={{ fontFamily: 'Space Mono', fontWeight: 700, color: 'var(--success)' }}>{money(tot.total)}</td>
+                    <td style={{ fontFamily: 'Space Mono', fontWeight: 700 }}>{money(tot.fact)}</td>
                   </tr>
                 </tbody>
               </table>
             )}
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text2)', marginTop: 10 }}>
-            "Pagos" son las cuotas cobradas (por fecha de pago). "Extensiones" son las compras de 24hs pagas (no cuenta las habilitadas manualmente en $0). El consolidado suma todas las aulas.
+            "Pagos" son las cuotas cobradas (por fecha de pago). "Extensiones" son las compras de 24hs pagas (no cuenta las habilitadas manualmente en $0). "Facturado" suma los cobros que ya tienen factura de ARCA (CAE) — si es menor al Total, hay cobros sin facturar (⚠️). El consolidado suma todas las aulas.
           </div>
         </>
       )}
