@@ -6502,7 +6502,17 @@ function AdminVideos({ aulaActiva }) {
   };
 
   const remove = async id => {
-    if (!confirm('¿Eliminar video?')) return;
+    // Aviso reforzado si el video tiene extensiones PAGAS: al borrarlo se pierde ese historial de cobros.
+    let aviso = '¿Eliminar video?';
+    try {
+      const { data: ext } = await supabase.from('extensiones_video').select('monto').eq('video_id', id).eq('estado', 'pagado');
+      const pagas = (ext || []).filter(e => (parseFloat(e.monto) || 0) > 0);
+      if (pagas.length) {
+        const total = pagas.reduce((s, e) => s + (parseFloat(e.monto) || 0), 0);
+        aviso = `⚠️ ATENCIÓN\n\nEste video tiene ${pagas.length} extensión(es) PAGA(s) por un total de $${total.toLocaleString('es-AR')}.\n\nSi lo eliminás, ese historial de cobros se borra y NO se puede recuperar.\n\n¿Eliminar igual?`;
+      }
+    } catch {}
+    if (!confirm(aviso)) return;
     await supabase.from('videos').delete().eq('id', id);
     toast('Video eliminado', 'info'); load();
   };
