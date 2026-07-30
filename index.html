@@ -1204,6 +1204,7 @@ const NAV_ADMIN = [
   { id: 'inscripciones', icon: '🆕', label: 'Inscripciones' },
   { id: 'pagos', icon: '💳', label: 'Pagos' },
   { id: 'extensiones', icon: '⏱️', label: 'Extensiones' },
+  { id: 'finanzas', icon: '📈', label: 'Finanzas' },
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'materiales', icon: '📄', label: 'Materiales' },
   { id: 'evaluaciones', icon: '📝', label: 'Evaluaciones' },
@@ -4792,6 +4793,114 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── ADMIN FINANZAS ───────────────────────────────────────────────────
+// Ingresos por aula y por mes (Pagos + Extensiones), y consolidado de todas
+// las aulas. Usa las columnas "foto" (aula_id) para que el total sobreviva
+// aunque se borre el video o el alumno.
+function AdminFinanzas() {
+  const [aulas, setAulas] = useState([]);
+  const [pagos, setPagos] = useState([]);
+  const [exts, setExts] = useState([]);
+  const [aulaSel, setAulaSel] = useState('todas');
+  const [loading, setLoading] = useState(true);
+  const [faltaSql, setFaltaSql] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setFaltaSql(false);
+    const { data: au } = await supabase.from('aulas').select('id, nombre').order('created_at', { ascending: false });
+    const pr = await supabase.from('pagos').select('monto, fecha_pago, aula_id');
+    const ex = await supabase.from('extensiones_video').select('monto, created_at, aula_id, estado');
+    if (pr.error || ex.error) { setFaltaSql(true); setLoading(false); return; }
+    setAulas(au || []);
+    setPagos(pr.data || []);
+    setExts((ex.data || []).filter(e => e.estado === 'pagado' && (parseFloat(e.monto) || 0) > 0));
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const money = (n) => '$ ' + (n || 0).toLocaleString('es-AR');
+  const mesLabel = (ym) => { const [y, m] = ym.split('-'); const s = new Date(parseInt(y), parseInt(m) - 1, 1).toLocaleDateString('es-AR', { month: 'long', year: 'numeric' }); return s.charAt(0).toUpperCase() + s.slice(1); };
+
+  const filas = React.useMemo(() => {
+    const coincide = (aid) => aulaSel === 'todas' || aid === aulaSel;
+    const map = {};
+    const get = (ym) => (map[ym] = map[ym] || { pagos: 0, ext: 0 });
+    pagos.forEach(p => { if (!p.fecha_pago || !coincide(p.aula_id)) return; get(p.fecha_pago.slice(0, 7)).pagos += parseFloat(p.monto) || 0; });
+    exts.forEach(e => { if (!e.created_at || !coincide(e.aula_id)) return; get(e.created_at.slice(0, 7)).ext += parseFloat(e.monto) || 0; });
+    return Object.entries(map).map(([ym, v]) => ({ ym, pagos: v.pagos, ext: v.ext, total: v.pagos + v.ext })).sort((a, b) => b.ym.localeCompare(a.ym));
+  }, [pagos, exts, aulaSel]);
+
+  const tot = filas.reduce((s, f) => ({ pagos: s.pagos + f.pagos, ext: s.ext + f.ext, total: s.total + f.total }), { pagos: 0, ext: 0, total: 0 });
+
+  return (
+    <div className="page-content fade-in">
+      <div className="page-header"><div>
+        <div className="page-title">📈 Finanzas</div>
+        <div className="page-subtitle">Ingresos por aula, por mes y consolidado de todas las aulas</div>
+      </div></div>
+
+      {faltaSql ? (
+        <div className="card" style={{ padding: 20, borderColor: 'var(--warning)', background: 'rgba(255,165,2,0.06)' }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>⚠️ Falta un paso en la base de datos</div>
+          <div style={{ fontSize: '0.86rem', color: 'var(--text2)', lineHeight: 1.5 }}>Para que Finanzas funcione (y para blindar los cobros de borrados), primero tenés que correr el SQL que te pasé en el chat en Supabase. Cuando lo corras, recargá esta página.</div>
+        </div>
+      ) : loading ? <Loading /> : (
+        <>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.85rem', color: 'var(--text2)', fontWeight: 600 }}>Ver:</span>
+            <select value={aulaSel} onChange={e => setAulaSel(e.target.value)} style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', minWidth: 250, fontWeight: 600 }}>
+              <option value="todas">🏫 Todas las aulas (consolidado)</option>
+              {aulas.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 20 }}>
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>💳 Pagos (cuotas)</div>
+              <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent)' }}>{money(tot.pagos)}</div>
+            </div>
+            <div className="card" style={{ padding: '16px 18px' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>⏱️ Extensiones</div>
+              <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: 'var(--accent2)' }}>{money(tot.ext)}</div>
+            </div>
+            <div className="card" style={{ padding: '16px 18px', borderColor: 'var(--success)' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', letterSpacing: '0.06em', marginBottom: 6 }}>Total ingresos</div>
+              <div style={{ fontFamily: 'Space Mono', fontWeight: 700, fontSize: '1.3rem', color: 'var(--success)' }}>{money(tot.total)}</div>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            {filas.length === 0 ? <Empty icon="📈" text="No hay ingresos registrados para esta selección" /> : (
+              <table>
+                <thead><tr><th>Mes</th><th>💳 Pagos (cuotas)</th><th>⏱️ Extensiones</th><th>Total</th></tr></thead>
+                <tbody>
+                  {filas.map(f => (
+                    <tr key={f.ym}>
+                      <td style={{ fontWeight: 600 }}>{mesLabel(f.ym)}</td>
+                      <td style={{ fontFamily: 'Space Mono' }}>{money(f.pagos)}</td>
+                      <td style={{ fontFamily: 'Space Mono' }}>{money(f.ext)}</td>
+                      <td style={{ fontFamily: 'Space Mono', fontWeight: 700, color: 'var(--success)' }}>{money(f.total)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ borderTop: '2px solid var(--border)' }}>
+                    <td style={{ fontWeight: 700 }}>TOTAL</td>
+                    <td style={{ fontFamily: 'Space Mono', fontWeight: 700 }}>{money(tot.pagos)}</td>
+                    <td style={{ fontFamily: 'Space Mono', fontWeight: 700 }}>{money(tot.ext)}</td>
+                    <td style={{ fontFamily: 'Space Mono', fontWeight: 700, color: 'var(--success)' }}>{money(tot.total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text2)', marginTop: 10 }}>
+            "Pagos" son las cuotas cobradas (por fecha de pago). "Extensiones" son las compras de 24hs pagas (no cuenta las habilitadas manualmente en $0). El consolidado suma todas las aulas.
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -9144,6 +9253,7 @@ function App() {
     inscripciones: <AprobarInscripciones />,
     pagos: <AdminPagos aulaActiva={aulaActiva} />,
     extensiones: <AdminExtensiones aulaActiva={aulaActiva} />,
+    finanzas: <AdminFinanzas />,
     msa: <SalaDeJuegos aulaActiva={aulaActiva} esAdmin={true} />,
     'mis-msa': <SalaDeJuegos alumno={alumno} esAdmin={false} />,
     videos: <AdminVideos aulaActiva={aulaActiva} />,
@@ -9167,6 +9277,7 @@ function App() {
     inscripciones: ['🆕 Inscripciones', 'Aprobar alumnos nuevos'],
     pagos: ['💳 Pagos', 'Control de pagos'],
     extensiones: ['⏱️ Extensiones', 'Compras de 24hs extra'],
+    finanzas: ['📈 Finanzas', 'Ingresos por aula, mes y consolidado'],
     msa: ['🎮 Sala de Juegos', 'Herramientas para tus clases'],
     'mis-msa': ['🎮 Sala de Juegos', 'Practicá los temas de la materia'],
     videos: ['🎬 Videos', 'Biblioteca de videos'],
