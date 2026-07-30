@@ -4816,8 +4816,8 @@ function AdminFinanzas() {
     const pr = await supabase.from('pagos').select('monto, fecha_pago, aula_id, factura_cae');
     const ex = await supabase.from('extensiones_video').select('monto, created_at, aula_id, estado, factura_cae');
     if (pr.error || ex.error) { setFaltaSql(true); setLoading(false); return; }
-    const { data: al } = await supabase.from('alumnos').select('aula_id');
-    const cnt = {}; (al || []).forEach(a => { if (a.aula_id) cnt[a.aula_id] = (cnt[a.aula_id] || 0) + 1; });
+    const { data: al } = await supabase.from('alumnos').select('aula_id, email');
+    const cnt = {}; (al || []).forEach(a => { if (a.aula_id && (a.email || '').toLowerCase() !== ADMIN_EMAIL.toLowerCase()) cnt[a.aula_id] = (cnt[a.aula_id] || 0) + 1; });
     setAlumnosCount(cnt);
     setAulas(au || []);
     setPagos(pr.data || []);
