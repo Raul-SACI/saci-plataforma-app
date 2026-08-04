@@ -17,6 +17,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <script>
   (function() {
@@ -520,6 +521,43 @@ DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotog
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Genera y descarga el PDF del contrato de T&C firmado por el alumno.
+function descargarContratoAlumno(alumno) {
+  const JsPDF = window.jspdf && window.jspdf.jsPDF;
+  if (!JsPDF) { alert('No se pudo cargar el generador de PDF. Revisá tu conexión e intentá de nuevo.'); return; }
+  const doc = new JsPDF({ unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const margin = 48; let y = margin;
+  const fecha = alumno.tyc_fecha ? new Date(alumno.tyc_fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(108, 99, 255);
+  doc.text('SACi', margin, y);
+  doc.setTextColor(40, 40, 40); doc.setFontSize(13);
+  doc.text('Contrato de Inscripción — Términos y Condiciones', margin, y + 22);
+  y += 50;
+  doc.setDrawColor(220); doc.line(margin, y, W - margin, y); y += 20;
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
+  doc.text(`Alumno/a: ${alumno.nombre || ''}`, margin, y); y += 15;
+  doc.text(`DNI: ${alumno.dni || ''}`, margin, y); y += 15;
+  doc.text(`Fecha de aceptación: ${fecha}`, margin, y); y += 15;
+  if (alumno.tyc_version) { doc.text(`Versión del documento: ${alumno.tyc_version}`, margin, y); y += 15; }
+  y += 12;
+  doc.setFontSize(9.3); doc.setTextColor(25, 25, 25);
+  const texto = alumno.tyc_texto || TYC_TEXTO;
+  const lines = doc.splitTextToSize(texto, W - margin * 2);
+  const lh = 12.5;
+  lines.forEach(line => {
+    if (y > H - margin - 30) { doc.addPage(); y = margin; }
+    doc.text(line, margin, y); y += lh;
+  });
+  y += 24;
+  if (y > H - margin - 40) { doc.addPage(); y = margin; }
+  doc.setDrawColor(200); doc.line(margin, y, W - margin, y); y += 16;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40);
+  doc.text(`Firmado digitalmente por ${alumno.nombre || ''} — DNI ${alumno.dni || ''} — el ${fecha}.`, margin, y);
+  doc.save(`Contrato-${(alumno.nombre || 'alumno').replace(/[^\w]+/g, '_')}.pdf`);
+}
+
 // ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────
 const VAPID_PUBLIC_KEY = 'BHA09lSq0Tq6MjW9biEuU3ImC8evdv2TH0hYV7FLYPw-ILBSXEGRusGeVPGj9ZbPI18ViqrOxNB6HBDfuLDr9GY';
 const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/send-push`;
@@ -970,7 +1008,7 @@ function RegistroAlumno({ onListo, onCancel, refId }) {
         tyc_aceptado: true, tyc_fecha: new Date().toISOString(), tyc_version: TYC_VERSION,
       };
       // Se intenta guardar con dispositivos + referido; si esas columnas aún no existen, se reintenta sin ellas.
-      let ins = await supabase.from('alumnos').insert({ ...baseRow, dispositivos, referido_por: refId || null }).select('*').single();
+      let ins = await supabase.from('alumnos').insert({ ...baseRow, dispositivos, referido_por: refId || null, tyc_texto: TYC_TEXTO }).select('*').single();
       if (ins.error) ins = await supabase.from('alumnos').insert(baseRow).select('*').single();
       if (ins.error) throw new Error(ins.error.message);
       const row = ins.data;
@@ -8477,6 +8515,18 @@ function AlumnoMateriales({ alumno, user }) {
   return (
     <div className="page-content fade-in">
       <div className="page-header"><div><div className="page-title">📄 Materiales</div><div className="page-subtitle">{mats.length} materiales disponibles</div></div></div>
+
+      {alumno?.tyc_aceptado && (
+        <div className="card" style={{ padding: '14px 18px', marginBottom: 16, borderColor: 'var(--accent)', background: 'rgba(108,99,255,0.06)', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ fontSize: '1.8rem', lineHeight: 1 }}>📄</div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontWeight: 700 }}>Mi contrato de inscripción</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>Los términos y condiciones que firmaste al inscribirte, con tu nombre, DNI y fecha.</div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={() => descargarContratoAlumno(alumno)}>⬇️ Descargar PDF</button>
+        </div>
+      )}
+
       {mats.length === 0 && <Empty icon="📄" text="No hay materiales disponibles aún" />}
       {temas.map(t => {
         const tMats = mats.filter(m => m.tema_id === t.id);
