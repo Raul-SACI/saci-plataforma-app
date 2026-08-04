@@ -896,6 +896,7 @@ function PantallaEspera({ alumno, onLogout }) {
 
 // Formulario de auto-inscripción del alumno: datos + selfie + DNI (frente/dorso) + T&C.
 function RegistroAlumno({ onListo, onCancel, refId }) {
+  const [verIntro, setVerIntro] = useState(true);     // pantalla de bienvenida antes de los 3 pasos
   const [paso, setPaso] = useState(1);
   const [refNombre, setRefNombre] = useState(null);   // nombre del alumno que invitó (si el link trae ?ref=)
   const [nombre, setNombre] = useState('');
@@ -981,6 +982,25 @@ function RegistroAlumno({ onListo, onCancel, refId }) {
   };
 
   const TITULOS = ['Datos personales', 'Registro de dispositivos', 'Términos y condiciones'];
+
+  // Pantalla de bienvenida (presentación del docente) antes de arrancar la inscripción.
+  if (verIntro) {
+    return (
+      <div className="login-page"><div className="login-card" style={{maxWidth:480}}>
+        <div className="login-logo"><div className="login-logo-text">SACi</div>
+          <div className="login-sub" style={{fontWeight:600}}>Bienvenido/a 👋</div>
+        </div>
+        <div style={{fontSize:'0.92rem',lineHeight:1.6,color:'var(--text)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:12,padding:'16px 18px',marginBottom:18}}>
+          <p style={{margin:'0 0 10px'}}>¡Hola! Soy <b>Raúl Díaz</b>, contador público nacional y actual socio–gerente en <b>CRAFT SAS</b> (cadena de restaurantes).</p>
+          <p style={{margin:'0 0 10px'}}>Este año cumplo <b>12 años</b> ayudando a compañeros a que entiendan la importancia de esta materia y su aplicación en la vida profesional.</p>
+          <p style={{margin:'0 0 10px'}}>Vamos a aprender una metodología de estudio que te servirá para toda tu carrera, pero por sobre todo, <b>para tu vida profesional</b>.</p>
+          <p style={{margin:0,fontWeight:700}}>¡Gracias por sumarte! 🙌</p>
+        </div>
+        <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={() => setVerIntro(false)}>Continuar a la inscripción →</button>
+        <button type="button" className="btn btn-ghost" style={{width:'100%',marginTop:8,justifyContent:'center'}} onClick={onCancel}>← Volver al inicio de sesión</button>
+      </div></div>
+    );
+  }
 
   return (
     <div className="login-page"><div className="login-card" style={{maxWidth:460}}>
