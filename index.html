@@ -2083,7 +2083,7 @@ function GanttChart({ isAdmin }) {
 // ─── ADMIN DASHBOARD ─────────────────────────────────────────────────
 function AdminDashboard({ setPage, aulaActiva }) {
   const _today = new Date();
-  const [stats, setStats] = useState({ alumnos: 0, pagos: 0, videos: 0, materiales: 0, vistas: 0 });
+  const [stats, setStats] = useState({ alumnos: 0, pagos: 0, pendiente: 0, videos: 0, materiales: 0, vistas: 0 });
   const [topVideos, setTopVideos] = useState([]);
   const [ultimasVistas, setUltimasVistas] = useState([]);
   const [alumnosList, setAlumnosList] = useState([]);
@@ -2099,20 +2099,31 @@ function AdminDashboard({ setPage, aulaActiva }) {
       setLoading(true);
 
       // Alumnos, videos y materiales del aula activa.
-      const [alsAll, vidsAula, matsAula] = await Promise.all([
+      const [alsAll, vidsAula, matsAula, aulaRow] = await Promise.all([
         supabase.from('alumnos').select('id, nombre, estado').eq('aula_id', aulaActiva).order('nombre'),
         supabase.from('videos').select('id').eq('aula_id', aulaActiva),
         supabase.from('materiales').select('id', { count: 'exact', head: true }).eq('aula_id', aulaActiva),
+        supabase.from('aulas').select('precios').eq('id', aulaActiva).single(),
       ]);
       const alumnosAula = alsAll.data || [];
       const idsAlumnos = alumnosAula.map(a => a.id);
       const idsVideos = (vidsAula.data || []).map(v => v.id);
+      const precios = aulaRow.data?.precios || {};
 
       // Los pagos y las visualizaciones no tienen aula: se acotan por los alumnos/videos del aula.
-      let totalPagos = 0;
+      let totalPagos = 0, totalPendiente = 0;
       if (idsAlumnos.length) {
-        const { data: pData } = await supabase.from('pagos').select('monto').in('alumno_id', idsAlumnos);
-        totalPagos = (pData || []).reduce((s, r) => s + (parseFloat(r.monto) || 0), 0);
+        const { data: pData } = await supabase.from('pagos').select('monto, plan, fecha_pago, alumno_id').in('alumno_id', idsAlumnos);
+        const pagosArr = pData || [];
+        totalPagos = pagosArr.reduce((s, r) => s + (parseFloat(r.monto) || 0), 0);
+        // Cobros pendientes: por alumno, cuánto falta según el plan de su pago más reciente.
+        const porAlumno = {};
+        pagosArr.forEach(p => { if (!p.alumno_id) return; (porAlumno[p.alumno_id] = porAlumno[p.alumno_id] || []).push(p); });
+        Object.values(porAlumno).forEach(ps => {
+          ps.sort((a, b) => (b.fecha_pago || '').localeCompare(a.fecha_pago || ''));
+          const r = resumenPagoDe(ps, precios);
+          if (r.completo === false && r.falta) totalPendiente += r.falta;
+        });
       }
       let totalVistas = 0;
       if (idsVideos.length) {
@@ -2123,6 +2134,7 @@ function AdminDashboard({ setPage, aulaActiva }) {
       setStats({
         alumnos: alumnosAula.length,
         pagos: totalPagos,
+        pendiente: totalPendiente,
         videos: idsVideos.length,
         materiales: matsAula.count || 0,
         vistas: totalVistas,
@@ -2221,6 +2233,7 @@ function AdminDashboard({ setPage, aulaActiva }) {
         {[
           { label: 'Alumnos activos', value: stats.alumnos, icon: '👥', color: 'blue' },
           { label: 'Ingresos cobrados', value: `$${Math.round(stats.pagos).toLocaleString('es-AR')}`, icon: '💰', color: 'green', valueStyle:{fontSize:'1.3rem'}, ocultable:true },
+          { label: 'Cobros pendientes', value: `$${Math.round(stats.pendiente).toLocaleString('es-AR')}`, icon: '⏳', color: 'gold', valueStyle:{fontSize:'1.3rem'}, ocultable:true },
           { label: 'Videos publicados', value: stats.videos, icon: '🎬', color: 'pink' },
           { label: 'Materiales', value: stats.materiales, icon: '📄', color: 'gold' },
           { label: 'Total visualizaciones', value: stats.vistas, icon: '👁️', color: 'blue' },
@@ -6358,6 +6371,8 @@ function AdminPagos({ aulaActiva }) {
   const completos = alumnos
     .map(a => ({ a, r: resumenAlumno(a.id) }))
     .filter(x => x.r.cant > 0 && x.r.completo === true);
+  // Cobros pendientes: suma de lo que falta cobrar a los alumnos con pago incompleto.
+  const totalPendiente = incompletos.reduce((s, x) => s + (x.r.falta || 0), 0);
 
   // Al abrir Pagos, generar (si toca hoy) los recordatorios de vencimiento de los incompletos.
   useEffect(() => {
@@ -6424,6 +6439,12 @@ function AdminPagos({ aulaActiva }) {
             </div>
           );
         })}
+        <div className="card" title="Suma de lo que falta cobrar a los alumnos con pago incompleto"
+          style={{padding:'14px 18px',borderColor: totalPendiente > 0 ? 'var(--warning)' : 'var(--border)'}}>
+          <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color: totalPendiente > 0 ? 'var(--warning)' : 'var(--text2)',marginBottom:6}}>⏳ Cobros pendientes</div>
+          <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.1rem',color: totalPendiente > 0 ? 'var(--warning)' : 'var(--text)'}}>$ {totalPendiente.toLocaleString('es-AR',{minimumFractionDigits:2})}</div>
+          <div style={{fontSize:'0.78rem',color:'var(--text2)',marginTop:2}}>{incompletos.length} alumno{incompletos.length!==1?'s':''} con saldo</div>
+        </div>
         {proximosVenc.length > 0 && (
           <div className="card" style={{padding:'14px 18px',borderColor:'var(--accent2)'}}>
             <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--accent2)',marginBottom:6}}>🔔 Próximos pagos</div>
