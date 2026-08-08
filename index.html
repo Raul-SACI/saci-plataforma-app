@@ -5702,6 +5702,7 @@ function AdminAlumnos({ aulaActiva }) {
   const [showPw, setShowPw] = useState(false);
   const [form, setForm] = useState({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' });
   const [editing, setEditing] = useState(null);
+  const [seleccion, setSeleccion] = useState([]);   // ids de alumnos seleccionados
   const toast = useToast();
   const fileRef = useRef();
 
@@ -5718,6 +5719,7 @@ function AdminAlumnos({ aulaActiva }) {
       mapa[p.alumno_id] = (mapa[p.alumno_id] || 0) + (parseFloat(p.monto) || 0);
     });
     setPagosMap(mapa);
+    setSeleccion([]);
     setLoading(false);
   };
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
@@ -5796,6 +5798,26 @@ function AdminAlumnos({ aulaActiva }) {
         .eq('estado', 'activo');
       if (error) throw new Error(error.message);
       toast(`${activos.length} alumnos dados de baja 🔒`, 'success');
+      load();
+    } catch (err) { toast(err.message, 'error'); }
+    finally { setSaving(false); }
+  };
+
+  const toggleSeleccion = id => {
+    setSeleccion(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
+  };
+
+  const cambiarEstadoSeleccionados = async nuevoEstado => {
+    if (!seleccion.length) return;
+    if (!confirm(`¿${nuevoEstado === 'activo' ? 'Activar' : 'Poner inactivos'} a los ${seleccion.length} alumnos seleccionados?`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('alumnos')
+        .update({ estado: nuevoEstado })
+        .in('id', seleccion);
+      if (error) throw new Error(error.message);
+      toast(`${seleccion.length} alumnos actualizados ${nuevoEstado === 'activo' ? '✅' : '🔒'}`, 'success');
+      setSeleccion([]);
       load();
     } catch (err) { toast(err.message, 'error'); }
     finally { setSaving(false); }
@@ -5916,6 +5938,16 @@ function AdminAlumnos({ aulaActiva }) {
       return orden === 'az' ? cmp : -cmp;
     });
 
+  const todosVisiblesSeleccionados = filtered.length > 0 && filtered.every(a => seleccion.includes(a.id));
+  const toggleTodosVisibles = () => {
+    if (todosVisiblesSeleccionados) {
+      const idsVisibles = new Set(filtered.map(a => a.id));
+      setSeleccion(sel => sel.filter(id => !idsVisibles.has(id)));
+    } else {
+      setSeleccion(sel => Array.from(new Set([...sel, ...filtered.map(a => a.id)])));
+    }
+  };
+
   const exportarExcel = () => {
     if (!filtered.length) return toast('No hay alumnos para exportar', 'error');
     const datos = filtered.map(a => ({
@@ -5957,10 +5989,21 @@ function AdminAlumnos({ aulaActiva }) {
         <span className="search-icon">🔍</span>
         <input placeholder="Buscar por nombre o email..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
+      {seleccion.length > 0 && (
+        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16,padding:'10px 14px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:10}}>
+          <strong>{seleccion.length} seleccionado{seleccion.length !== 1 ? 's' : ''}</strong>
+          <button className="btn btn-primary btn-sm" onClick={() => cambiarEstadoSeleccionados('activo')} disabled={saving}>✅ Activar seleccionados</button>
+          <button className="btn btn-danger btn-sm" onClick={() => cambiarEstadoSeleccionados('inactivo')} disabled={saving}>🔒 Poner inactivos</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setSeleccion([])} disabled={saving}>Limpiar selección</button>
+        </div>
+      )}
       <div className="table-wrap">
         {filtered.length === 0 ? <Empty icon="👥" text="No hay alumnos" /> : (
           <table>
             <thead><tr>
+              <th style={{width:36,textAlign:'center'}}>
+                <input type="checkbox" checked={todosVisiblesSeleccionados} onChange={toggleTodosVisibles} title="Seleccionar todos" style={{cursor:'pointer'}} />
+              </th>
               <th style={{cursor:'pointer',userSelect:'none'}} onClick={() => setOrden(o => o === 'az' ? 'za' : 'az')} title="Ordenar por nombre">
                 Nombre {orden === 'az' ? '▲' : '▼'}
               </th>
@@ -5968,7 +6011,10 @@ function AdminAlumnos({ aulaActiva }) {
             </tr></thead>
             <tbody>
               {filtered.map(a => (
-                <tr key={a.id}>
+                <tr key={a.id} style={seleccion.includes(a.id) ? {background:'rgba(88,101,242,0.08)'} : undefined}>
+                  <td style={{textAlign:'center'}}>
+                    <input type="checkbox" checked={seleccion.includes(a.id)} onChange={() => toggleSeleccion(a.id)} style={{cursor:'pointer'}} />
+                  </td>
                   <td><strong>{a.nombre}</strong></td>
                   <td style={{color:'var(--text2)'}}>{a.email}</td>
                   <td style={{color:'var(--text2)'}}>{a.telefono || '—'}</td>
