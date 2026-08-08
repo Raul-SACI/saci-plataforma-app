@@ -5692,10 +5692,12 @@ function AprobarInscripciones() {
 function AdminAlumnos({ aulaActiva }) {
   const [alumnos, setAlumnos] = useState([]);
   const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
+  const [planMap, setPlanMap] = useState({});      // { alumno_id: plan del pago más reciente }
   const [orden, setOrden] = useState('az');         // 'az' o 'za'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
+  const [filtroPlan, setFiltroPlan] = useState('');   // '' = todos
   const [modal, setModal] = useState(false);
   const [pwModal, setPwModal] = useState(null);
   const [newPw, setNewPw] = useState('');
@@ -5710,15 +5712,20 @@ function AdminAlumnos({ aulaActiva }) {
     if (!aulaActiva) { setLoading(false); return; }
     const [al, pg] = await Promise.all([
       supabase.from('alumnos').select('*').eq('aula_id', aulaActiva).order('created_at', { ascending: false }),
-      supabase.from('pagos').select('alumno_id, monto'),
+      supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago'),
     ]);
     setAlumnos(al.data || []);
     const mapa = {};
-    (pg.data || []).forEach(p => {
+    // Recorrido de pagos más reciente primero para quedarnos con el plan del último pago de cada alumno.
+    const planes = {};
+    const pagosOrd = (pg.data || []).slice().sort((a, b) => (b.fecha_pago || '').localeCompare(a.fecha_pago || ''));
+    pagosOrd.forEach(p => {
       if (!p.alumno_id) return;
       mapa[p.alumno_id] = (mapa[p.alumno_id] || 0) + (parseFloat(p.monto) || 0);
+      if (!(p.alumno_id in planes) && p.plan) planes[p.alumno_id] = p.plan;
     });
     setPagosMap(mapa);
+    setPlanMap(planes);
     setSeleccion([]);
     setLoading(false);
   };
@@ -5931,8 +5938,12 @@ function AdminAlumnos({ aulaActiva }) {
 
   const fmtPesos = n => '$' + (n || 0).toLocaleString('es-AR');
 
+  const PLANES_ALU = ['Parcial', 'Final', 'Cursado Completo'];
+  const planColorAlu = (plan) => plan === 'Parcial' ? 'chip-yellow' : plan === 'Final' ? 'chip-green' : plan === 'Cursado Completo' ? 'chip-blue' : '';
+
   const filtered = alumnos
     .filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()))
+    .filter(a => !filtroPlan || (filtroPlan === '__sin__' ? !planMap[a.id] : planMap[a.id] === filtroPlan))
     .sort((a, b) => {
       const cmp = (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
       return orden === 'az' ? cmp : -cmp;
@@ -5954,11 +5965,12 @@ function AdminAlumnos({ aulaActiva }) {
       Nombre: a.nombre || '',
       Email: a.email || '',
       DNI: a.telefono || '',
+      Plan: planMap[a.id] || '',
       Estado: a.estado || '',
       'Total pagado': pagosMap[a.id] || 0,
     }));
     const ws = XLSX.utils.json_to_sheet(datos);
-    ws['!cols'] = [{ wch: 28 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 16 }];
+    ws['!cols'] = [{ wch: 28 }, { wch: 30 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 16 }];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Alumnos');
     const hoy = new Date();
@@ -5985,9 +5997,17 @@ function AdminAlumnos({ aulaActiva }) {
           <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
       </div>
-      <div className="search-bar" style={{marginBottom:16}}>
-        <span className="search-icon">🔍</span>
-        <input placeholder="Buscar por nombre o email..." value={search} onChange={e => setSearch(e.target.value)} />
+      <div style={{display:'flex',gap:10,marginBottom:16,alignItems:'center',flexWrap:'wrap'}}>
+        <div className="search-bar" style={{flex:1,minWidth:220,marginBottom:0}}>
+          <span className="search-icon">🔍</span>
+          <input placeholder="Buscar por nombre o email..." value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <select value={filtroPlan} onChange={e => setFiltroPlan(e.target.value)} style={{minWidth:170}} title="Filtrar por plan">
+          <option value="">Todos los planes</option>
+          {PLANES_ALU.map(pl => <option key={pl} value={pl}>{pl}</option>)}
+          <option value="__sin__">Sin plan / sin pago</option>
+        </select>
+        {filtroPlan && <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{filtered.length} alumno{filtered.length!==1?'s':''}</span>}
       </div>
       {seleccion.length > 0 && (
         <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16,padding:'10px 14px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:10}}>
@@ -6007,7 +6027,7 @@ function AdminAlumnos({ aulaActiva }) {
               <th style={{cursor:'pointer',userSelect:'none'}} onClick={() => setOrden(o => o === 'az' ? 'za' : 'az')} title="Ordenar por nombre">
                 Nombre {orden === 'az' ? '▲' : '▼'}
               </th>
-              <th>Email</th><th>DNI</th><th>Estado</th><th>Total pagado</th><th>Acciones</th>
+              <th>Email</th><th>DNI</th><th>Plan</th><th>Estado</th><th>Total pagado</th><th>Acciones</th>
             </tr></thead>
             <tbody>
               {filtered.map(a => (
@@ -6018,6 +6038,9 @@ function AdminAlumnos({ aulaActiva }) {
                   <td><strong>{a.nombre}</strong></td>
                   <td style={{color:'var(--text2)'}}>{a.email}</td>
                   <td style={{color:'var(--text2)'}}>{a.telefono || '—'}</td>
+                  <td>{planMap[a.id]
+                    ? <span className={`chip ${planColorAlu(planMap[a.id])}`}>{planMap[a.id]}</span>
+                    : <span style={{color:'var(--text2)'}}>—</span>}</td>
                   <td><span className={`chip ${a.estado === 'activo' ? 'chip-green' : 'chip-red'}`}>{a.estado}</span></td>
                   <td>
                     {pagosMap[a.id]
