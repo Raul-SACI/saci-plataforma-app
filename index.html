@@ -6271,9 +6271,12 @@ function AdminPagos({ aulaActiva }) {
     PLANES.forEach(pl => {
       const f = preciosForm[pl] || {};
       const u = parseFloat(f.unico), c = parseFloat(f.cuotas);
+      const tu = parseFloat(f.tarjeta_unico), tc = parseFloat(f.tarjeta_cuotas);
       const obj = {};
       if (!isNaN(u) && u > 0) obj.unico = u;
       if (!isNaN(c) && c > 0) obj.cuotas = c;
+      if (!isNaN(tu) && tu > 0) obj.tarjeta_unico = tu;
+      if (!isNaN(tc) && tc > 0) obj.tarjeta_cuotas = tc;
       if (Object.keys(obj).length) limpio[pl] = obj;
     });
     const { error } = await supabase.from('aulas').update({ precios: limpio }).eq('id', aulaActiva);
@@ -6359,9 +6362,14 @@ function AdminPagos({ aulaActiva }) {
             const f = {};
             PLANES.forEach(pl => {
               const v = precios[pl];
-              if (v == null) f[pl] = { unico: '', cuotas: '' };
-              else if (typeof v === 'number') f[pl] = { unico: String(v), cuotas: '' };
-              else f[pl] = { unico: v.unico != null ? String(v.unico) : '', cuotas: v.cuotas != null ? String(v.cuotas) : '' };
+              if (v == null) f[pl] = { unico: '', cuotas: '', tarjeta_unico: '', tarjeta_cuotas: '' };
+              else if (typeof v === 'number') f[pl] = { unico: String(v), cuotas: '', tarjeta_unico: '', tarjeta_cuotas: '' };
+              else f[pl] = {
+                unico: v.unico != null ? String(v.unico) : '',
+                cuotas: v.cuotas != null ? String(v.cuotas) : '',
+                tarjeta_unico: v.tarjeta_unico != null ? String(v.tarjeta_unico) : '',
+                tarjeta_cuotas: v.tarjeta_cuotas != null ? String(v.tarjeta_cuotas) : '',
+              };
             });
             setPreciosForm(f); setPreciosModal(true);
           }}>⚙️ Precios de planes</button>
@@ -6561,11 +6569,13 @@ function AdminPagos({ aulaActiva }) {
 
       {preciosModal && (
         <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>
-          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Por cada plan, poné el precio <strong>en 1 pago</strong> (contado) y el <strong>total en cuotas</strong> si paga en partes. Ej: Parcial = 110.000 en 1 pago / 120.000 total en cuotas. Si es el mismo, dejá vacío el de cuotas.</div>
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Por cada plan, poné el precio <strong>en 1 pago</strong> (contado) y el <strong>total en cuotas</strong> si paga en partes. Si es el mismo, dejá vacío el de cuotas. Cargá el precio de <strong>🏦 transferencia/efectivo</strong> y, si con <strong>💳 tarjeta de crédito</strong> es más caro, el precio de tarjeta (si dejás tarjeta vacío, se usa el de transferencia).</div>
           {PLANES.map(pl => (
-            <div key={pl} style={{marginBottom:14,borderBottom:'1px solid var(--border)',paddingBottom:12}}>
+            <div key={pl} style={{marginBottom:16,borderBottom:'1px solid var(--border)',paddingBottom:14}}>
               <div style={{fontWeight:700,marginBottom:8}}>{pl}</div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+
+              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>🏦 Transferencia / efectivo</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
                 <div className="form-group" style={{margin:0}}>
                   <label style={{fontSize:'0.76rem'}}>En 1 pago</label>
                   <input type="number" min="0" value={preciosForm[pl]?.unico ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), unico: e.target.value } }))} placeholder="0" />
@@ -6573,6 +6583,18 @@ function AdminPagos({ aulaActiva }) {
                 <div className="form-group" style={{margin:0}}>
                   <label style={{fontSize:'0.76rem'}}>Total en cuotas</label>
                   <input type="number" min="0" value={preciosForm[pl]?.cuotas ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), cuotas: e.target.value } }))} placeholder="(opcional)" />
+                </div>
+              </div>
+
+              <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--accent2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>💳 Tarjeta de crédito</div>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div className="form-group" style={{margin:0}}>
+                  <label style={{fontSize:'0.76rem'}}>En 1 pago</label>
+                  <input type="number" min="0" value={preciosForm[pl]?.tarjeta_unico ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), tarjeta_unico: e.target.value } }))} placeholder="(igual que transf.)" />
+                </div>
+                <div className="form-group" style={{margin:0}}>
+                  <label style={{fontSize:'0.76rem'}}>Total en cuotas</label>
+                  <input type="number" min="0" value={preciosForm[pl]?.tarjeta_cuotas ?? ''} onChange={e => setPreciosForm(f => ({ ...f, [pl]: { ...(f[pl]||{}), tarjeta_cuotas: e.target.value } }))} placeholder="(opcional)" />
                 </div>
               </div>
             </div>
@@ -6604,6 +6626,31 @@ function AdminPagos({ aulaActiva }) {
               ))}
             </div>
           </div>
+
+          {/* Referencia de precios del plan seleccionado (transferencia vs tarjeta) */}
+          {(() => {
+            const v = precios[form.plan];
+            if (!v || typeof v === 'number') {
+              return v ? (
+                <div style={{fontSize:'0.78rem',color:'var(--text2)',background:'var(--surface2)',borderRadius:8,padding:'8px 12px',marginBottom:14}}>
+                  Precio de referencia {form.plan}: <b>$ {Number(v).toLocaleString('es-AR')}</b>
+                </div>
+              ) : null;
+            }
+            const fmt = n => (n != null && !isNaN(n)) ? '$ ' + Number(n).toLocaleString('es-AR') : '—';
+            const tu = v.tarjeta_unico != null ? v.tarjeta_unico : v.unico;
+            const tc = v.tarjeta_cuotas != null ? v.tarjeta_cuotas : (v.cuotas != null ? v.cuotas : v.tarjeta_unico);
+            return (
+              <div style={{fontSize:'0.78rem',background:'var(--surface2)',borderRadius:8,padding:'10px 12px',marginBottom:14}}>
+                <div style={{fontWeight:700,color:'var(--text2)',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:6}}>Precios de referencia — {form.plan}</div>
+                <div style={{display:'flex',gap:18,flexWrap:'wrap'}}>
+                  <div>🏦 <b>Transferencia/efectivo:</b> {fmt(v.unico)} en 1 pago{v.cuotas != null ? <> · {fmt(v.cuotas)} en cuotas</> : ''}</div>
+                  <div style={{color:'var(--accent2)'}}>💳 <b>Tarjeta:</b> {fmt(tu)} en 1 pago{(v.tarjeta_cuotas != null || v.cuotas != null) ? <> · {fmt(tc)} en cuotas</> : ''}</div>
+                </div>
+                <div style={{color:'var(--text2)',marginTop:6,fontSize:'0.72rem'}}>Cargá el importe según el medio de pago para que la factura salga por el monto correcto.</div>
+              </div>
+            );
+          })()}
 
           {/* Importe */}
           <div className="form-group">
