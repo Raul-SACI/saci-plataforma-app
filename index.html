@@ -5784,6 +5784,23 @@ function AdminAlumnos({ aulaActiva }) {
     toast('Alumno eliminado', 'info'); load();
   };
 
+  const desactivarTodos = async () => {
+    const activos = alumnos.filter(a => a.estado === 'activo');
+    if (!activos.length) return toast('No hay alumnos activos para dar de baja', 'info');
+    if (!confirm(`¿Poner inactivos a los ${activos.length} alumnos activos de esta aula? Perderán el acceso a la plataforma.`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('alumnos')
+        .update({ estado: 'inactivo' })
+        .eq('aula_id', aulaActiva)
+        .eq('estado', 'activo');
+      if (error) throw new Error(error.message);
+      toast(`${activos.length} alumnos dados de baja 🔒`, 'success');
+      load();
+    } catch (err) { toast(err.message, 'error'); }
+    finally { setSaving(false); }
+  };
+
   const importExcel = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -5932,6 +5949,7 @@ function AdminAlumnos({ aulaActiva }) {
           <button className="btn btn-ghost" onClick={downloadTemplate}>📋 Plantilla</button>
           <button className="btn btn-ghost" onClick={() => fileRef.current.click()}>📥 Importar Excel</button>
           <button className="btn btn-ghost" onClick={exportarExcel}>📤 Exportar Excel</button>
+          <button className="btn btn-danger" onClick={desactivarTodos} disabled={saving} title="Poner inactivos a todos los alumnos activos">🔒 Baja masiva</button>
           <button className="btn btn-primary" onClick={() => { setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' }); setEditing(null); setModal(true); }}>➕ Nuevo alumno</button>
         </div>
       </div>
