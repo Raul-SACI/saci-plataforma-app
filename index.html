@@ -558,6 +558,38 @@ function descargarContratoAlumno(alumno) {
   doc.save(`Contrato-${(alumno.nombre || 'alumno').replace(/[^\w]+/g, '_')}.pdf`);
 }
 
+// Exporta a PDF (vía impresión del navegador) el contenido de una herramienta
+// de la Sala de Juegos, con el logo de la app como marca de agua en toda la hoja A4.
+function exportarSalaPDF(el, titulo) {
+  if (!el) { alert('No hay contenido para exportar.'); return; }
+  const estilos = Array.from(document.querySelectorAll('style')).map(n => n.outerHTML).join('\n');
+  const logo = location.origin + '/icon-512.png';
+  const win = window.open('', '_blank');
+  if (!win) { alert('El navegador bloqueó la ventana de exportación. Habilitá los pop-ups e intentá de nuevo.'); return; }
+  const cierre = '</scr' + 'ipt>';
+  win.document.open();
+  win.document.write('<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>' +
+    String(titulo || 'Sala de Juegos').replace(/[<>]/g, '') + '</title>' + estilos +
+    '<style>' +
+    '@page { size: A4; margin: 12mm; }' +
+    'html, body { background:#fff !important; }' +
+    'body { margin:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
+    '.cg-wm { position: fixed; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; z-index:0; pointer-events:none; }' +
+    '.cg-wm img { width: 165mm; max-width: 92%; opacity: 0.06; }' +
+    '.cg-body { position: relative; z-index: 1; padding: 4mm; }' +
+    '.cg-body button { display:none !important; }' +   // los controles/paleta no van en el PDF
+    '.cg-noexport { display:none !important; }' +       // bloques marcados como solo-edición
+    '.cg-toolbar-print { position: fixed; bottom:10px; right:10px; z-index:5; }' +
+    '@media print { .cg-toolbar-print { display:none !important; } }' +
+    '</style></head><body>' +
+    '<div class="cg-wm"><img src="' + logo + '" alt=""></div>' +
+    '<div class="cg-body">' + el.innerHTML + '</div>' +
+    '<div class="cg-toolbar-print"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>' +
+    '<scr' + 'ipt>window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},500);});' + cierre +
+    '</body></html>');
+  win.document.close();
+}
+
 // ─── PUSH NOTIFICATIONS ───────────────────────────────────────────────
 const VAPID_PUBLIC_KEY = 'BHA09lSq0Tq6MjW9biEuU3ImC8evdv2TH0hYV7FLYPw-ILBSXEGRusGeVPGj9ZbPI18ViqrOxNB6HBDfuLDr9GY';
 const EDGE_FN_URL = `${SUPABASE_URL}/functions/v1/send-push`;
@@ -2452,6 +2484,7 @@ const CG_SIMBOLOS = [
   { tipo: 'cpu',                label: 'CPU',                          grupo: 'Operaciones',    w: 64, h: 60 },
   { tipo: 'decision',           label: 'Decisión',                     grupo: 'Operaciones',    w: 78, h: 66 },
   { tipo: 'terminal',           label: 'Terminal',                     grupo: 'Operaciones',    w: 96, h: 52 },
+  { tipo: 'terminal_cpu',       label: 'Terminal + CPU',               grupo: 'Operaciones',    w: 74, h: 96, texto: 'CPU' },
   { tipo: 'anexion',            label: 'Anexión',                      grupo: 'Operaciones',    w: 92, h: 34 },
   { tipo: 'disco',              label: 'Disco / archivo',              grupo: 'Almacenamiento', w: 72, h: 62 },
   { tipo: 'carpeta',            label: 'Carpeta / Legajo',             grupo: 'Almacenamiento', w: 74, h: 60 },
@@ -2469,10 +2502,21 @@ const CG_GRUPOS = [...new Set(CG_SIMBOLOS.map(s => s.grupo))];
 const cgDef = (tipo) => CG_SIMBOLOS.find(s => s.tipo === tipo) || CG_SIMBOLOS[0];
 
 // Dibujo SVG de cada símbolo (trazo negro sobre "papel" blanco).
-function FormaCG({ tipo, w, h }) {
-  const st = { fill: '#fff', stroke: '#111', strokeWidth: 1.6 };
+function FormaCG({ tipo, w, h, color = '#111' }) {
+  const st = { fill: '#fff', stroke: color, strokeWidth: 1.6 };
   const pts = (arr) => arr.map(p => p.join(',')).join(' ');
   switch (tipo) {
+    case 'terminal_cpu': {
+      const topH = h * 0.40, boxT = h * 0.46, bx0 = w * 0.16, bx1 = w * 0.84, cy = (boxT + h - 3) / 2;
+      return <g>
+        <polygon points={pts([[3, topH], [w * 0.30, 3], [w - 3, 3], [w - 3, topH]])} style={st} />
+        <line x1={w / 2} y1={topH} x2={w / 2} y2={boxT} stroke={color} strokeWidth={1.6} />
+        <rect x={bx0} y={boxT} width={bx1 - bx0} height={h - 3 - boxT} style={st} />
+        <line x1={bx0} y1={cy} x2={bx0 - 6} y2={cy} stroke={color} strokeWidth={1.6} />
+        <line x1={bx1} y1={cy} x2={bx1 + 6} y2={cy} stroke={color} strokeWidth={1.6} />
+        <line x1={w / 2} y1={h - 3} x2={w / 2} y2={h + 4} stroke={color} strokeWidth={1.6} />
+      </g>;
+    }
     case 'operacion':
     case 'conector_pagina':
       return <ellipse cx={w/2} cy={h/2} rx={w/2-2} ry={h/2-2} style={st} />;
@@ -2489,7 +2533,7 @@ function FormaCG({ tipo, w, h }) {
     case 'terminal':
       return <polygon points={pts([[2,13],[15,2],[w-2,2],[w-2,h-2],[2,h-2]])} style={st} />;
     case 'anexion':
-      return <g><polygon points={pts([[12,2],[w-2,2],[w-12,h-2],[2,h-2]])} style={st} /><line x1={4} y1={h-3} x2={w-4} y2={3} stroke="#111" strokeWidth={1.6} /></g>;
+      return <g><polygon points={pts([[12,2],[w-2,2],[w-12,h-2],[2,h-2]])} style={st} /><line x1={4} y1={h-3} x2={w-4} y2={3} stroke={color} strokeWidth={1.6} /></g>;
     case 'archivo_transitorio':
       return <polygon points={pts([[2,2],[w-2,2],[w/2,h-2]])} style={st} />;
     case 'archivo_definitivo':
@@ -2517,7 +2561,8 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
   const [columnas, setColumnas] = useState([{ id: CG_ID(), nombre: 'Sector 1', w: 280 }, { id: CG_ID(), nombre: 'Sector 2', w: 280 }, { id: CG_ID(), nombre: 'Sector 3', w: 280 }]);
   const [simbolos, setSimbolos] = useState([]);
   const [conexiones, setConexiones] = useState([]);
-  const [sel, setSel] = useState(null);           // símbolo seleccionado
+  const [seleccion, setSeleccion] = useState([]);   // ids de símbolos seleccionados
+  const [clipboard, setClipboard] = useState([]);   // símbolos copiados
   const [modoConectar, setModoConectar] = useState(false);
   const [tipoLinea, setTipoLinea] = useState('solida');  // 'solida' | 'punteada'
   const [conFrom, setConFrom] = useState(null);
@@ -2551,7 +2596,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
   useEffect(() => { setLoading(true); load(); }, [miAula]);
 
   const nuevo = () => {
-    setActual(null); setTitulo(''); setSimbolos([]); setConexiones([]); setSel(null);
+    setActual(null); setTitulo(''); setSimbolos([]); setConexiones([]); setSeleccion([]);
     setColumnas([{ id: CG_ID(), nombre: 'Sector 1', w: 280 }, { id: CG_ID(), nombre: 'Sector 2', w: 280 }, { id: CG_ID(), nombre: 'Sector 3', w: 280 }]);
     setModoConectar(false); setConFrom(null);
   };
@@ -2564,7 +2609,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
     setColumnas(Array.isArray(d.columnas) && d.columnas.length ? d.columnas : [{ id: CG_ID(), nombre: 'Sector 1', w: 280 }]);
     setSimbolos(Array.isArray(d.simbolos) ? d.simbolos : []);
     setConexiones(Array.isArray(d.conexiones) ? d.conexiones : []);
-    setSel(null); setModoConectar(false); setConFrom(null);
+    setSeleccion([]); setModoConectar(false); setConFrom(null);
   };
   const guardar = async (publicar = null) => {
     if (!titulo.trim()) return toast('Ponele un título al cursograma', 'error');
@@ -2599,26 +2644,59 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
   const anchoColumna = (id, w) => setColumnas(cs => cs.map(c => c.id === id ? { ...c, w: Math.max(140, w) } : c));
 
   // ── Símbolos ──
+  const enSel = (id) => seleccion.includes(id);
   const addSimbolo = (tipo) => {
     const def = cgDef(tipo);
     const n = simbolos.length;
-    setSimbolos(ss => [...ss, { id: CG_ID(), tipo, texto: def.texto || '', x: 30 + (n % 5) * 16, y: CG_HEAD + 20 + (n % 8) * 16, w: def.w, h: def.h }]);
+    const id = CG_ID();
+    setSimbolos(ss => [...ss, { id, tipo, texto: def.texto || '', color: '#111', x: 30 + (n % 5) * 16, y: CG_HEAD + 20 + (n % 8) * 16, w: def.w, h: def.h }]);
+    setSeleccion([id]);
   };
-  const setTextoSel = (texto) => setSimbolos(ss => ss.map(s => s.id === sel ? { ...s, texto } : s));
-  const delSimbolo = (id) => { setSimbolos(ss => ss.filter(s => s.id !== id)); setConexiones(xs => xs.filter(k => k.from !== id && k.to !== id)); if (sel === id) setSel(null); };
-  const resizeSel = (dw, dh) => setSimbolos(ss => ss.map(s => s.id === sel ? { ...s, w: Math.max(30, s.w + dw), h: Math.max(24, s.h + dh) } : s));
+  const setTextoSel = (texto) => { const id = seleccion[0]; setSimbolos(ss => ss.map(s => s.id === id ? { ...s, texto } : s)); };
+  const setColorSel = (color) => setSimbolos(ss => ss.map(s => enSel(s.id) ? { ...s, color } : s));
+  const delSimbolo = (id) => { setSimbolos(ss => ss.filter(s => s.id !== id)); setConexiones(xs => xs.filter(k => k.from !== id && k.to !== id)); setSeleccion(sel => sel.filter(x => x !== id)); };
+  const delSeleccion = () => { setSimbolos(ss => ss.filter(s => !enSel(s.id))); setConexiones(xs => xs.filter(k => !enSel(k.from) && !enSel(k.to))); setSeleccion([]); };
+  const resizeSel = (dw, dh) => setSimbolos(ss => ss.map(s => enSel(s.id) ? { ...s, w: Math.max(30, s.w + dw), h: Math.max(24, s.h + dh) } : s));
+  // Duplicar (clic derecho o botón): copia los símbolos indicados con leve desplazamiento y los deja seleccionados.
+  const duplicarIds = (ids) => {
+    const base = simbolos.filter(s => ids.includes(s.id));
+    if (!base.length) return;
+    const nuevos = base.map(s => ({ ...s, id: CG_ID(), x: s.x + 24, y: s.y + 24 }));
+    setSimbolos(ss => [...ss, ...nuevos]);
+    setSeleccion(nuevos.map(s => s.id));
+  };
+  const copiar = () => { const c = simbolos.filter(s => enSel(s.id)); if (c.length) { setClipboard(c.map(s => ({ ...s }))); toast(`${c.length} símbolo${c.length !== 1 ? 's' : ''} copiado${c.length !== 1 ? 's' : ''} 📋`, 'info'); } };
+  const pegar = () => {
+    if (!clipboard.length) return;
+    // Pegar desplazado hacia abajo-derecha; quedan seleccionados para arrastrarlos a otra columna en bloque.
+    const nuevos = clipboard.map(s => ({ ...s, id: CG_ID(), x: s.x + 40, y: s.y + 40 }));
+    setSimbolos(ss => [...ss, ...nuevos]);
+    setSeleccion(nuevos.map(s => s.id));
+  };
 
   const startDrag = (e, id) => {
     if (soloLectura) return;
+    if (e.button !== 0) return;   // solo botón izquierdo (el derecho duplica)
     if (modoConectar) { clickConectar(id); return; }
-    setSel(id);
+    // Selección: con Ctrl/⌘/Shift se agrega/quita al conjunto; si no, se selecciona solo (salvo que ya esté en el grupo).
+    let ids;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      ids = enSel(id) ? seleccion.filter(x => x !== id) : [...seleccion, id];
+      setSeleccion(ids);
+    } else {
+      ids = enSel(id) && seleccion.length > 1 ? seleccion : [id];
+      setSeleccion(ids);
+    }
     e.preventDefault();
-    const s = simbolos.find(x => x.id === id); if (!s) return;
-    const sx = e.clientX, sy = e.clientY, ox = s.x, oy = s.y;
+    const mover1 = simbolos.filter(s => ids.includes(s.id)).map(s => ({ id: s.id, ox: s.x, oy: s.y }));
+    if (!mover1.length) return;
+    const sx = e.clientX, sy = e.clientY;
     const mover = (ev) => {
-      const nx = Math.max(0, ox + (ev.clientX - sx));
-      const ny = Math.max(CG_HEAD, oy + (ev.clientY - sy));
-      setSimbolos(ss => ss.map(x => x.id === id ? { ...x, x: nx, y: ny } : x));
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      setSimbolos(ss => ss.map(x => {
+        const b = mover1.find(m => m.id === x.id);
+        return b ? { ...x, x: Math.max(0, b.ox + dx), y: Math.max(CG_HEAD, b.oy + dy) } : x;
+      }));
     };
     const soltar = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', soltar); };
     document.addEventListener('mousemove', mover); document.addEventListener('mouseup', soltar);
@@ -2642,13 +2720,14 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
   const altoTotal = Math.max(460, CG_HEAD + 40 + (simbolos.length ? Math.max(...simbolos.map(s => s.y + s.h)) - CG_HEAD : 0) + 40);
   let acumX = 0;
   const bordes = columnas.map(c => { const x0 = acumX; acumX += c.w; return { ...c, x0, x1: acumX }; });
-  const selObj = simbolos.find(s => s.id === sel);
+  const selObj = seleccion.length === 1 ? simbolos.find(s => s.id === seleccion[0]) : null;
   const chip = { display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 8, padding: '2px 4px 2px 8px' };
+  const CG_COLORES = ['#111111', '#1e63d0', '#1f9d55', '#d64545', '#d98016', '#7b57c9'];
 
   return (
     <div className="page-content fade-in" style={{ paddingTop: 8 }}>
       {/* Cursogramas guardados */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+      <div className="cg-noexport" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
         <button className="btn btn-primary btn-sm" onClick={nuevo}>+ Nuevo cursograma</button>
         {lista.map(d => (
           <span key={d.id} style={{ ...chip, background: actual?.id === d.id ? 'var(--surface2)' : 'transparent' }}>
@@ -2658,7 +2737,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
         ))}
       </div>
       {!esAdmin && publicados.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <div className="cg-noexport" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
           <span style={{ fontSize: '0.78rem', color: 'var(--text2)', fontWeight: 600 }}>📢 Del profe:</span>
           {publicados.map(d => (
             <span key={d.id} style={chip}><span onClick={() => cargar(d.id, true)} style={{ cursor: 'pointer', fontSize: '0.82rem' }}>{d.titulo || '(sin título)'}</span></span>
@@ -2667,7 +2746,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
       )}
 
       {!soloLectura && (
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+        <div className="cg-noexport" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
           <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del cursograma (ej: Circuito de emisión de la Orden de Compra)"
             style={{ flex: 1, minWidth: 260, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }} />
           <button className="btn btn-primary btn-sm" onClick={() => guardar()} disabled={saving}>{saving ? '⏳' : '💾'} Guardar</button>
@@ -2677,7 +2756,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
       )}
 
       {!soloLectura && (
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+        <div className="cg-noexport" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
           {/* Paleta de símbolos */}
           <div style={{ flex: '1 1 320px', border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
             <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>🧰 Simbología — clic para agregar</div>
@@ -2726,20 +2805,38 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
               {modoConectar && <div style={{ fontSize: '0.72rem', color: 'var(--text2)', marginTop: 6 }}>Clic en el símbolo de origen y después en el de destino. Repetí el par para borrar esa flecha.</div>}
             </div>
 
-            {selObj && (
+            {seleccion.length > 0 && (
               <div style={{ border: '1px solid var(--accent)', borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
-                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>✏️ Símbolo seleccionado</div>
-                <input value={selObj.texto} onChange={e => setTextoSel(e.target.value)} placeholder="Texto del símbolo"
-                  style={{ width: '100%', padding: '6px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.84rem', marginBottom: 8 }} />
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>
+                  {seleccion.length === 1 ? '✏️ Símbolo seleccionado' : `✏️ ${seleccion.length} símbolos seleccionados`}
+                </div>
+                {selObj && (
+                  <input value={selObj.texto} onChange={e => setTextoSel(e.target.value)} placeholder="Texto del símbolo"
+                    style={{ width: '100%', padding: '6px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.84rem', marginBottom: 8 }} />
+                )}
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text2)' }}>Color:</span>
+                  {CG_COLORES.map(col => (
+                    <button key={col} onClick={() => setColorSel(col)} title={col}
+                      style={{ width: 20, height: 20, borderRadius: '50%', background: col, border: '2px solid var(--surface)', outline: '1px solid var(--border)', cursor: 'pointer', padding: 0 }} />
+                  ))}
+                </div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   <span style={{ fontSize: '0.74rem', color: 'var(--text2)' }}>Tamaño:</span>
                   <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(-10, 0)}>–A</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(10, 0)}>+A</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(0, -8)}>–H</button>
                   <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(0, 8)}>+H</button>
-                  <button className="btn btn-danger btn-sm" onClick={() => delSimbolo(selObj.id)}>🗑️ Quitar</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => copiar()} title="Copiar (para pegar en otra columna)">📋 Copiar</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => duplicarIds(seleccion)} title="Duplicar en el lugar">⧉ Duplicar</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => delSeleccion()}>🗑️ Quitar</button>
                 </div>
               </div>
+            )}
+            {clipboard.length > 0 && !soloLectura && (
+              <button className="btn btn-primary btn-sm" onClick={() => pegar()} title="Pega los símbolos copiados; quedan seleccionados para arrastrarlos a otra columna">📌 Pegar {clipboard.length} símbolo{clipboard.length !== 1 ? 's' : ''}</button>
             )}
           </div>
         </div>
@@ -2772,15 +2869,17 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
 
           {/* Símbolos */}
           {simbolos.map(s => (
-            <div key={s.id} onMouseDown={(e) => startDrag(e, s.id)} onClick={() => { if (modoConectar) clickConectar(s.id); else setSel(s.id); }}
-              style={{ position: 'absolute', left: s.x, top: s.y, width: s.w, height: s.h, cursor: soloLectura ? 'default' : (modoConectar ? 'crosshair' : 'move'), zIndex: 2, outline: (sel === s.id || conFrom === s.id) ? '2px solid var(--accent)' : 'none', outlineOffset: 2, borderRadius: 3 }}>
-              <svg width={s.w} height={s.h} viewBox={`0 0 ${s.w} ${s.h}`} style={{ display: 'block', overflow: 'visible' }}><FormaCG tipo={s.tipo} w={s.w} h={s.h} /></svg>
-              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 10, color: '#111', padding: 3, pointerEvents: 'none', lineHeight: 1.05, wordBreak: 'break-word' }}>{s.texto}</div>
+            <div key={s.id} onMouseDown={(e) => startDrag(e, s.id)}
+              onContextMenu={(e) => { if (soloLectura) return; e.preventDefault(); duplicarIds([s.id]); }}
+              title={soloLectura ? '' : 'Clic para seleccionar · Ctrl/Shift+clic para varios · Clic derecho para duplicar'}
+              style={{ position: 'absolute', left: s.x, top: s.y, width: s.w, height: s.h, cursor: soloLectura ? 'default' : (modoConectar ? 'crosshair' : 'move'), zIndex: 2, outline: (enSel(s.id) || conFrom === s.id) ? '2px solid var(--accent)' : 'none', outlineOffset: 2, borderRadius: 3 }}>
+              <svg width={s.w} height={s.h} viewBox={`0 0 ${s.w} ${s.h}`} style={{ display: 'block', overflow: 'visible' }}><FormaCG tipo={s.tipo} w={s.w} h={s.h} color={s.color || '#111'} /></svg>
+              <div style={{ position: 'absolute', left: 0, right: 0, top: s.tipo === 'terminal_cpu' ? '46%' : 0, bottom: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 10, color: '#111', padding: 3, pointerEvents: 'none', lineHeight: 1.05, wordBreak: 'break-word' }}>{s.texto}</div>
             </div>
           ))}
         </div>
       </div>
-      <div style={{ fontSize: '0.74rem', color: 'var(--text2)', marginTop: 6 }}>Tip: arrastrá los símbolos para ubicarlos en la columna del sector que corresponda. Usá 🔗 Conectar para dibujar las flechas del recorrido.</div>
+      <div className="cg-noexport" style={{ fontSize: '0.74rem', color: 'var(--text2)', marginTop: 6 }}>Tip: arrastrá los símbolos para ubicarlos en la columna del sector que corresponda. Usá 🔗 Conectar para dibujar las flechas del recorrido. Clic derecho en un símbolo lo duplica.</div>
     </div>
   );
 }
@@ -2789,6 +2888,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
 // Contenedor con pestañas. Cada pestaña es una herramienta de práctica.
 function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
   const [tab, setTab] = useState('msa');
+  const contenidoRef = useRef();
 
   const JUEGOS = [
     { id: 'msa', icon: '🧩', label: 'Sistema Administrativo', listo: true },
@@ -2817,6 +2917,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           <div className="page-title">🎮 Sala de Juegos</div>
           <div className="page-subtitle">Herramientas para practicar los temas de la materia</div>
         </div>
+        <button className="btn btn-ghost" onClick={() => exportarSalaPDF(contenidoRef.current, 'Sala de Juegos — ' + (JUEGOS.find(j => j.id === tab)?.label || ''))} title="Exportar a PDF (A4) con el logo como marca de agua">🖨️ Exportar PDF</button>
       </div>
 
       {/* Pestañas */}
@@ -2839,7 +2940,7 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
       </div>
 
       {/* Contenido de la pestaña activa */}
-      <div style={{margin:'0 -12px'}}>
+      <div style={{margin:'0 -12px'}} ref={contenidoRef}>
         {tab === 'msa'
           ? <SistemaAdministrativo alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : tab === 'control'
