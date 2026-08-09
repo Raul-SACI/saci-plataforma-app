@@ -565,7 +565,7 @@ function descargarContratoAlumno(alumno) {
 function exportarSalaPDF(el, titulo) {
   if (!el) { alert('No hay contenido para exportar.'); return; }
   const estilos = Array.from(document.querySelectorAll('style')).map(n => n.outerHTML).join('\n');
-  const logo = location.origin + '/icon-512.png';
+  const logo = location.origin + '/logo-membrete.png';   // logo con fondo transparente (sin el recuadro negro)
   const win = window.open('', '_blank');
   if (!win) { alert('El navegador bloqueó la ventana de exportación. Habilitá los pop-ups e intentá de nuevo.'); return; }
   const cierre = '</scr' + 'ipt>';
