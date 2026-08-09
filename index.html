@@ -560,6 +560,8 @@ function descargarContratoAlumno(alumno) {
 
 // Exporta a PDF (vía impresión del navegador) el contenido de una herramienta
 // de la Sala de Juegos, con el logo de la app como marca de agua en toda la hoja A4.
+// Detecta el ancho real del dibujo: si no entra en vertical usa horizontal, y
+// escala el contenido para que SIEMPRE entren todas las columnas en la hoja.
 function exportarSalaPDF(el, titulo) {
   if (!el) { alert('No hay contenido para exportar.'); return; }
   const estilos = Array.from(document.querySelectorAll('style')).map(n => n.outerHTML).join('\n');
@@ -567,25 +569,48 @@ function exportarSalaPDF(el, titulo) {
   const win = window.open('', '_blank');
   if (!win) { alert('El navegador bloqueó la ventana de exportación. Habilitá los pop-ups e intentá de nuevo.'); return; }
   const cierre = '</scr' + 'ipt>';
+  // Script (corre en la ventana nueva): mide el ancho del dibujo, decide orientación
+  // vertical/horizontal, ajusta @page y escala el contenido para que entre completo.
+  const ajuste = [
+    'window.addEventListener("load",function(){setTimeout(function(){',
+    'try{',
+    '  var MM=3.7795275591, margin=10;',
+    '  var wrap=document.querySelector(".cg-scale");',
+    '  var base=wrap.getBoundingClientRect().left, maxR=0;',
+    '  wrap.querySelectorAll("*").forEach(function(n){var r=n.getBoundingClientRect(); if(r.right>maxR)maxR=r.right;});',
+    '  var natural=Math.max(wrap.scrollWidth, Math.ceil(maxR-base)) || wrap.scrollWidth || 1;',
+    '  var portraitW=(210-2*margin)*MM, landscapeW=(297-2*margin)*MM;',
+    '  var orient = natural>portraitW ? "landscape" : "portrait";',
+    '  var pageW = orient==="landscape" ? landscapeW : portraitW;',
+    '  var scale = Math.min(1, pageW/natural);',
+    '  var st=document.createElement("style"); st.textContent="@page{size:A4 "+orient+";margin:"+margin+"mm;}"; document.head.appendChild(st);',
+    '  wrap.style.transformOrigin="top left"; wrap.style.transform="scale("+scale+")";',
+    '  var sw=document.querySelector(".cg-scalewrap"); sw.style.width=pageW+"px"; sw.style.height=Math.ceil(wrap.scrollHeight*scale)+"px";',
+    '}catch(e){}',
+    'setTimeout(function(){try{window.focus();window.print();}catch(e){}},250);',
+    '},350);});',
+  ].join('');
   win.document.open();
   win.document.write('<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>' +
     String(titulo || 'Sala de Juegos').replace(/[<>]/g, '') + '</title>' + estilos +
     '<style>' +
-    '@page { size: A4; margin: 12mm; }' +
+    '@page { size: A4; margin: 10mm; }' +
     'html, body { background:#fff !important; }' +
     'body { margin:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     '.cg-wm { position: fixed; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; z-index:0; pointer-events:none; }' +
     '.cg-wm img { width: 165mm; max-width: 92%; opacity: 0.06; }' +
     '.cg-body { position: relative; z-index: 1; padding: 4mm; }' +
-    '.cg-body button { display:none !important; }' +   // los controles/paleta no van en el PDF
-    '.cg-noexport { display:none !important; }' +       // bloques marcados como solo-edición
+    '.cg-scalewrap { overflow: hidden; }' +
+    '.cg-scale, .cg-scale * { overflow: visible !important; }' +   // que nada se recorte al escalar
+    '.cg-body button { display:none !important; }' +               // los controles/paleta no van en el PDF
+    '.cg-noexport { display:none !important; }' +                  // bloques marcados como solo-edición
     '.cg-toolbar-print { position: fixed; bottom:10px; right:10px; z-index:5; }' +
     '@media print { .cg-toolbar-print { display:none !important; } }' +
     '</style></head><body>' +
     '<div class="cg-wm"><img src="' + logo + '" alt=""></div>' +
-    '<div class="cg-body">' + el.innerHTML + '</div>' +
+    '<div class="cg-body"><div class="cg-scalewrap"><div class="cg-scale">' + el.innerHTML + '</div></div></div>' +
     '<div class="cg-toolbar-print"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>' +
-    '<scr' + 'ipt>window.addEventListener("load",function(){setTimeout(function(){try{window.focus();window.print();}catch(e){}},500);});' + cierre +
+    '<scr' + 'ipt>' + ajuste + cierre +
     '</body></html>');
   win.document.close();
 }
