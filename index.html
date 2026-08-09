@@ -590,15 +590,20 @@ function exportarSalaPDF(el, titulo) {
     'setTimeout(function(){try{window.focus();window.print();}catch(e){}},250);',
     '},350);});',
   ].join('');
+  const tit = String(titulo || 'Sala de Juegos').replace(/[<>]/g, '');
   win.document.open();
   win.document.write('<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>' +
-    String(titulo || 'Sala de Juegos').replace(/[<>]/g, '') + '</title>' + estilos +
+    tit + '</title>' + estilos +
     '<style>' +
     '@page { size: A4; margin: 10mm; }' +
     'html, body { background:#fff !important; }' +
     'body { margin:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     '.cg-wm { position: fixed; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; z-index:0; pointer-events:none; }' +
     '.cg-wm img { width: 165mm; max-width: 92%; opacity: 0.06; }' +
+    '.cg-corner-logo { position: fixed; top: 5mm; right: 5mm; height: 16mm; width: auto; z-index: 3; }' +   // logo en la esquina sup. derecha de cada hoja
+    '.cg-header { position: relative; z-index: 2; padding: 0 26mm 6px 2mm; border-bottom: 1px solid #999; margin-bottom: 8px; }' +
+    '.cg-h-title { font-weight: 700; font-size: 14px; color: #111; }' +
+    '.cg-h-cpn { font-size: 11px; color: #333; margin-top: 2px; }' +
     '.cg-body { position: relative; z-index: 1; padding: 4mm; }' +
     '.cg-scalewrap { overflow: hidden; }' +
     '.cg-scale, .cg-scale * { overflow: visible !important; }' +   // que nada se recorte al escalar
@@ -608,7 +613,10 @@ function exportarSalaPDF(el, titulo) {
     '@media print { .cg-toolbar-print { display:none !important; } }' +
     '</style></head><body>' +
     '<div class="cg-wm"><img src="' + logo + '" alt=""></div>' +
-    '<div class="cg-body"><div class="cg-scalewrap"><div class="cg-scale">' + el.innerHTML + '</div></div></div>' +
+    '<img class="cg-corner-logo" src="' + logo + '" alt="">' +
+    '<div class="cg-body">' +
+    '<div class="cg-header"><div class="cg-h-title">' + tit + '</div><div class="cg-h-cpn">CPN Raúl Emiliano Díaz Cortés</div></div>' +
+    '<div class="cg-scalewrap"><div class="cg-scale">' + el.innerHTML + '</div></div></div>' +
     '<div class="cg-toolbar-print"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>' +
     '<scr' + 'ipt>' + ajuste + cierre +
     '</body></html>');
