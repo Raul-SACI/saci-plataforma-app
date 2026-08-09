@@ -2414,7 +2414,7 @@ function SistemaAdministrativo({ alumno, aulaActiva, esAdmin }) {
   const SUBS = [
     { id: 'msa', icon: '🧩', label: 'MSA', listo: true },
     { id: 'fragmentaciones', icon: '✂️', label: 'Fragmentaciones', listo: true },
-    { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: false },
+    { id: 'cursogramas', icon: '🔀', label: 'Cursogramas', listo: true },
   ];
   return (
     <div>
@@ -2436,17 +2436,351 @@ function SistemaAdministrativo({ alumno, aulaActiva, esAdmin }) {
         ? <MsaEditor alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} embebido={true} />
         : sub === 'fragmentaciones'
         ? <Fragmentaciones alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
-        : (
-          <div className="page-content fade-in">
-            <div style={{ textAlign: 'center', padding: '70px 20px' }}>
-              <div style={{ fontSize: '3.5rem', marginBottom: 16 }}>🚧</div>
-              <div style={{ fontWeight: 700, fontSize: '1.2rem', marginBottom: 8 }}>Cursogramas</div>
-              <div style={{ color: 'var(--text2)', fontSize: '0.9rem', maxWidth: 420, margin: '0 auto' }}>
-                Esta herramienta está en construcción. Muy pronto vas a poder practicar acá.
+        : <Cursogramas alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />}
+    </div>
+  );
+}
+
+// ─── CURSOGRAMAS (editor tipo Visio) ──────────────────────────────────
+// Cada cursograma es el dibujo de un proceso: tiene título, columnas (cada
+// columna = un sector de la empresa) y símbolos conectados con flechas.
+const CG_ID = () => Math.random().toString(36).slice(2, 9);
+const CG_SIMBOLOS = [
+  { tipo: 'comprobante',        label: 'Comprobante manual / externo', grupo: 'Comprobantes',   w: 96, h: 54 },
+  { tipo: 'comprobante_sistema',label: 'Comprobante / planilla por sistema', grupo: 'Comprobantes', w: 96, h: 58 },
+  { tipo: 'operacion',          label: 'Operación manual',             grupo: 'Operaciones',    w: 60, h: 60 },
+  { tipo: 'cpu',                label: 'CPU',                          grupo: 'Operaciones',    w: 64, h: 60 },
+  { tipo: 'decision',           label: 'Decisión',                     grupo: 'Operaciones',    w: 78, h: 66 },
+  { tipo: 'terminal',           label: 'Terminal',                     grupo: 'Operaciones',    w: 96, h: 52 },
+  { tipo: 'anexion',            label: 'Anexión',                      grupo: 'Operaciones',    w: 92, h: 34 },
+  { tipo: 'disco',              label: 'Disco / archivo',              grupo: 'Almacenamiento', w: 72, h: 62 },
+  { tipo: 'carpeta',            label: 'Carpeta / Legajo',             grupo: 'Almacenamiento', w: 74, h: 60 },
+  { tipo: 'archivo_transitorio',label: 'Archivo transitorio (▽)',      grupo: 'Archivos',       w: 62, h: 54 },
+  { tipo: 'archivo_definitivo', label: 'Archivo definitivo (△)',       grupo: 'Archivos',       w: 62, h: 54 },
+  { tipo: 'conector_misma',     label: 'Conector (misma página)',      grupo: 'Conectores',     w: 44, h: 50 },
+  { tipo: 'conector_pagina',    label: 'Conector (página a página)',   grupo: 'Conectores',     w: 46, h: 46 },
+  { tipo: 'inicio',             label: 'Inicio / reinicio',            grupo: 'Conectores',     w: 58, h: 60 },
+  { tipo: 'controlador_fiscal', label: 'Controlador fiscal',           grupo: 'Dispositivos',   w: 72, h: 54, texto: 'CF DGI' },
+  { tipo: 'scanner',            label: 'Scanner de códigos',           grupo: 'Dispositivos',   w: 76, h: 54, texto: '▦ Scanner' },
+  { tipo: 'teclado_pin',        label: 'Teclado (PIN)',                grupo: 'Dispositivos',   w: 76, h: 54, texto: '⌨ PIN' },
+  { tipo: 'billetera_virtual',  label: 'Billetera virtual',            grupo: 'Dispositivos',   w: 76, h: 54, texto: '📱 Billetera' },
+];
+const CG_GRUPOS = [...new Set(CG_SIMBOLOS.map(s => s.grupo))];
+const cgDef = (tipo) => CG_SIMBOLOS.find(s => s.tipo === tipo) || CG_SIMBOLOS[0];
+
+// Dibujo SVG de cada símbolo (trazo negro sobre "papel" blanco).
+function FormaCG({ tipo, w, h }) {
+  const st = { fill: '#fff', stroke: '#111', strokeWidth: 1.6 };
+  const pts = (arr) => arr.map(p => p.join(',')).join(' ');
+  switch (tipo) {
+    case 'operacion':
+    case 'conector_pagina':
+      return <ellipse cx={w/2} cy={h/2} rx={w/2-2} ry={h/2-2} style={st} />;
+    case 'cpu':
+    case 'comprobante':
+      return <rect x={2} y={2} width={w-4} height={h-4} rx={2} style={st} />;
+    case 'controlador_fiscal':
+    case 'scanner':
+    case 'teclado_pin':
+    case 'billetera_virtual':
+      return <rect x={2} y={2} width={w-4} height={h-4} rx={9} style={st} />;
+    case 'decision':
+      return <polygon points={pts([[w/2,2],[w-2,h/2],[w/2,h-2],[2,h/2]])} style={st} />;
+    case 'terminal':
+      return <polygon points={pts([[2,13],[15,2],[w-2,2],[w-2,h-2],[2,h-2]])} style={st} />;
+    case 'anexion':
+      return <g><polygon points={pts([[12,2],[w-2,2],[w-12,h-2],[2,h-2]])} style={st} /><line x1={4} y1={h-3} x2={w-4} y2={3} stroke="#111" strokeWidth={1.6} /></g>;
+    case 'archivo_transitorio':
+      return <polygon points={pts([[2,2],[w-2,2],[w/2,h-2]])} style={st} />;
+    case 'archivo_definitivo':
+      return <polygon points={pts([[w/2,2],[w-2,h-2],[2,h-2]])} style={st} />;
+    case 'conector_misma':
+      return <polygon points={pts([[2,2],[w-2,2],[w-2,h*0.55],[w/2,h-2],[2,h*0.55]])} style={st} />;
+    case 'inicio':
+      return <polygon points={pts([[w*0.28,2],[w*0.72,2],[w*0.72,h*0.5],[w-2,h*0.5],[w/2,h-2],[2,h*0.5],[w*0.28,h*0.5]])} style={st} />;
+    case 'disco':
+      return <g><path d={`M2 9 V ${h-9} A ${w/2-2} 7 0 0 0 ${w-2} ${h-9} V 9`} style={st} /><ellipse cx={w/2} cy={9} rx={w/2-2} ry={7} style={st} /></g>;
+    case 'carpeta':
+      return <path d={`M2 ${h-2} V 9 H ${w*0.46} L ${w*0.56} 3 H ${w-2} V ${h-2} Z`} style={st} />;
+    case 'comprobante_sistema':
+      return <path d={`M2 2 H ${w-2} V ${h-9} C ${w*0.66} ${h-1} ${w*0.34} ${h-16} 2 ${h-9} Z`} style={st} />;
+    default:
+      return <rect x={2} y={2} width={w-4} height={h-4} style={st} />;
+  }
+}
+
+function Cursogramas({ alumno, aulaActiva, esAdmin }) {
+  const [lista, setLista] = useState([]);
+  const [publicados, setPublicados] = useState([]);
+  const [actual, setActual] = useState(null);
+  const [titulo, setTitulo] = useState('');
+  const [columnas, setColumnas] = useState([{ id: CG_ID(), nombre: 'Sector 1', w: 280 }, { id: CG_ID(), nombre: 'Sector 2', w: 280 }, { id: CG_ID(), nombre: 'Sector 3', w: 280 }]);
+  const [simbolos, setSimbolos] = useState([]);
+  const [conexiones, setConexiones] = useState([]);
+  const [sel, setSel] = useState(null);           // símbolo seleccionado
+  const [modoConectar, setModoConectar] = useState(false);
+  const [tipoLinea, setTipoLinea] = useState('solida');  // 'solida' | 'punteada'
+  const [conFrom, setConFrom] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const miAula = esAdmin ? aulaActiva : alumno?.aula_id;
+  const soloLectura = actual?.soloLectura;
+  const CG_HEAD = 76;   // alto del encabezado (título + nombres de columnas)
+
+  const load = async () => {
+    if (!miAula) { setLoading(false); return; }
+    try {
+      if (esAdmin) {
+        const { data, error } = await supabase.from('sa_cursogramas').select('id, titulo, publicada, updated_at').eq('es_admin', true).eq('aula_id', miAula).order('updated_at', { ascending: false });
+        if (error) throw error;
+        setLista(data || []);
+      } else {
+        const [mios, pub] = await Promise.all([
+          supabase.from('sa_cursogramas').select('id, titulo, updated_at').eq('alumno_id', alumno?.id).order('updated_at', { ascending: false }),
+          supabase.from('sa_cursogramas').select('id, titulo, updated_at').eq('es_admin', true).eq('publicada', true).eq('aula_id', miAula).order('updated_at', { ascending: false }),
+        ]);
+        setLista(mios.data || []);
+        setPublicados(pub.data || []);
+      }
+    } catch (e) {
+      toast('Falta crear la tabla "sa_cursogramas" en Supabase (ver instrucciones).', 'error');
+    }
+    setLoading(false);
+  };
+  useEffect(() => { setLoading(true); load(); }, [miAula]);
+
+  const nuevo = () => {
+    setActual(null); setTitulo(''); setSimbolos([]); setConexiones([]); setSel(null);
+    setColumnas([{ id: CG_ID(), nombre: 'Sector 1', w: 280 }, { id: CG_ID(), nombre: 'Sector 2', w: 280 }, { id: CG_ID(), nombre: 'Sector 3', w: 280 }]);
+    setModoConectar(false); setConFrom(null);
+  };
+  const cargar = async (id, lectura = false) => {
+    const { data } = await supabase.from('sa_cursogramas').select('*').eq('id', id).single();
+    if (!data) return;
+    setActual(lectura ? { ...data, soloLectura: true } : data);
+    setTitulo(data.titulo || '');
+    const d = data.datos || {};
+    setColumnas(Array.isArray(d.columnas) && d.columnas.length ? d.columnas : [{ id: CG_ID(), nombre: 'Sector 1', w: 280 }]);
+    setSimbolos(Array.isArray(d.simbolos) ? d.simbolos : []);
+    setConexiones(Array.isArray(d.conexiones) ? d.conexiones : []);
+    setSel(null); setModoConectar(false); setConFrom(null);
+  };
+  const guardar = async (publicar = null) => {
+    if (!titulo.trim()) return toast('Ponele un título al cursograma', 'error');
+    setSaving(true);
+    const payload = { titulo: titulo.trim(), datos: { columnas, simbolos, conexiones }, aula_id: miAula, updated_at: new Date().toISOString() };
+    if (esAdmin) { payload.es_admin = true; if (publicar !== null) payload.publicada = publicar; }
+    else { payload.alumno_id = alumno?.id; }
+    let error;
+    if (actual?.id && !actual?.soloLectura) {
+      ({ error } = await supabase.from('sa_cursogramas').update(payload).eq('id', actual.id));
+    } else {
+      const { data, error: e2 } = await supabase.from('sa_cursogramas').insert(payload).select('id').single();
+      error = e2; if (data) setActual({ id: data.id, ...payload });
+    }
+    setSaving(false);
+    if (error) return toast('Error: ' + error.message, 'error');
+    toast(publicar === true ? 'Cursograma publicado ✅' : (publicar === false ? 'Cursograma despublicado' : 'Cursograma guardado ✅'), 'success');
+    load();
+  };
+  const eliminar = async (id) => {
+    if (!confirm('¿Eliminar este cursograma?')) return;
+    const { error } = await supabase.from('sa_cursogramas').delete().eq('id', id);
+    if (error) return toast('Error: ' + error.message, 'error');
+    if (actual?.id === id) nuevo();
+    load();
+  };
+
+  // ── Columnas (sectores) ──
+  const addColumna = () => setColumnas(cs => [...cs, { id: CG_ID(), nombre: 'Sector ' + (cs.length + 1), w: 280 }]);
+  const renColumna = (id, nombre) => setColumnas(cs => cs.map(c => c.id === id ? { ...c, nombre } : c));
+  const delColumna = (id) => { if (columnas.length <= 1) return; setColumnas(cs => cs.filter(c => c.id !== id)); };
+  const anchoColumna = (id, w) => setColumnas(cs => cs.map(c => c.id === id ? { ...c, w: Math.max(140, w) } : c));
+
+  // ── Símbolos ──
+  const addSimbolo = (tipo) => {
+    const def = cgDef(tipo);
+    const n = simbolos.length;
+    setSimbolos(ss => [...ss, { id: CG_ID(), tipo, texto: def.texto || '', x: 30 + (n % 5) * 16, y: CG_HEAD + 20 + (n % 8) * 16, w: def.w, h: def.h }]);
+  };
+  const setTextoSel = (texto) => setSimbolos(ss => ss.map(s => s.id === sel ? { ...s, texto } : s));
+  const delSimbolo = (id) => { setSimbolos(ss => ss.filter(s => s.id !== id)); setConexiones(xs => xs.filter(k => k.from !== id && k.to !== id)); if (sel === id) setSel(null); };
+  const resizeSel = (dw, dh) => setSimbolos(ss => ss.map(s => s.id === sel ? { ...s, w: Math.max(30, s.w + dw), h: Math.max(24, s.h + dh) } : s));
+
+  const startDrag = (e, id) => {
+    if (soloLectura) return;
+    if (modoConectar) { clickConectar(id); return; }
+    setSel(id);
+    e.preventDefault();
+    const s = simbolos.find(x => x.id === id); if (!s) return;
+    const sx = e.clientX, sy = e.clientY, ox = s.x, oy = s.y;
+    const mover = (ev) => {
+      const nx = Math.max(0, ox + (ev.clientX - sx));
+      const ny = Math.max(CG_HEAD, oy + (ev.clientY - sy));
+      setSimbolos(ss => ss.map(x => x.id === id ? { ...x, x: nx, y: ny } : x));
+    };
+    const soltar = () => { document.removeEventListener('mousemove', mover); document.removeEventListener('mouseup', soltar); };
+    document.addEventListener('mousemove', mover); document.addEventListener('mouseup', soltar);
+  };
+  const clickConectar = (id) => {
+    if (!conFrom) { setConFrom(id); return; }
+    if (conFrom === id) { setConFrom(null); return; }
+    const from = conFrom, to = id;
+    setConexiones(xs => {
+      const igual = (k) => (k.from === from && k.to === to);
+      return xs.some(igual) ? xs.filter(k => !igual(k)) : [...xs, { id: CG_ID(), from, to, tipo: tipoLinea }];
+    });
+    setConFrom(null);
+  };
+  const centro = (id) => { const s = simbolos.find(x => x.id === id); return s ? { x: s.x + s.w / 2, y: s.y + s.h / 2 } : null; };
+
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>Cargando…</div>;
+  if (!miAula) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--text2)' }}>{esAdmin ? 'Elegí un aula para trabajar.' : 'Todavía no estás en un aula.'}</div>;
+
+  const anchoTotal = Math.max(760, columnas.reduce((a, c) => a + c.w, 0));
+  const altoTotal = Math.max(460, CG_HEAD + 40 + (simbolos.length ? Math.max(...simbolos.map(s => s.y + s.h)) - CG_HEAD : 0) + 40);
+  let acumX = 0;
+  const bordes = columnas.map(c => { const x0 = acumX; acumX += c.w; return { ...c, x0, x1: acumX }; });
+  const selObj = simbolos.find(s => s.id === sel);
+  const chip = { display: 'inline-flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 8, padding: '2px 4px 2px 8px' };
+
+  return (
+    <div className="page-content fade-in" style={{ paddingTop: 8 }}>
+      {/* Cursogramas guardados */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+        <button className="btn btn-primary btn-sm" onClick={nuevo}>+ Nuevo cursograma</button>
+        {lista.map(d => (
+          <span key={d.id} style={{ ...chip, background: actual?.id === d.id ? 'var(--surface2)' : 'transparent' }}>
+            <span onClick={() => cargar(d.id)} style={{ cursor: 'pointer', fontSize: '0.82rem', fontWeight: actual?.id === d.id ? 700 : 500 }}>{d.titulo || '(sin título)'}{d.publicada ? ' 📢' : ''}</span>
+            {esAdmin && <button onClick={() => eliminar(d.id)} title="Eliminar" style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.72rem', opacity: 0.6, padding: 0 }}>🗑️</button>}
+          </span>
+        ))}
+      </div>
+      {!esAdmin && publicados.length > 0 && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 12 }}>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text2)', fontWeight: 600 }}>📢 Del profe:</span>
+          {publicados.map(d => (
+            <span key={d.id} style={chip}><span onClick={() => cargar(d.id, true)} style={{ cursor: 'pointer', fontSize: '0.82rem' }}>{d.titulo || '(sin título)'}</span></span>
+          ))}
+        </div>
+      )}
+
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+          <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del cursograma (ej: Circuito de emisión de la Orden de Compra)"
+            style={{ flex: 1, minWidth: 260, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }} />
+          <button className="btn btn-primary btn-sm" onClick={() => guardar()} disabled={saving}>{saving ? '⏳' : '💾'} Guardar</button>
+          {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-ghost btn-sm" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
+          {esAdmin && actual?.id && actual?.publicada && <button className="btn btn-ghost btn-sm" onClick={() => guardar(false)} disabled={saving}>Despublicar</button>}
+        </div>
+      )}
+
+      {!soloLectura && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 10 }}>
+          {/* Paleta de símbolos */}
+          <div style={{ flex: '1 1 320px', border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>🧰 Simbología — clic para agregar</div>
+            {CG_GRUPOS.map(g => (
+              <div key={g} style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text2)', marginBottom: 4 }}>{g}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {CG_SIMBOLOS.filter(s => s.grupo === g).map(s => (
+                    <button key={s.tipo} onClick={() => addSimbolo(s.tipo)} title={s.label}
+                      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, width: 74, padding: '6px 4px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', cursor: 'pointer' }}>
+                      <svg width={44} height={30} viewBox={`0 0 ${s.w} ${s.h}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block' }}><FormaCG tipo={s.tipo} w={s.w} h={s.h} /></svg>
+                      <span style={{ fontSize: '0.6rem', lineHeight: 1.05, textAlign: 'center', color: 'var(--text2)' }}>{s.label.replace(/ \(.*\)/, '')}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            ))}
           </div>
-        )}
+
+          {/* Controles: columnas, conexión, símbolo seleccionado */}
+          <div style={{ flex: '1 1 320px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>🏛️ Columnas (sectores)</div>
+              {columnas.map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <input value={c.nombre} onChange={e => renColumna(c.id, e.target.value)} placeholder="Nombre del sector"
+                    style={{ flex: 1, padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.82rem' }} />
+                  <input type="number" min="140" step="20" value={c.w} onChange={e => anchoColumna(c.id, parseInt(e.target.value) || 140)} title="Ancho (px)"
+                    style={{ width: 68, padding: '5px 6px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem' }} />
+                  <button onClick={() => delColumna(c.id)} disabled={columnas.length <= 1} style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: columnas.length <= 1 ? 0.3 : 0.7 }}>🗑️</button>
+                </div>
+              ))}
+              <button className="btn btn-ghost btn-sm" onClick={addColumna}>+ Sector</button>
+            </div>
+
+            <div style={{ border: `1px solid ${modoConectar ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
+              <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>➡️ Flechas</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button className={`btn btn-sm ${modoConectar ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { setModoConectar(v => !v); setConFrom(null); }}>{modoConectar ? '✓ Conectando…' : '🔗 Conectar'}</button>
+                <select value={tipoLinea} onChange={e => setTipoLinea(e.target.value)} style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.8rem' }}>
+                  <option value="solida">Línea de trayectoria (sólida)</option>
+                  <option value="punteada">Curso alternativo (punteada)</option>
+                </select>
+                {conexiones.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => { setConexiones([]); setConFrom(null); }}>Borrar flechas</button>}
+              </div>
+              {modoConectar && <div style={{ fontSize: '0.72rem', color: 'var(--text2)', marginTop: 6 }}>Clic en el símbolo de origen y después en el de destino. Repetí el par para borrar esa flecha.</div>}
+            </div>
+
+            {selObj && (
+              <div style={{ border: '1px solid var(--accent)', borderRadius: 10, padding: 10, background: 'var(--surface2)' }}>
+                <div style={{ fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text2)', marginBottom: 8 }}>✏️ Símbolo seleccionado</div>
+                <input value={selObj.texto} onChange={e => setTextoSel(e.target.value)} placeholder="Texto del símbolo"
+                  style={{ width: '100%', padding: '6px 9px', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.84rem', marginBottom: 8 }} />
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.74rem', color: 'var(--text2)' }}>Tamaño:</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(-10, 0)}>–A</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(10, 0)}>+A</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(0, -8)}>–H</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => resizeSel(0, 8)}>+H</button>
+                  <button className="btn btn-danger btn-sm" onClick={() => delSimbolo(selObj.id)}>🗑️ Quitar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Lienzo (papel blanco) */}
+      <div style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: '#e9e9ee' }}>
+        <div style={{ position: 'relative', width: anchoTotal, height: altoTotal, background: '#fff', margin: 12 }}>
+          {/* Título del proceso */}
+          <div style={{ position: 'absolute', left: 0, top: 0, width: anchoTotal, height: 34, borderBottom: '1.5px solid #111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: '#111', textAlign: 'center', padding: '0 8px' }}>{titulo || 'Cursograma'}</div>
+          {/* Encabezados de columnas */}
+          {bordes.map(c => (
+            <div key={c.id} style={{ position: 'absolute', left: c.x0, top: 34, width: c.w, height: CG_HEAD - 34, borderRight: '1px solid #111', borderBottom: '1.5px solid #111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, color: '#111', textAlign: 'center', padding: '0 6px', boxSizing: 'border-box' }}>{c.nombre}</div>
+          ))}
+          {/* Divisores verticales de columnas a lo largo del lienzo */}
+          {bordes.slice(0, -1).map(c => (
+            <div key={'d' + c.id} style={{ position: 'absolute', left: c.x1, top: CG_HEAD, width: 0, height: altoTotal - CG_HEAD, borderLeft: '1px dashed #bbb' }} />
+          ))}
+
+          {/* Flechas */}
+          <svg width={anchoTotal} height={altoTotal} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }}>
+            <defs>
+              <marker id="cg-arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto"><path d="M0,0 L9,4.5 L0,9 z" fill="#111" /></marker>
+            </defs>
+            {conexiones.map(k => {
+              const a = centro(k.from), b = centro(k.to); if (!a || !b) return null;
+              return <line key={k.id} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#111" strokeWidth={1.6} strokeDasharray={k.tipo === 'punteada' ? '5 4' : undefined} markerEnd="url(#cg-arrow)" />;
+            })}
+          </svg>
+
+          {/* Símbolos */}
+          {simbolos.map(s => (
+            <div key={s.id} onMouseDown={(e) => startDrag(e, s.id)} onClick={() => { if (modoConectar) clickConectar(s.id); else setSel(s.id); }}
+              style={{ position: 'absolute', left: s.x, top: s.y, width: s.w, height: s.h, cursor: soloLectura ? 'default' : (modoConectar ? 'crosshair' : 'move'), zIndex: 2, outline: (sel === s.id || conFrom === s.id) ? '2px solid var(--accent)' : 'none', outlineOffset: 2, borderRadius: 3 }}>
+              <svg width={s.w} height={s.h} viewBox={`0 0 ${s.w} ${s.h}`} style={{ display: 'block', overflow: 'visible' }}><FormaCG tipo={s.tipo} w={s.w} h={s.h} /></svg>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', fontSize: 10, color: '#111', padding: 3, pointerEvents: 'none', lineHeight: 1.05, wordBreak: 'break-word' }}>{s.texto}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ fontSize: '0.74rem', color: 'var(--text2)', marginTop: 6 }}>Tip: arrastrá los símbolos para ubicarlos en la columna del sector que corresponda. Usá 🔗 Conectar para dibujar las flechas del recorrido.</div>
     </div>
   );
 }
