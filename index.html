@@ -9527,6 +9527,7 @@ function AdminNovedades({ aulaActiva }) {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
+  const [refActivo, setRefActivo] = useState(false);   // promo de referidos visible para alumnos de esta aula
   const toast = useToast();
 
   const TIPOS = {
@@ -9545,10 +9546,19 @@ function AdminNovedades({ aulaActiva }) {
       .order('created_at', { ascending: false });
     // Ocultar del panel del admin las novedades dirigidas a un alumno puntual (recordatorios automáticos).
     setNovedades((data || []).filter(n => !n.alumno_id));
+    try { const { data: a } = await supabase.from('aulas').select('referidos_activo').eq('id', aulaActiva).single(); setRefActivo(!!a?.referidos_activo); } catch { setRefActivo(false); }
     setLoading(false);
   };
 
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
+
+  const toggleReferidos = async () => {
+    const nuevo = !refActivo;
+    setRefActivo(nuevo);
+    const { error } = await supabase.from('aulas').update({ referidos_activo: nuevo }).eq('id', aulaActiva);
+    if (error) { setRefActivo(!nuevo); return toast('Para usar esto agregá la columna "referidos_activo" en la tabla aulas (correr el SQL indicado).', 'error'); }
+    toast(nuevo ? '🎁 Promo de referidos ACTIVADA (visible para los alumnos)' : 'Promo de referidos oculta para los alumnos', 'success');
+  };
 
   const save = async () => {
     if (!form.titulo.trim()) return toast('El título es requerido', 'error');
@@ -9595,9 +9605,15 @@ function AdminNovedades({ aulaActiva }) {
           <div className="page-title">📢 Novedades</div>
           <div className="page-subtitle">Muro de comunicados y avisos</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
-          ➕ Nueva novedad
-        </button>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+          <button className={`btn btn-sm ${refActivo ? 'btn-primary' : 'btn-ghost'}`} onClick={toggleReferidos}
+            title="Mostrar u ocultar la promo '🎁 Invitá a un amigo' a los alumnos de esta aula">
+            🎁 Referidos: {refActivo ? 'ACTIVO' : 'oculto'}
+          </button>
+          <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
+            ➕ Nueva novedad
+          </button>
+        </div>
       </div>
 
       {novedades.length === 0 && <Empty icon="📢" text="No hay novedades publicadas aún" />}
@@ -9688,6 +9704,7 @@ function AlumnoMuro({ alumno }) {
   const [liking, setLiking] = useState({});
   const [misLikes, setMisLikes] = useState({});
   const [misRef, setMisRef] = useState(null);   // { total, activos } de amigos referidos
+  const [refActivo, setRefActivo] = useState(false);   // el admin habilitó la promo de referidos en esta aula
   const toast = useToast();
 
   const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
@@ -9718,6 +9735,8 @@ function AlumnoMuro({ alumno }) {
     // El alumno solo ve las novedades de SU aula.
     const miAula = alumno?.aula_id;
     if (!miAula) { setNovedades([]); setLoading(false); return; }
+    // ¿El admin habilitó la promo de referidos en esta aula? (por defecto oculta).
+    try { const { data: a } = await supabase.from('aulas').select('referidos_activo').eq('id', miAula).single(); setRefActivo(!!a?.referidos_activo); } catch { setRefActivo(false); }
     // Si hoy corresponde, generar el recordatorio de vencimiento de pago de este alumno.
     if (alumno?.id) await generarRecordatorioPagoAlumno(alumno.id, miAula);
     const { data: novs } = await supabase
@@ -9797,7 +9816,8 @@ function AlumnoMuro({ alumno }) {
         </div>
       </div>
 
-      {/* Invitá a un amigo */}
+      {/* Invitá a un amigo (solo si el admin habilitó la promo en esta aula) */}
+      {refActivo && (
       <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
         <div style={{fontWeight:700,marginBottom:6}}>🎁 Invitá a un amigo y ganás</div>
         <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>
@@ -9813,6 +9833,7 @@ function AlumnoMuro({ alumno }) {
           </div>
         )}
       </div>
+      )}
 
       {novedades.length === 0 && <Empty icon="📢" text="No hay novedades publicadas aún" />}
 
