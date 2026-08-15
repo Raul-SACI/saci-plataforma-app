@@ -6635,6 +6635,7 @@ function AdminPagos({ aulaActiva }) {
   const [filterMes, setFilterMes] = useState('');
   const [soloSinFacturar, setSoloSinFacturar] = useState(false);
   const [precios, setPrecios] = useState({});         // precio por plan de esta aula
+  const [refMonto, setRefMonto] = useState(0);         // monto fijo del descuento por referido (por amigo)
   const [preciosModal, setPreciosModal] = useState(false);
   const [preciosForm, setPreciosForm] = useState({});
   const [arcaProbando, setArcaProbando] = useState(false);
@@ -6657,8 +6658,9 @@ function AdminPagos({ aulaActiva }) {
         aData = r2.data;
       } else aData = r1.data;
     }
-    const { data: aulaRow } = await supabase.from('aulas').select('precios').eq('id', aulaActiva).single();
+    const { data: aulaRow } = await supabase.from('aulas').select('precios, referidos_monto').eq('id', aulaActiva).single();
     setPrecios(aulaRow?.precios || {});
+    setRefMonto(parseFloat(aulaRow?.referidos_monto) || 0);
     const idsAula = (aData || []).map(a => a.id);
     let pData = [];
     if (idsAula.length) {
@@ -6696,7 +6698,7 @@ function AdminPagos({ aulaActiva }) {
     let notasFinal = form.notas || null;
     if (nDesc > 0 && montoDesc > 0) {
       montoFinal = Math.max(0, montoFinal - montoDesc);
-      notasFinal = `${notasFinal ? notasFinal + ' · ' : ''}Descuento ${nDesc * 5}% por referidos (-$${montoDesc.toLocaleString('es-AR')})`;
+      notasFinal = `${notasFinal ? notasFinal + ' · ' : ''}Descuento por ${nDesc} referido${nDesc !== 1 ? 's' : ''} (-$${montoDesc.toLocaleString('es-AR')})`;
     }
 
     const payload = {
@@ -6829,19 +6831,17 @@ function AdminPagos({ aulaActiva }) {
   // Precio de un plan y resumen de pago de un alumno (helpers compartidos con los recordatorios).
   const precioPlan = (plan) => precioDePlan(precios, plan);
   const resumenAlumno = (alumnoId) => resumenPagoDe(pagos.filter(p => p.alumno_id === alumnoId), precios);
-  // Descuento por referidos: cuántos 5% le quedan disponibles a un alumno (tope 2, menos los ya usados).
+  // Descuento por referidos: cuántos amigos con crédito le quedan (tope 2, menos los ya usados).
   const descRefDisponible = (alumnoId) => {
     const al = alumnos.find(a => a.id === alumnoId);
     if (!al) return 0;
     const califican = Math.min(2, refCount[al.id] || 0);
     return Math.max(0, califican - (al.ref_desc_usados || 0));
   };
-  // Monto en $ del descuento por referidos = 5% del total del plan × cantidad de referidos aplicados.
+  // Monto en $ del descuento por referidos = monto fijo por amigo × cantidad de referidos aplicados.
   const montoDescRef = (plan, n) => {
     if (!n) return 0;
-    const pp = precioPlan(plan);
-    const base = pp.cuotas || pp.unico || 0;
-    return Math.round(base * 0.05 * n);
+    return Math.round(refMonto * n);
   };
   const hayPrecios = PLANES.some(pl => { const o = precioPlan(pl); return o.unico > 0 || o.cuotas > 0; });
   const incompletos = alumnos
@@ -7194,8 +7194,8 @@ function AdminPagos({ aulaActiva }) {
                 <label style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer'}}>
                   <input type="checkbox" checked={aplicarDesc} onChange={e => setAplicarDesc(e.target.checked)} style={{width:'auto',marginTop:3}} />
                   <span style={{fontSize:'0.84rem'}}>
-                    🎁 <b>Descuento por referidos:</b> tiene <b>{n}</b> referido{n!==1?'s':''} que ya pagó{n!==1?'ron':''}. Aplicar <b>{n*5}% de su plan</b>{md>0 ? <> (<b>–$ {md.toLocaleString('es-AR')}</b>)</> : ''}.
-                    {md<=0 && <span style={{color:'var(--warning)',display:'block',marginTop:4}}>⚠️ Configurá el precio del plan (⚙️) para calcular el monto del descuento.</span>}
+                    🎁 <b>Descuento por referidos:</b> tiene <b>{n}</b> referido{n!==1?'s':''} que ya pagó{n!==1?'ron':''}. Aplicar <b>$ {refMonto.toLocaleString('es-AR')} por amigo</b>{md>0 ? <> (<b>–$ {md.toLocaleString('es-AR')}</b>)</> : ''}.
+                    {md<=0 && <span style={{color:'var(--warning)',display:'block',marginTop:4}}>⚠️ Configurá el monto del descuento por referido en Novedades (🎁).</span>}
                   </span>
                 </label>
                 {aplicarDesc && md>0 && (
@@ -9559,6 +9559,7 @@ function AdminNovedades({ aulaActiva }) {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
   const [refActivo, setRefActivo] = useState(false);   // promo de referidos visible para alumnos de esta aula
+  const [refMonto, setRefMonto] = useState('');         // monto fijo del descuento por amigo referido
   const toast = useToast();
 
   const TIPOS = {
@@ -9577,7 +9578,7 @@ function AdminNovedades({ aulaActiva }) {
       .order('created_at', { ascending: false });
     // Ocultar del panel del admin las novedades dirigidas a un alumno puntual (recordatorios automáticos).
     setNovedades((data || []).filter(n => !n.alumno_id));
-    try { const { data: a } = await supabase.from('aulas').select('referidos_activo').eq('id', aulaActiva).single(); setRefActivo(!!a?.referidos_activo); } catch { setRefActivo(false); }
+    try { const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto').eq('id', aulaActiva).single(); setRefActivo(!!a?.referidos_activo); setRefMonto(a?.referidos_monto != null ? String(a.referidos_monto) : ''); } catch { setRefActivo(false); }
     setLoading(false);
   };
 
@@ -9589,6 +9590,12 @@ function AdminNovedades({ aulaActiva }) {
     const { error } = await supabase.from('aulas').update({ referidos_activo: nuevo }).eq('id', aulaActiva);
     if (error) { setRefActivo(!nuevo); return toast('Para usar esto agregá la columna "referidos_activo" en la tabla aulas (correr el SQL indicado).', 'error'); }
     toast(nuevo ? '🎁 Promo de referidos ACTIVADA (visible para los alumnos)' : 'Promo de referidos oculta para los alumnos', 'success');
+  };
+  const guardarRefMonto = async () => {
+    const val = parseFloat(refMonto) || 0;
+    const { error } = await supabase.from('aulas').update({ referidos_monto: val }).eq('id', aulaActiva);
+    if (error) return toast('Para usar esto agregá la columna "referidos_monto" en la tabla aulas (correr el SQL indicado).', 'error');
+    toast(`Monto del descuento por amigo: $ ${val.toLocaleString('es-AR')} ✅`, 'success');
   };
 
   const save = async () => {
@@ -9641,6 +9648,11 @@ function AdminNovedades({ aulaActiva }) {
             title="Mostrar u ocultar la promo '🎁 Invitá a un amigo' a los alumnos de esta aula">
             🎁 Referidos: {refActivo ? 'ACTIVO' : 'oculto'}
           </button>
+          <span style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:'0.8rem',color:'var(--text2)'}} title="Monto fijo que gana el alumno por cada amigo que se inscribe y paga">
+            $ por amigo:
+            <input type="number" min="0" step="1000" value={refMonto} onChange={e => setRefMonto(e.target.value)} onBlur={guardarRefMonto} placeholder="0"
+              style={{width:110,padding:'6px 8px',borderRadius:7,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.82rem'}} />
+          </span>
           <button className="btn btn-primary" onClick={() => { setForm({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' }); setEditing(null); setModal(true); }}>
             ➕ Nueva novedad
           </button>
@@ -9736,6 +9748,7 @@ function AlumnoMuro({ alumno }) {
   const [misLikes, setMisLikes] = useState({});
   const [misRef, setMisRef] = useState(null);   // { total, activos } de amigos referidos
   const [refActivo, setRefActivo] = useState(false);   // el admin habilitó la promo de referidos en esta aula
+  const [refMonto, setRefMonto] = useState(0);          // monto fijo por amigo referido
   const toast = useToast();
 
   const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
@@ -9767,7 +9780,7 @@ function AlumnoMuro({ alumno }) {
     const miAula = alumno?.aula_id;
     if (!miAula) { setNovedades([]); setLoading(false); return; }
     // ¿El admin habilitó la promo de referidos en esta aula? (por defecto oculta).
-    try { const { data: a } = await supabase.from('aulas').select('referidos_activo').eq('id', miAula).single(); setRefActivo(!!a?.referidos_activo); } catch { setRefActivo(false); }
+    try { const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto').eq('id', miAula).single(); setRefActivo(!!a?.referidos_activo); setRefMonto(parseFloat(a?.referidos_monto) || 0); } catch { setRefActivo(false); }
     // Si hoy corresponde, generar el recordatorio de vencimiento de pago de este alumno.
     if (alumno?.id) await generarRecordatorioPagoAlumno(alumno.id, miAula);
     const { data: novs } = await supabase
@@ -9852,7 +9865,7 @@ function AlumnoMuro({ alumno }) {
       <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
         <div style={{fontWeight:700,marginBottom:6}}>🎁 Invitá a un amigo y ganás</div>
         <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>
-          Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás un <b>5% de descuento</b> en tu próxima cuota. Vale por hasta <b>2 amigos</b> (hasta 10%).
+          Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás <b>{refMonto > 0 ? `$ ${refMonto.toLocaleString('es-AR')}` : 'un descuento'} de descuento</b> en tu próxima cuota{refMonto > 0 ? <> por cada amigo</> : ''}. Vale por hasta <b>2 amigos</b>{refMonto > 0 ? <> (hasta $ {(refMonto * 2).toLocaleString('es-AR')})</> : ''}.
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           <input readOnly value={miLink} onFocus={e => e.target.select()} style={{flex:1,minWidth:200,fontSize:'0.8rem'}} />
