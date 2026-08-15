@@ -9560,6 +9560,7 @@ function AdminNovedades({ aulaActiva }) {
   const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
   const [refActivo, setRefActivo] = useState(false);   // promo de referidos visible para alumnos de esta aula
   const [refMonto, setRefMonto] = useState('');         // monto fijo del descuento por amigo referido
+  const [seleccion, setSeleccion] = useState([]);       // ids de novedades seleccionadas
   const toast = useToast();
 
   const TIPOS = {
@@ -9578,6 +9579,7 @@ function AdminNovedades({ aulaActiva }) {
       .order('created_at', { ascending: false });
     // Ocultar del panel del admin las novedades dirigidas a un alumno puntual (recordatorios automáticos).
     setNovedades((data || []).filter(n => !n.alumno_id));
+    setSeleccion([]);
     try { const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto').eq('id', aulaActiva).single(); setRefActivo(!!a?.referidos_activo); setRefMonto(a?.referidos_monto != null ? String(a.referidos_monto) : ''); } catch { setRefActivo(false); }
     setLoading(false);
   };
@@ -9623,6 +9625,27 @@ function AdminNovedades({ aulaActiva }) {
     toast('Novedad eliminada', 'info'); load();
   };
 
+  const toggleSel = id => setSeleccion(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
+  const todasSel = novedades.length > 0 && novedades.every(n => seleccion.includes(n.id));
+  const toggleTodas = () => setSeleccion(todasSel ? [] : novedades.map(n => n.id));
+  const eliminarSeleccionadas = async () => {
+    if (!seleccion.length) return;
+    if (!confirm(`¿Eliminar ${seleccion.length} novedad${seleccion.length !== 1 ? 'es' : ''}? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('novedades').delete().in('id', seleccion);
+    if (error) return toast(error.message, 'error');
+    toast(`${seleccion.length} novedad${seleccion.length !== 1 ? 'es' : ''} eliminada${seleccion.length !== 1 ? 's' : ''} 🗑️`, 'info');
+    setSeleccion([]); load();
+  };
+  const eliminarTodas = async () => {
+    if (!novedades.length) return;
+    if (!confirm(`¿Eliminar TODAS las ${novedades.length} novedades del tablero? Esta acción no se puede deshacer.`)) return;
+    const ids = novedades.map(n => n.id);
+    const { error } = await supabase.from('novedades').delete().in('id', ids);
+    if (error) return toast(error.message, 'error');
+    toast('Tablero limpiado ✨', 'info');
+    setSeleccion([]); load();
+  };
+
   const openEdit = n => {
     setForm({ titulo: n.titulo, contenido: n.contenido, tipo: n.tipo || 'info', destacado: n.destacado || false, link: n.link || '' });
     setEditing(n.id); setModal(true);
@@ -9661,18 +9684,31 @@ function AdminNovedades({ aulaActiva }) {
 
       {novedades.length === 0 && <Empty icon="📢" text="No hay novedades publicadas aún" />}
 
+      {novedades.length > 0 && (
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, padding: '8px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600 }}>
+            <input type="checkbox" checked={todasSel} onChange={toggleTodas} style={{ width: 'auto', margin: 0, cursor: 'pointer' }} />
+            Seleccionar todas
+          </label>
+          {seleccion.length > 0 && <span style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>{seleccion.length} seleccionada{seleccion.length !== 1 ? 's' : ''}</span>}
+          <button className="btn btn-danger btn-sm" onClick={eliminarSeleccionadas} disabled={!seleccion.length}>🗑️ Eliminar seleccionadas</button>
+          <button className="btn btn-ghost btn-sm" onClick={eliminarTodas} title="Borra todas las novedades del tablero" style={{ marginLeft: 'auto', color: 'var(--danger)' }}>🧹 Eliminar todas</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         {novedades.map(n => {
           const cfg = TIPOS[n.tipo] || TIPOS.info;
           const likes = n.likes_novedades?.[0]?.count || 0;
           return (
-            <div key={n.id} className="card" style={{ borderLeft: `4px solid ${cfg.color}`, background: n.destacado ? cfg.bg : 'var(--surface)', position: 'relative' }}>
+            <div key={n.id} className="card" style={{ borderLeft: `4px solid ${cfg.color}`, background: seleccion.includes(n.id) ? 'rgba(88,101,242,0.08)' : (n.destacado ? cfg.bg : 'var(--surface)'), position: 'relative', outline: seleccion.includes(n.id) ? '1px solid var(--accent)' : 'none' }}>
               {n.destacado && (
                 <div style={{ position: 'absolute', top: 12, right: 12, fontSize: '0.68rem', fontWeight: 700, background: cfg.color, color: '#fff', padding: '2px 8px', borderRadius: 20 }}>
                   ⭐ DESTACADO
                 </div>
               )}
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <input type="checkbox" checked={seleccion.includes(n.id)} onChange={() => toggleSel(n.id)} title="Seleccionar" style={{ width: 'auto', margin: 0, cursor: 'pointer', flexShrink: 0 }} />
                 <span style={{ fontSize: '1.4rem' }}>{cfg.icon}</span>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: '1rem' }}>{n.titulo}</div>
