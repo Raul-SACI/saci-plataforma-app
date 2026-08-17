@@ -6057,7 +6057,7 @@ function AprobarInscripciones() {
 
   const load = async () => {
     const [{ data: pend }, { data: aus }] = await Promise.all([
-      supabase.from('alumnos').select('*').eq('estado', 'pendiente').order('created_at', { ascending: true }),
+      supabase.from('alumnos').select('*').or('estado.eq.pendiente,estado.is.null').order('created_at', { ascending: true }),
       supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }),
     ]);
     // Resolver nombres de quienes refirieron a estos inscriptos (para mostrarlos).
