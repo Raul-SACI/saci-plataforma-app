@@ -6246,21 +6246,28 @@ function AdminAlumnos({ aulaActiva }) {
         if (error) throw new Error(error.message);
         toast('Alumno actualizado ✏️', 'success');
       } else {
+        const emailNorm = form.email.trim().toLowerCase();
         const { data: { session: adminSession } } = await supabase.auth.getSession();
-        const { data, error: authError } = await supabase.auth.signUp({
-          email: form.email,
+        const { error: authError } = await supabase.auth.signUp({
+          email: emailNorm,
           password: form.password,
           options: { data: { nombre: form.nombre } }
         });
-        if (authError) throw new Error(authError.message);
+        // Si el usuario ya existía (p. ej. una inscripción que se cortó y quedó sin ficha),
+        // no cortamos: creamos igual la ficha que falta. Otros errores de auth sí cortan.
+        const yaRegistrado = authError && /already|registrad|registered/i.test(authError.message);
+        if (authError && !yaRegistrado) throw new Error(authError.message);
         if (adminSession) {
           await supabase.auth.setSession({ access_token: adminSession.access_token, refresh_token: adminSession.refresh_token });
         }
-        const insertPayload = { nombre: form.nombre, email: form.email, estado: form.estado || 'activo', aula_id: aulaActiva };
+        // Evitar duplicar la ficha si ya existe una con ese email.
+        const { data: existente } = await supabase.from('alumnos').select('id').eq('email', emailNorm).maybeSingle();
+        if (existente) { toast('Ya existe un alumno con ese email en la lista.', 'error'); return; }
+        const insertPayload = { nombre: form.nombre, email: emailNorm, estado: form.estado || 'activo', aula_id: aulaActiva };
         if (form.telefono) insertPayload.telefono = form.telefono;
         const { error: dbError } = await supabase.from('alumnos').insert(insertPayload);
         if (dbError) throw new Error(dbError.message);
-        toast('Alumno creado ✅', 'success');
+        toast(yaRegistrado ? 'Ficha creada ✅ (el usuario ya existía; mantiene su contraseña original).' : 'Alumno creado ✅', 'success');
       }
       setModal(false); setEditing(null); setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' });
       load();
