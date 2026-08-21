@@ -10055,11 +10055,13 @@ function App() {
     return () => document.removeEventListener('contextmenu', block);
   }, [auth, preview]);
 
-  // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos
+  // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos del aula activa.
   const abrirPreview = async () => {
     setPreviewModal(true);
     setPreviewBusca('');
-    const { data } = await supabase.from('alumnos').select('id, nombre, email, aula_id').eq('estado','activo').order('nombre');
+    let q = supabase.from('alumnos').select('id, nombre, email, aula_id').eq('estado','activo').order('nombre');
+    if (aulaActiva) q = q.eq('aula_id', aulaActiva);
+    const { data } = await q;
     setPreviewLista(data || []);
   };
   // Entrar en modo vista-alumno con el alumno elegido
@@ -10325,7 +10327,8 @@ function App() {
             </div>
             <div className="modal-body">
               <p style={{color:'var(--text2)',marginBottom:12,fontSize:'0.9rem'}}>
-                Elegí un alumno para ver la plataforma tal como la ve él (sus videos, materiales, pagos, etc.). No modificás nada: es solo para mirar.
+                Elegí un alumno {aulaActiva ? <b>del aula seleccionada</b> : ''} para ver la plataforma tal como la ve él (sus videos, materiales, pagos, etc.). No modificás nada: es solo para mirar.
+                {!aulaActiva && <span style={{display:'block',marginTop:6,color:'var(--warning)'}}>Elegí un aula arriba para ver solo sus alumnos.</span>}
               </p>
               <input className="input" placeholder="🔍 Buscar alumno..." value={previewBusca}
                 onChange={e => setPreviewBusca(e.target.value)} style={{marginBottom:12}} />
