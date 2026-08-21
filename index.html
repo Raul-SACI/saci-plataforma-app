@@ -7766,13 +7766,13 @@ function AdminVideos({ aulaActiva }) {
           </div>
           <div className="form-group">
             <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
-              <input type="checkbox" checked={!!form.vence_en} onChange={e=>setForm(p=>({...p,vence_en:e.target.checked?new Date(Date.now()+7*24*3600000).toISOString().slice(0,16):''}))} style={{width:'auto'}} />
+              <input type="checkbox" checked={!!form.vence_en} onChange={e=>setForm(p=>({...p,vence_en:e.target.checked?(()=>{const d=new Date(Date.now()+7*24*3600000);const z=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${z(d.getMonth()+1)}-${z(d.getDate())}T23:59`;})():''}))} style={{width:'auto'}} />
               ⌛ Programar vencimiento
             </label>
             {form.vence_en && (
               <div style={{marginTop:8}}>
-                <input type="datetime-local" value={form.vence_en} onChange={e=>setForm(p=>({...p,vence_en:e.target.value}))} />
-                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el alumno verá el video como "Vencido" y no podrá reproducirlo</div>
+                <input type="datetime-local" value={form.vence_en} onChange={e=>{let v=e.target.value; if(v && v.slice(11,16)==='00:00') v=v.slice(0,11)+'23:59'; setForm(p=>({...p,vence_en:v}));}} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el alumno verá el video como "Vencido" y no podrá reproducirlo. Por defecto queda a las <b>23:59</b>; podés cambiar la hora si querés.</div>
               </div>
             )}
           </div>
