@@ -1555,14 +1555,18 @@ function CaminoExamen({ aulaId, esAdmin }) {
         {chipTxt && <div style={{ fontFamily: 'Space Mono', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em', background: 'rgba(108,99,255,0.12)', color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px' }}>{chipTxt}</div>}
       </div>
 
-      <div style={{ position: 'relative', height: 12, margin: '48px 10px 8px' }}>
+      <div style={{ position: 'relative', height: 12, margin: '48px 10px 26px' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'var(--surface2)', borderRadius: 999 }} />
         <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: fillX + '%', background: 'linear-gradient(90deg, var(--accent), var(--accent2))', borderRadius: 999, transition: 'width .9s ease' }} />
         {Array.from({ length: M }).map((_, i) => {
           const done = i < N;
-          return <div key={i} title={`Clase ${i + 1}`} style={{ position: 'absolute', top: '50%', left: xAt(i / Math.max(1, M)) + '%', transform: 'translate(-50%,-50%)', width: 11, height: 11, borderRadius: '50%', background: done ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${done ? 'var(--accent)' : 'var(--border)'}`, zIndex: 2 }} />;
+          return <div key={i} title={`Clase ${i + 1}`} style={{ position: 'absolute', top: '50%', left: xAt(i / Math.max(1, M)) + '%', transform: 'translate(-50%,-50%)', width: 11, height: 11, borderRadius: '50%', background: done ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${done ? 'var(--accent)' : 'var(--border)'}`, zIndex: 2 }}>
+            <span style={{ position: 'absolute', top: 15, left: '50%', transform: 'translateX(-50%)', fontSize: M <= 8 ? '0.6rem' : '0.56rem', fontWeight: 600, color: done ? 'var(--accent)' : 'var(--text2)', whiteSpace: 'nowrap' }}>{M <= 8 ? `Clase ${i + 1}` : (i + 1)}</span>
+          </div>;
         })}
-        <div title="Examen" style={{ position: 'absolute', top: '50%', left: xAt(1) + '%', transform: 'translate(-50%,-50%)', width: 26, height: 26, borderRadius: '50%', background: 'var(--surface)', border: '2px solid var(--accent)', display: 'grid', placeItems: 'center', fontSize: '0.9rem', zIndex: 3 }}>🎓</div>
+        <div title="Examen" style={{ position: 'absolute', top: '50%', left: xAt(1) + '%', transform: 'translate(-50%,-50%)', width: 26, height: 26, borderRadius: '50%', background: 'var(--surface)', border: '2px solid var(--accent)', display: 'grid', placeItems: 'center', fontSize: '0.9rem', zIndex: 3 }}>🎓
+          <span style={{ position: 'absolute', top: 29, left: '50%', transform: 'translateX(-50%)', fontSize: '0.6rem', fontWeight: 700, color: 'var(--accent)', whiteSpace: 'nowrap' }}>Examen</span>
+        </div>
         <div style={{ position: 'absolute', top: '50%', left: fillX + '%', transform: 'translate(-50%,-52%)', width: 40, height: 52, zIndex: 5, transition: 'left .9s ease', filter: 'drop-shadow(0 6px 7px rgba(0,0,0,.35))' }}>
           <div style={{ position: 'relative', width: '100%', height: '100%' }}>
             <MateCaminoSVG />
