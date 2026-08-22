@@ -1465,6 +1465,113 @@ const PLAN_DIAS  = ['Lu','Ma','Mi','Ju','Vi','Sa','Do'];
 const planDiasEnMes = (m,y) => new Date(y, m+1, 0).getDate();
 const planPrimerDia = (m,y) => { const d = new Date(y,m,1).getDay(); return d===0?6:d-1; };
 
+// ── Camino al examen: línea de tiempo con un mate 🧉 que avanza por las clases ──
+function MateCaminoSVG() {
+  return (
+    <svg viewBox="0 0 200 260" style={{ display: 'block', width: '100%', height: '100%', overflow: 'visible' }} aria-hidden="true">
+      <defs>
+        <linearGradient id="ceBody" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#0a0a0b" /><stop offset="0.2" stopColor="#3b3d42" />
+          <stop offset="0.5" stopColor="#171819" /><stop offset="0.8" stopColor="#0b0b0c" /><stop offset="1" stopColor="#000" />
+        </linearGradient>
+        <linearGradient id="ceSil" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stopColor="#7c828b" /><stop offset="0.28" stopColor="#eef1f5" />
+          <stop offset="0.55" stopColor="#b6bcc6" /><stop offset="0.8" stopColor="#f4f6f9" /><stop offset="1" stopColor="#767c85" />
+        </linearGradient>
+      </defs>
+      <ellipse cx="100" cy="248" rx="46" ry="9" fill="rgba(0,0,0,.20)" />
+      <path d="M58,84 C44,98 42,110 42,124 C42,150 50,168 61,177 C71,186 77,192 75,201 C73,210 57,213 63,220 C69,227 79,231 100,231 C121,231 131,227 137,220 C143,213 127,210 125,201 C123,192 129,186 139,177 C150,168 158,150 158,124 C158,110 156,98 142,84 Z" fill="url(#ceBody)" />
+      <path d="M79,94 C71,116 70,158 76,198" stroke="rgba(255,255,255,.10)" strokeWidth="9" fill="none" strokeLinecap="round" />
+      <path d="M52,72 C52,82 57,86 66,86 L134,86 C143,86 148,82 148,72 C148,62 126,56 100,56 C74,56 52,62 52,72 Z" fill="url(#ceSil)" />
+      <ellipse cx="100" cy="63" rx="35" ry="8" fill="#131315" />
+      <ellipse cx="100" cy="62" rx="35" ry="8" fill="none" stroke="rgba(255,255,255,.25)" strokeWidth="1" />
+      <line x1="120" y1="66" x2="160" y2="16" stroke="url(#ceSil)" strokeWidth="7" strokeLinecap="round" />
+      <ellipse cx="161" cy="14" rx="8" ry="4.5" fill="url(#ceSil)" transform="rotate(38 161 14)" />
+    </svg>
+  );
+}
+
+function CaminoExamen({ aulaId, esAdmin }) {
+  const [info, setInfo] = useState(undefined);   // undefined = cargando; luego { fechaExamen, clases }
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!aulaId) { setInfo(null); return; }
+      try {
+        const [a, pd] = await Promise.all([
+          supabase.from('aulas').select('fecha_examen').eq('id', aulaId).single(),
+          supabase.from('planificacion_docente').select('fecha, videos').eq('aula_id', aulaId),
+        ]);
+        if (cancel) return;
+        // "Clase" = día con Clase en Vivo (campo videos) cargada.
+        const clases = (pd.data || []).filter(r => (r.videos || '').trim()).map(r => r.fecha).filter(Boolean).sort();
+        setInfo({ fechaExamen: a.data?.fecha_examen || null, clases });
+      } catch { if (!cancel) setInfo({ fechaExamen: null, clases: [] }); }
+    })();
+    return () => { cancel = true; };
+  }, [aulaId]);
+
+  if (info === undefined) return null;
+  const fechaExamen = info.fechaExamen;
+  if (!fechaExamen) {
+    if (!esAdmin) return null;   // el alumno no ve nada hasta que cargues la fecha
+    return (
+      <div style={{ background: 'var(--surface2)', border: '1px dashed var(--border)', borderRadius: 14, padding: '13px 18px', marginBottom: 20, fontSize: '0.86rem', color: 'var(--text2)' }}>
+        🧉 Cargá la <b>fecha del examen</b> del aula (en <b>Aulas → editar</b>) para mostrar el <b>Camino al examen</b> con la cuenta regresiva.
+      </div>
+    );
+  }
+
+  const d = new Date(); const z = n => String(n).padStart(2, '0');
+  const hoy = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const clasesHasta = info.clases.filter(f => f <= fechaExamen);
+  const M = clasesHasta.length;
+  const N = clasesHasta.filter(f => f <= hoy).length;
+  const dias = Math.round((Date.parse(fechaExamen + 'T00:00:00') - Date.parse(hoy + 'T00:00:00')) / 86400000);
+  const pasado = dias < 0, esHoy = dias === 0;
+  const pad = 4, span = 100 - pad * 2;
+  const xAt = f => pad + f * span;
+  const fillFrac = (pasado || esHoy) ? 1 : (M > 0 ? N / M : 0.04);
+  const fillX = xAt(fillFrac);
+  const fmtEx = (() => { const s = new Date(fechaExamen + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' }); return s.charAt(0).toUpperCase() + s.slice(1); })();
+
+  let titulo, sub;
+  if (pasado) { titulo = <>✅ Examen rendido</>; sub = `Fue el ${fmtEx}`; }
+  else if (esHoy) { titulo = <>🎓 ¡Hoy rendís! Mucha suerte 💪</>; sub = fmtEx; }
+  else { titulo = <>🎯 Faltan <b style={{ fontFamily: 'Space Mono', color: 'var(--accent)', fontSize: '1.5rem' }}>{dias}</b> {dias === 1 ? 'día' : 'días'} para el examen</>; sub = `Examen: ${fmtEx}`; }
+  const chipTxt = pasado ? null : (M === 0 ? null : (N > 0 ? `Vas por la clase ${Math.min(N, M)} de ${M}` : `${M} clases por delante`));
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 20px 14px', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <div style={{ fontFamily: 'Space Mono', fontSize: '0.64rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--accent)', fontWeight: 700, marginBottom: 4 }}>🧉 Camino al examen</div>
+          <div style={{ fontWeight: 700, fontSize: '1.12rem', lineHeight: 1.12 }}>{titulo}</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--text2)', marginTop: 2 }}>{sub}</div>
+        </div>
+        {chipTxt && <div style={{ fontFamily: 'Space Mono', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.04em', background: 'rgba(108,99,255,0.12)', color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px' }}>{chipTxt}</div>}
+      </div>
+
+      <div style={{ position: 'relative', height: 12, margin: '48px 10px 8px' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'var(--surface2)', borderRadius: 999 }} />
+        <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: fillX + '%', background: 'linear-gradient(90deg, var(--accent), var(--accent2))', borderRadius: 999, transition: 'width .9s ease' }} />
+        {Array.from({ length: M }).map((_, i) => {
+          const done = i < N;
+          return <div key={i} title={`Clase ${i + 1}`} style={{ position: 'absolute', top: '50%', left: xAt(i / Math.max(1, M)) + '%', transform: 'translate(-50%,-50%)', width: 11, height: 11, borderRadius: '50%', background: done ? 'var(--accent)' : 'var(--surface)', border: `2px solid ${done ? 'var(--accent)' : 'var(--border)'}`, zIndex: 2 }} />;
+        })}
+        <div title="Examen" style={{ position: 'absolute', top: '50%', left: xAt(1) + '%', transform: 'translate(-50%,-50%)', width: 26, height: 26, borderRadius: '50%', background: 'var(--surface)', border: '2px solid var(--accent)', display: 'grid', placeItems: 'center', fontSize: '0.9rem', zIndex: 3 }}>🎓</div>
+        <div style={{ position: 'absolute', top: '50%', left: fillX + '%', transform: 'translate(-50%,-52%)', width: 40, height: 52, zIndex: 5, transition: 'left .9s ease', filter: 'drop-shadow(0 6px 7px rgba(0,0,0,.35))' }}>
+          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+            <MateCaminoSVG />
+            <div style={{ position: 'absolute', left: '50%', top: '53%', transform: 'translate(-50%,-50%)', width: '38%', aspectRatio: '1', background: 'url(/logo-membrete.png) center/contain no-repeat', filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }} />
+          </div>
+        </div>
+      </div>
+      {M === 0 && !pasado && <div style={{ fontSize: '0.76rem', color: 'var(--text2)', marginTop: 4 }}>Aún no hay clases en vivo cargadas en la planificación de esta aula.</div>}
+    </div>
+  );
+}
+
 function AdminPlanificacion({ aulaActiva }) {
   const today = new Date();
   const [mes, setMes] = useState(today.getMonth());
@@ -1525,6 +1632,7 @@ function AdminPlanificacion({ aulaActiva }) {
       <div className="page-header">
         <div><div className="page-title">📅 Planificación</div><div className="page-subtitle">Cronograma mensual del curso</div></div>
       </div>
+      <CaminoExamen aulaId={aulaActiva} esAdmin={true} />
       <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
         <button className="btn btn-ghost" onClick={() => navMes(-1)}>◀</button>
         <div style={{fontWeight:700,fontSize:'1.15rem',minWidth:200,textAlign:'center'}}>{PLAN_MESES[mes]} {año}</div>
@@ -1762,6 +1870,8 @@ function AlumnoPlanificacion({ alumno }) {
       <div className="page-header">
         <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes · Tocá un día para ver o reorganizar tareas</div></div>
       </div>
+
+      <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
 
       {totalCampos > 0 && (
         <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:20}}>
@@ -5812,7 +5922,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [delInfo, setDelInfo] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '' });
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' });
   const toast = useToast();
 
   const load = async () => {
@@ -5834,6 +5944,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       nombre: form.nombre.trim(),
       fecha_inicio: form.fecha_inicio || null,
       fecha_fin: form.fecha_fin || null,
+      fecha_examen: form.fecha_examen || null,
     };
     const { error } = editing
       ? await supabase.from('aulas').update(payload).eq('id', editing)
@@ -5842,13 +5953,13 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
     if (error) return toast('Error: ' + error.message, 'error');
     toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
     setModal(false); setEditing(null);
-    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '' });
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' });
     load();
   };
 
-  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '' }); setEditing(null); setModal(true); };
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' }); setEditing(null); setModal(true); };
   const openEdit = a => {
-    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '' });
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '' });
     setEditing(a.id); setModal(true);
   };
 
@@ -5974,6 +6085,11 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                 <label>Fecha de fin (opcional)</label>
                 <input type="date" value={form.fecha_fin} onChange={e=>setForm(p=>({...p,fecha_fin:e.target.value}))} />
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Informativa: el aula se cierra manualmente con el botón "Cerrar"</div>
+              </div>
+              <div className="form-group">
+                <label>🧉 Fecha del examen (opcional)</label>
+                <input type="date" value={form.fecha_examen} onChange={e=>setForm(p=>({...p,fecha_examen:e.target.value}))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Con esto se muestra el "Camino al examen" (cuenta regresiva) en Planificación, para vos y los alumnos.</div>
               </div>
             </div>
             <div className="modal-footer">
