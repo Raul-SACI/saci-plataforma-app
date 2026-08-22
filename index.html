@@ -6320,16 +6320,19 @@ function AdminAlumnos({ aulaActiva }) {
   const [form, setForm] = useState({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' });
   const [editing, setEditing] = useState(null);
   const [seleccion, setSeleccion] = useState([]);   // ids de alumnos seleccionados
+  const [aulasLista, setAulasLista] = useState([]);  // aulas para reasignar alumnos
   const toast = useToast();
   const fileRef = useRef();
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
-    const [al, pg] = await Promise.all([
+    const [al, pg, au] = await Promise.all([
       supabase.from('alumnos').select('*').eq('aula_id', aulaActiva).order('created_at', { ascending: false }),
       supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago'),
+      supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }),
     ]);
     setAlumnos(al.data || []);
+    setAulasLista(au.data || []);
     const mapa = {};
     // Recorrido de pagos más reciente primero para quedarnos con el plan del último pago de cada alumno.
     const planes = {};
@@ -6365,6 +6368,7 @@ function AdminAlumnos({ aulaActiva }) {
       if (editing) {
         const updatePayload = { nombre: form.nombre, estado: form.estado };
         if (form.telefono) updatePayload.telefono = form.telefono;
+        if (form.aula_id) updatePayload.aula_id = form.aula_id;
         const { error } = await supabase.from('alumnos').update(updatePayload).eq('id', editing);
         if (error) throw new Error(error.message);
         toast('Alumno actualizado ✏️', 'success');
@@ -6556,7 +6560,7 @@ function AdminAlumnos({ aulaActiva }) {
     XLSX.writeFile(wb, 'plantilla_alumnos.xlsx');
   };
 
-  const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '' }); setEditing(a.id); setModal(true); };
+  const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '', aula_id: a.aula_id || aulaActiva }); setEditing(a.id); setModal(true); };
 
   const fmtPesos = n => '$' + (n || 0).toLocaleString('es-AR');
 
@@ -6718,6 +6722,15 @@ function AdminAlumnos({ aulaActiva }) {
                 <option value="activo">Activo</option>
                 <option value="inactivo">Inactivo</option>
               </select>
+            </div>
+          )}
+          {editing && (
+            <div className="form-group">
+              <label>🏫 Aula</label>
+              <select value={form.aula_id || ''} onChange={e => setForm(p => ({ ...p, aula_id: e.target.value }))}>
+                {aulasLista.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+              </select>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Cambiá el aula para mover al alumno a otro curso. Va a ver el contenido y la planificación del aula elegida.</div>
             </div>
           )}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
