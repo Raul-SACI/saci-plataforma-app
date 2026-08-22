@@ -6348,17 +6348,20 @@ function AdminAlumnos({ aulaActiva }) {
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
-    const [al, pg, au] = await Promise.all([
+    const [al, au] = await Promise.all([
       supabase.from('alumnos').select('*').eq('aula_id', aulaActiva).order('created_at', { ascending: false }),
-      supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago'),
       supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }),
     ]);
+    // Pagos: se intenta con aula_id; si la columna no existe (SQL sin correr), se cae sin ella.
+    let pg = await supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago, aula_id');
+    if (pg.error) pg = await supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago');
     setAlumnos(al.data || []);
     setAulasLista(au.data || []);
     const mapa = {};
     // Recorrido de pagos más reciente primero para quedarnos con el plan del último pago de cada alumno.
+    // Solo cuentan los pagos de ESTA aula (o legacy sin aula_id, aún sin migrar).
     const planes = {};
-    const pagosOrd = (pg.data || []).slice().sort((a, b) => (b.fecha_pago || '').localeCompare(a.fecha_pago || ''));
+    const pagosOrd = (pg.data || []).filter(p => p.aula_id == null || p.aula_id === aulaActiva).slice().sort((a, b) => (b.fecha_pago || '').localeCompare(a.fecha_pago || ''));
     pagosOrd.forEach(p => {
       if (!p.alumno_id) return;
       mapa[p.alumno_id] = (mapa[p.alumno_id] || 0) + (parseFloat(p.monto) || 0);
@@ -6833,6 +6836,7 @@ function AdminPagos({ aulaActiva }) {
   const [facturaVer, setFacturaVer] = useState(null);
   const [refCount, setRefCount] = useState({});       // { referrerId: cant referidos que ya pagaron }
   const [aplicarDesc, setAplicarDesc] = useState(false); // aplicar descuento por referidos al pago que se registra
+  const [aulasList, setAulasList] = useState([]);      // aulas para asignar/reasignar el aula de un pago
   const toast = useToast();
 
   const load = async () => {
@@ -6850,11 +6854,13 @@ function AdminPagos({ aulaActiva }) {
     const { data: aulaRow } = await supabase.from('aulas').select('precios, referidos_monto').eq('id', aulaActiva).single();
     setPrecios(aulaRow?.precios || {});
     setRefMonto(parseFloat(aulaRow?.referidos_monto) || 0);
+    try { const { data: aus } = await supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false }); setAulasList(aus || []); } catch {}
     const idsAula = (aData || []).map(a => a.id);
     let pData = [];
     if (idsAula.length) {
       const { data } = await supabase.from('pagos').select('*, alumnos(nombre, email)').in('alumno_id', idsAula).order('fecha_pago', { ascending: false });
-      pData = data || [];
+      // Un pago pertenece a esta aula si su aula_id coincide (o es null/legacy, aún sin migrar).
+      pData = (data || []).filter(p => p.aula_id == null || p.aula_id === aulaActiva);
     }
     // Referidos: contar, por cada alumno de esta aula, cuántos referidos suyos YA hicieron al menos un pago.
     const refMap = {};
@@ -6897,10 +6903,17 @@ function AdminPagos({ aulaActiva }) {
       fecha_pago: form.fecha_pago || today,
       proximo_pago: form.proximo_pago || null,
       notas: notasFinal,
+      aula_id: (editing ? (form.aula_id || aulaActiva) : aulaActiva),   // el pago queda ligado a su aula
     };
-    const { error } = editing
-      ? await supabase.from('pagos').update(payload).eq('id', editing)
-      : await supabase.from('pagos').insert(payload);
+    const guardarPago = async (pl) => editing
+      ? supabase.from('pagos').update(pl).eq('id', editing)
+      : supabase.from('pagos').insert(pl);
+    let { error } = await guardarPago(payload);
+    // Si la columna aula_id todavía no existe (SQL sin correr), reintenta sin ella.
+    if (error && /aula_id/i.test(error.message || '')) {
+      const { aula_id, ...sinAula } = payload;
+      ({ error } = await guardarPago(sinAula));
+    }
     if (error) return toast(error.message, 'error');
     // Descontar el crédito de referidos usado.
     if (nDesc > 0 && montoDesc > 0) {
@@ -6999,6 +7012,7 @@ function AdminPagos({ aulaActiva }) {
       fecha_pago: p.fecha_pago || today,
       proximo_pago: p.proximo_pago || '',
       notas: p.notas || '',
+      aula_id: p.aula_id || aulaActiva,
     });
     setEditing(p.id); setAplicarDesc(false); setModal(true);
   };
@@ -7415,6 +7429,16 @@ function AdminPagos({ aulaActiva }) {
             <label>📝 Notas (opcional)</label>
             <textarea placeholder="Ej: Pago primera cuota, descuento especial..." value={form.notas} onChange={e => setForm(p => ({ ...p, notas: e.target.value }))} style={{minHeight:70}} />
           </div>
+
+          {editing && aulasList.length > 0 && (
+            <div className="form-group">
+              <label>🏫 Aula de este pago</label>
+              <select value={form.aula_id || aulaActiva} onChange={e => setForm(p => ({ ...p, aula_id: e.target.value }))}>
+                {aulasList.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+              </select>
+              <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:3}}>Si el alumno pagó para otra aula (ej: rindió el Final y ahora está en el Parcial), reasigná el pago al aula correcta.</div>
+            </div>
+          )}
 
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); setAplicarDesc(false); }}>Cancelar</button>
