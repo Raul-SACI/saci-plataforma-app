@@ -535,6 +535,16 @@ DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotog
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Registra en el historial (tabla alumno_aulas) que estos alumnos pasaron por un aula.
+// Sirve para saber el total histórico de alumnos por aula aunque después se los mueva.
+async function registrarAulaHistorial(alumnoIds, aulaId) {
+  try {
+    if (!aulaId || !alumnoIds || !alumnoIds.length) return;
+    const filas = alumnoIds.filter(Boolean).map(id => ({ alumno_id: id, aula_id: aulaId }));
+    if (filas.length) await supabase.from('alumno_aulas').upsert(filas, { onConflict: 'alumno_id,aula_id', ignoreDuplicates: true });
+  } catch {}
+}
+
 // Genera y descarga el PDF del contrato de T&C firmado por el alumno.
 function descargarContratoAlumno(alumno) {
   const JsPDF = window.jspdf && window.jspdf.jsPDF;
@@ -5921,6 +5931,7 @@ function SinAula() {
 function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [aulas, setAulas] = useState([]);
   const [conteos, setConteos] = useState({});
+  const [historicos, setHistoricos] = useState({});   // total de alumnos que alguna vez pasaron por cada aula
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState(false);
@@ -5935,11 +5946,20 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const load = async () => {
     const { data } = await supabase.from('aulas').select('*').order('created_at', { ascending: false });
     setAulas(data || []);
-    // Contar alumnos por aula (para mostrar cuántos hay en cada una)
-    const { data: als } = await supabase.from('alumnos').select('aula_id');
+    // Contar alumnos actuales por aula + total histórico (los que alguna vez estuvieron).
+    const [{ data: als }, { data: hist }] = await Promise.all([
+      supabase.from('alumnos').select('id, aula_id'),
+      supabase.from('alumno_aulas').select('aula_id, alumno_id'),
+    ]);
     const c = {};
     (als || []).forEach(a => { if (a.aula_id) c[a.aula_id] = (c[a.aula_id] || 0) + 1; });
     setConteos(c);
+    // Histórico = alumnos distintos por aula (registro alumno_aulas ∪ el aula actual, por si falta algún registro).
+    const sets = {};
+    (hist || []).forEach(h => { (sets[h.aula_id] = sets[h.aula_id] || new Set()).add(h.alumno_id); });
+    (als || []).forEach(a => { if (a.aula_id) (sets[a.aula_id] = sets[a.aula_id] || new Set()).add(a.id); });
+    const h = {}; Object.keys(sets).forEach(k => { h[k] = sets[k].size; });
+    setHistoricos(h);
     setLoading(false);
   };
   useEffect(() => { load(); }, []);
@@ -6039,7 +6059,8 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                       {seleccionada && <span className="chip" style={{background:'var(--accent)',color:'#fff'}}>● Trabajando acá</span>}
                     </div>
                     <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>
-                      👥 {conteos[a.id] || 0} alumnos
+                      👥 {conteos[a.id] || 0} alumnos ahora
+                      {(historicos[a.id] || 0) > (conteos[a.id] || 0) && <> · 📊 {historicos[a.id]} en total (histórico)</>}
                       {a.fecha_inicio && ` · Desde ${new Date(a.fecha_inicio+'T00:00:00').toLocaleDateString('es-AR')}`}
                       {a.fecha_fin && ` hasta ${new Date(a.fecha_fin+'T00:00:00').toLocaleDateString('es-AR')}`}
                     </div>
@@ -6216,6 +6237,7 @@ function AprobarInscripciones() {
     const { error } = await supabase.from('alumnos').update({ estado: 'activo', aula_id: aulaId }).eq('id', al.id);
     setProc(false);
     if (error) return toast('Error: ' + error.message, 'error');
+    registrarAulaHistorial([al.id], aulaId);
     toast(`${al.nombre} aprobado ✅`, 'success');
     setVerId(null); load();
   };
@@ -6371,6 +6393,7 @@ function AdminAlumnos({ aulaActiva }) {
         if (form.aula_id) updatePayload.aula_id = form.aula_id;
         const { error } = await supabase.from('alumnos').update(updatePayload).eq('id', editing);
         if (error) throw new Error(error.message);
+        if (form.aula_id) registrarAulaHistorial([editing], form.aula_id);
         toast('Alumno actualizado ✏️', 'success');
       } else {
         const emailNorm = form.email.trim().toLowerCase();
@@ -6392,8 +6415,9 @@ function AdminAlumnos({ aulaActiva }) {
         if (existente) { toast('Ya existe un alumno con ese email en la lista.', 'error'); return; }
         const insertPayload = { nombre: form.nombre, email: emailNorm, estado: form.estado || 'activo', aula_id: aulaActiva };
         if (form.telefono) insertPayload.telefono = form.telefono;
-        const { error: dbError } = await supabase.from('alumnos').insert(insertPayload);
+        const { data: nuevoAl, error: dbError } = await supabase.from('alumnos').insert(insertPayload).select('id').single();
         if (dbError) throw new Error(dbError.message);
+        if (nuevoAl?.id) registrarAulaHistorial([nuevoAl.id], aulaActiva);
         toast(yaRegistrado ? 'Ficha creada ✅ (el usuario ya existía; mantiene su contraseña original).' : 'Alumno creado ✅', 'success');
       }
       setModal(false); setEditing(null); setForm({ nombre: '', email: '', telefono: '', estado: 'activo', password: '' });
@@ -6464,6 +6488,7 @@ function AdminAlumnos({ aulaActiva }) {
     try {
       const { error } = await supabase.from('alumnos').update({ aula_id: aulaId }).in('id', seleccion);
       if (error) throw new Error(error.message);
+      await registrarAulaHistorial(seleccion, aulaId);
       toast(`${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} movido${seleccion.length !== 1 ? 's' : ''} a "${aula?.nombre || ''}" 🏫`, 'success');
       setSeleccion([]);
       load();
@@ -6525,18 +6550,19 @@ function AdminAlumnos({ aulaActiva }) {
             }
 
             // 2. Insertar en tabla alumnos (si no existe)
-            const { error: dbError } = await supabase.from('alumnos').insert({
+            const { data: impAl, error: dbError } = await supabase.from('alumnos').insert({
               nombre: alumno.nombre,
               email: alumno.email,
               telefono: alumno.telefono || null,
               estado: alumno.estado || 'activo',
               aula_id: aulaActiva,
-            });
+            }).select('id').single();
 
             if (dbError && !dbError.message.includes('duplicate')) {
               errores++;
               resultados.push(`❌ DB ${alumno.email}: ${dbError.message}`);
             } else {
+              if (impAl?.id) registrarAulaHistorial([impAl.id], aulaActiva);
               creados++;
             }
 
