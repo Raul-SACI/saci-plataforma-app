@@ -6456,6 +6456,21 @@ function AdminAlumnos({ aulaActiva }) {
     finally { setSaving(false); }
   };
 
+  const moverSeleccionadosAula = async aulaId => {
+    if (!seleccion.length || !aulaId) return;
+    const aula = aulasLista.find(a => a.id === aulaId);
+    if (!confirm(`¿Mover ${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} al aula "${aula?.nombre || ''}"? Van a ver el contenido de esa aula.`)) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('alumnos').update({ aula_id: aulaId }).in('id', seleccion);
+      if (error) throw new Error(error.message);
+      toast(`${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} movido${seleccion.length !== 1 ? 's' : ''} a "${aula?.nombre || ''}" 🏫`, 'success');
+      setSeleccion([]);
+      load();
+    } catch (err) { toast(err.message, 'error'); }
+    finally { setSaving(false); }
+  };
+
   const importExcel = e => {
     const file = e.target.files[0];
     if (!file) return;
@@ -6640,6 +6655,11 @@ function AdminAlumnos({ aulaActiva }) {
           <strong>{seleccion.length} seleccionado{seleccion.length !== 1 ? 's' : ''}</strong>
           <button className="btn btn-primary btn-sm" onClick={() => cambiarEstadoSeleccionados('activo')} disabled={saving}>✅ Activar seleccionados</button>
           <button className="btn btn-danger btn-sm" onClick={() => cambiarEstadoSeleccionados('inactivo')} disabled={saving}>🔒 Poner inactivos</button>
+          <select value="" onChange={e => { if (e.target.value) moverSeleccionadosAula(e.target.value); e.target.value=''; }} disabled={saving}
+            title="Mover los alumnos seleccionados a otra aula" style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.82rem'}}>
+            <option value="">🏫 Mover a aula…</option>
+            {aulasLista.filter(a => a.id !== aulaActiva).map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+          </select>
           <button className="btn btn-ghost btn-sm" onClick={() => setSeleccion([])} disabled={saving}>Limpiar selección</button>
         </div>
       )}
