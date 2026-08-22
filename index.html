@@ -6634,7 +6634,7 @@ function AdminAlumnos({ aulaActiva }) {
     const datos = filtered.map(a => ({
       Nombre: a.nombre || '',
       Email: a.email || '',
-      DNI: a.telefono || '',
+      DNI: a.dni || a.telefono || '',
       Plan: planMap[a.id] || '',
       Estado: a.estado || '',
       'Total pagado': pagosMap[a.id] || 0,
@@ -6712,7 +6712,7 @@ function AdminAlumnos({ aulaActiva }) {
                   </td>
                   <td><strong>{a.nombre}</strong></td>
                   <td style={{color:'var(--text2)'}}>{a.email}</td>
-                  <td style={{color:'var(--text2)'}}>{a.telefono || '—'}</td>
+                  <td style={{color:'var(--text2)'}}>{a.dni || a.telefono || '—'}</td>
                   <td>{planMap[a.id]
                     ? <span className={`chip ${planColorAlu(planMap[a.id])}`}>{planMap[a.id]}</span>
                     : <span style={{color:'var(--text2)'}}>—</span>}</td>
