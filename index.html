@@ -740,8 +740,9 @@ async function generarRecordatorioPagoAlumno(alumnoId, aulaId) {
     const h = new Date();
     const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
     const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
-    const { data: ps } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
-    if (!ps || !ps.length) return;
+    const { data: psAll } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
+    const ps = (psAll || []).filter(p => p.aula_id == null || p.aula_id === aulaId);   // solo pagos de esta aula
+    if (!ps.length) return;
     const r = resumenPagoDe(ps, aula?.precios || {});
     if (r.completo !== false) {
       // Ya completó el pago: quitar los recordatorios de pago que le hubieran quedado.
@@ -775,8 +776,10 @@ async function tienePagoVencido(alumnoId, aulaId) {
     const h = new Date();
     const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
     const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
-    const { data: ps } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
-    if (!ps || !ps.length) return false;
+    const { data: psAll } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
+    // Solo cuentan los pagos de ESTA aula (o legacy sin aula_id). Evita que un pago viejo de otra aula lo bloquee.
+    const ps = (psAll || []).filter(p => p.aula_id == null || p.aula_id === aulaId);
+    if (!ps.length) return false;
     const r = resumenPagoDe(ps, aula?.precios || {});
     if (r.completo !== false) return false;   // ya pagó o no hay precio → no bloquea
     return ps.some(p => p.proximo_pago && p.proximo_pago < hoyISO);
