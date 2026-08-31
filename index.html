@@ -8657,40 +8657,83 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '' };
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [] };
   const [form, setForm] = useState(emptyForm);
+  const [resultados, setResultados] = useState(null);   // { ev, filas } cuando se ven resultados de un quiz
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
+  // Lee tipo/preguntas de forma resiliente por si la migración del quiz todavía no se corrió.
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
       .eq('aula_id', aulaActiva)
       .order('id', { ascending: false });
-    if (error) console.error('EVAL:', error);
+    if (error) {
+      const r = await supabase
+        .from('evaluaciones')
+        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+        .eq('aula_id', aulaActiva)
+        .order('id', { ascending: false });
+      data = r.data; error = r.error;
+      if (error) console.error('EVAL:', error);
+    }
     setEvals(data || []); setLoading(false);
   };
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
 
   const save = async () => {
     if (!form.titulo) return toast('El título es requerido', 'error');
-    if (!form.link_google) return toast('El link de Google Forms es requerido', 'error');
+    const esQuiz = form.tipo === 'quiz';
+    if (esQuiz) {
+      if (!form.preguntas.length) return toast('Agregá al menos una pregunta', 'error');
+      for (let i = 0; i < form.preguntas.length; i++) {
+        const p = form.preguntas[i];
+        if (!p.texto || !p.texto.trim()) return toast(`La pregunta ${i+1} no tiene enunciado`, 'error');
+        const ops = (p.opciones || []).filter(o => o && o.trim());
+        if (ops.length < 2) return toast(`La pregunta ${i+1} necesita al menos 2 opciones`, 'error');
+        if (!(p.correctas || []).length) return toast(`La pregunta ${i+1} no tiene ninguna opción correcta marcada`, 'error');
+      }
+    } else if (!form.link_google) {
+      return toast('El link de Google Forms es requerido', 'error');
+    }
+    // Normaliza: saca opciones vacías y reajusta los índices de correctas.
+    const preguntasLimpias = esQuiz ? form.preguntas.map(p => {
+      const pares = (p.opciones || []).map((o, idx) => ({ o, idx })).filter(x => x.o && x.o.trim());
+      const mapa = {}; pares.forEach((x, nuevo) => { mapa[x.idx] = nuevo; });
+      return {
+        texto: p.texto.trim(),
+        opciones: pares.map(x => x.o.trim()),
+        correctas: (p.correctas || []).filter(c => c in mapa).map(c => mapa[c]),
+      };
+    }) : [];
     const payload = {
       titulo: form.titulo,
       descripcion: form.descripcion || null,
-      link_google: form.link_google || null,
+      link_google: esQuiz ? null : (form.link_google || null),
       fecha_limite: form.fecha_limite ? new Date(form.fecha_limite).toISOString() : null,
       tema: form.tema || null,
       visible: form.visible,
       estado: 'disponible',
       publicar_en: form.publicar_en ? new Date(form.publicar_en).toISOString() : null,
       aula_id: aulaActiva,
+      tipo: form.tipo,
+      preguntas: preguntasLimpias,
     };
-    const { error } = editing
+    let { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
       : await supabase.from('evaluaciones').insert(payload);
+    if (error && /tipo|preguntas|column/i.test(error.message || '')) {
+      // La migración del quiz todavía no se corrió: guardo sin esos campos para no bloquear.
+      const { tipo, preguntas, ...base } = payload;
+      const r = editing
+        ? await supabase.from('evaluaciones').update(base).eq('id', editing)
+        : await supabase.from('evaluaciones').insert(base);
+      error = r.error;
+      if (!error && esQuiz) toast('Guardado, pero falta correr la migración evaluaciones_quiz.sql para las preguntas', 'info');
+    }
     if (error) return toast(error.message, 'error');
     if (!editing && form.visible !== false && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
       crearNovedadAuto(aulaActiva, { titulo: '📝 Nueva evaluación: ' + form.titulo, contenido: 'Hay una nueva evaluación disponible: ' + form.titulo + '. Entrá a la sección Evaluaciones.', tipo: 'tarea' });
@@ -8713,13 +8756,90 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en) });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [] });
     setEditing(ev.id); setModal(true);
   };
 
   const toggleVisible = async (id, visible) => {
     await supabase.from('evaluaciones').update({ visible: !visible }).eq('id', id);
     load();
+  };
+
+  // ── Constructor de preguntas ────────────────────────────────────────────
+  const nuevaPregunta = () => setForm(p => ({ ...p, preguntas: [...p.preguntas, { texto: '', opciones: ['', ''], correctas: [] }] }));
+  const quitarPregunta = i => setForm(p => ({ ...p, preguntas: p.preguntas.filter((_, idx) => idx !== i) }));
+  const setPregTexto = (i, v) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, texto: v } : q) }));
+  const nuevaOpcion = i => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, opciones: [...q.opciones, ''] } : q) }));
+  const setOpcion = (i, j, v) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, opciones: q.opciones.map((o, oj) => oj === j ? v : o) } : q) }));
+  const quitarOpcion = (i, j) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => {
+    if (idx !== i) return q;
+    const opciones = q.opciones.filter((_, oj) => oj !== j);
+    const correctas = q.correctas.filter(c => c !== j).map(c => c > j ? c - 1 : c);
+    return { ...q, opciones, correctas };
+  }) }));
+  const toggleCorrecta = (i, j) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => {
+    if (idx !== i) return q;
+    const yaEsta = q.correctas.includes(j);
+    return { ...q, correctas: yaEsta ? q.correctas.filter(c => c !== j) : [...q.correctas, j].sort((a, b) => a - b) };
+  }) }));
+
+  // ── Importar / plantilla de Excel ───────────────────────────────────────
+  const LETRAS = ['A','B','C','D','E','F','G','H'];
+  const descargarPlantillaQuiz = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Pregunta', 'Opción A', 'Opción B', 'Opción C', 'Opción D', 'Opción E', 'Correctas'],
+      ['¿Cuál es la cuenta del activo?', 'Caja', 'Proveedores', 'Capital', 'Ventas', '', 'A'],
+      ['Seleccioná las cuentas de resultado', 'Ventas', 'Caja', 'Gastos', 'Muebles', '', 'A,C'],
+    ]);
+    ws['!cols'] = [{ wch: 40 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Preguntas');
+    XLSX.writeFile(wb, 'plantilla_evaluacion.xlsx');
+  };
+  const importarQuiz = async (file) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      if (!rows.length) return toast('El Excel está vacío', 'error');
+      const nuevas = [];
+      const errores = [];
+      rows.forEach((r, i) => {
+        const texto = String(r['Pregunta'] ?? r['pregunta'] ?? '').trim();
+        if (!texto) return; // fila vacía o encabezado extra
+        const opciones = [];
+        LETRAS.forEach(L => {
+          const val = r['Opción ' + L] ?? r['Opcion ' + L] ?? r['Opción '+L] ?? r[L] ?? '';
+          const s = String(val).trim();
+          if (s) opciones.push(s);
+        });
+        if (opciones.length < 2) { errores.push(`Fila ${i+2}: menos de 2 opciones`); return; }
+        const corrRaw = String(r['Correctas'] ?? r['correctas'] ?? r['Correcta'] ?? '').trim().toUpperCase();
+        const correctas = corrRaw.split(/[,;\s]+/).filter(Boolean).map(x => LETRAS.indexOf(x)).filter(x => x >= 0 && x < opciones.length);
+        if (!correctas.length) { errores.push(`Fila ${i+2}: sin respuesta correcta válida (usá letras: A, B, C...)`); return; }
+        nuevas.push({ texto, opciones, correctas: [...new Set(correctas)].sort((a, b) => a - b) });
+      });
+      if (!nuevas.length) return toast('No se importó ninguna pregunta. Revisá el formato.' + (errores.length ? ' ' + errores[0] : ''), 'error');
+      setForm(p => ({ ...p, tipo: 'quiz', preguntas: [...p.preguntas, ...nuevas] }));
+      toast(`${nuevas.length} pregunta(s) importada(s)${errores.length ? ` · ${errores.length} con error` : ''} ✅`, errores.length ? 'info' : 'success');
+    } catch (e) {
+      toast('Error al leer el Excel: ' + e.message, 'error');
+    }
+  };
+
+  // ── Resultados de un quiz ───────────────────────────────────────────────
+  const verResultados = async (ev) => {
+    const { data } = await supabase.from('evaluaciones_respuestas')
+      .select('id, alumno_id, respuestas, nota, correctas_cant, total_cant, created_at')
+      .eq('evaluacion_id', ev.id)
+      .order('created_at', { ascending: false });
+    const ids = [...new Set((data || []).map(r => r.alumno_id))];
+    let nombres = {};
+    if (ids.length) {
+      const { data: als } = await supabase.from('alumnos').select('id, nombre, apellido').in('id', ids);
+      (als || []).forEach(a => { nombres[a.id] = `${a.apellido || ''} ${a.nombre || ''}`.trim() || 'Alumno'; });
+    }
+    setResultados({ ev, filas: (data || []).map(r => ({ ...r, nombre: nombres[r.alumno_id] || 'Alumno' })), expandido: null });
   };
 
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
@@ -8737,7 +8857,7 @@ function AdminEvaluaciones({ aulaActiva }) {
         <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
       </div>
 
-      {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Agregá un link de Google Forms para empezar." /> : (
+      {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Creá una prueba en la app o agregá un link de Google Forms." /> : (
         <div style={{display:'flex',flexDirection:'column',gap:12}}>
           {evals.map(ev => {
             const vencida = isVencida(ev);
@@ -8755,10 +8875,17 @@ function AdminEvaluaciones({ aulaActiva }) {
                       {!ev.visible && <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>👁️ Oculta</span>}
                     </div>
                     {ev.descripcion && <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:8}}>{ev.descripcion}</div>}
-                    <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
-                      <a href={ev.link_google} target="_blank" rel="noreferrer" style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>
-                        🔗 Ver formulario
-                      </a>
+                    <div style={{display:'flex',gap:16,flexWrap:'wrap',alignItems:'center'}}>
+                      {ev.tipo === 'quiz' ? (
+                        <>
+                          <span style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>📝 Prueba en la app · {(ev.preguntas||[]).length} pregunta(s)</span>
+                          <button className="btn btn-ghost btn-sm" onClick={() => verResultados(ev)}>📊 Ver resultados</button>
+                        </>
+                      ) : (
+                        <a href={ev.link_google} target="_blank" rel="noreferrer" style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>
+                          🔗 Ver formulario
+                        </a>
+                      )}
                       {ev.fecha_limite && (
                         <span style={{fontSize:'0.82rem',color: vencida ? 'var(--danger)' : proxVencer ? 'var(--warning)' : 'var(--text2)',display:'flex',alignItems:'center',gap:4}}>
                           📅 Fecha límite: <strong>{new Date(ev.fecha_limite).toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric',timeZone:'America/Argentina/Buenos_Aires'})} a las {new Date(ev.fecha_limite).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'})} hs</strong>
@@ -8794,11 +8921,62 @@ function AdminEvaluaciones({ aulaActiva }) {
             <label>Tema / Unidad (opcional)</label>
             <input placeholder="Ej: Unidad 1, Parcial 1..." value={form.tema} onChange={e => setForm(p=>({...p,tema:e.target.value}))} />
           </div>
+
           <div className="form-group">
-            <label>🔗 Link de Google Forms</label>
-            <input type="url" placeholder="https://docs.google.com/forms/d/..." value={form.link_google} onChange={e => setForm(p=>({...p,link_google:e.target.value}))} />
-            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Pegá el link del formulario de Google Forms</div>
+            <label>Tipo de evaluación</label>
+            <div style={{display:'flex',gap:8}}>
+              <button type="button" className={form.tipo==='quiz'?'btn btn-primary':'btn btn-ghost'} style={{flex:1}} onClick={()=>setForm(p=>({...p,tipo:'quiz'}))}>📝 Prueba en la app</button>
+              <button type="button" className={form.tipo==='link'?'btn btn-primary':'btn btn-ghost'} style={{flex:1}} onClick={()=>setForm(p=>({...p,tipo:'link'}))}>🔗 Google Forms</button>
+            </div>
           </div>
+
+          {form.tipo === 'link' ? (
+            <div className="form-group">
+              <label>🔗 Link de Google Forms</label>
+              <input type="url" placeholder="https://docs.google.com/forms/d/..." value={form.link_google} onChange={e => setForm(p=>({...p,link_google:e.target.value}))} />
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Pegá el link del formulario de Google Forms</div>
+            </div>
+          ) : (
+            <div className="form-group">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:8}}>
+                <label style={{margin:0}}>Preguntas ({form.preguntas.length})</label>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={descargarPlantillaQuiz}>⬇️ Plantilla Excel</button>
+                  <label className="btn btn-ghost btn-sm" style={{margin:0,cursor:'pointer'}}>
+                    📤 Importar Excel
+                    <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={e => { if (e.target.files[0]) importarQuiz(e.target.files[0]); e.target.value=''; }} />
+                  </label>
+                </div>
+              </div>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Exportá tus preguntas a Excel con la plantilla (columna <strong>Correctas</strong> = letras de las opciones correctas, ej: <strong>A</strong> o <strong>A,C</strong>) e importalas acá. También podés cargarlas a mano. Marcá con ✓ la/s opción/es correcta/s.</div>
+
+              {form.preguntas.map((q, i) => (
+                <div key={i} className="card" style={{marginBottom:10,padding:12,background:'var(--surface2)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:8}}>
+                    <span style={{fontWeight:700,fontSize:'0.85rem'}}>Pregunta {i+1}</span>
+                    <button type="button" className="btn btn-danger btn-sm" onClick={()=>quitarPregunta(i)}>🗑️</button>
+                  </div>
+                  <textarea placeholder="Escribí el enunciado de la pregunta" value={q.texto} onChange={e=>setPregTexto(i,e.target.value)} style={{minHeight:50,marginBottom:8}} />
+                  {q.opciones.map((op, j) => {
+                    const esCorrecta = (q.correctas||[]).includes(j);
+                    return (
+                      <div key={j} style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+                        <button type="button" onClick={()=>toggleCorrecta(i,j)} title={esCorrecta?'Correcta':'Marcar como correcta'} style={{flexShrink:0,width:28,height:28,borderRadius:6,border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{esCorrecta?'✓':''}</button>
+                        <input placeholder={`Opción ${LETRAS[j]||j+1}`} value={op} onChange={e=>setOpcion(i,j,e.target.value)} style={{flex:1}} />
+                        {q.opciones.length > 2 && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>quitarOpcion(i,j)} style={{flexShrink:0}}>✕</button>}
+                      </div>
+                    );
+                  })}
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:6}}>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={()=>nuevaOpcion(i)}>➕ Opción</button>
+                    <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>{(q.correctas||[]).length>1?'Varias correctas (el alumno marca todas)':(q.correctas||[]).length===1?'Una correcta':'⚠️ Marcá la correcta'}</span>
+                  </div>
+                </div>
+              ))}
+              <button type="button" className="btn btn-ghost" style={{width:'100%'}} onClick={nuevaPregunta}>➕ Agregar pregunta</button>
+            </div>
+          )}
+
           <div className="form-group">
             <label>📅 Fecha y hora límite (opcional)</label>
             <input type="datetime-local" value={form.fecha_limite} onChange={e => setForm(p=>({...p,fecha_limite:e.target.value}))} />
@@ -8825,6 +9003,69 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
             <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
+          </div>
+        </Modal>
+      )}
+
+      {resultados && (
+        <Modal title={`📊 Resultados — ${resultados.ev.titulo}`} onClose={() => setResultados(null)}>
+          {resultados.filas.length === 0 ? (
+            <Empty icon="📊" text="Todavía nadie realizó esta evaluación." />
+          ) : (
+            <>
+              <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>{resultados.filas.length} alumno(s) · Promedio: <strong>{(resultados.filas.reduce((s,f)=>s+(parseFloat(f.nota)||0),0)/resultados.filas.length).toFixed(1)}</strong></div>
+              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                {resultados.filas.map((f, idx) => {
+                  const nota = parseFloat(f.nota) || 0;
+                  const abierto = resultados.expandido === f.id;
+                  return (
+                    <div key={f.id} className="card" style={{padding:12,background:'var(--surface2)'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,cursor:'pointer'}} onClick={()=>setResultados(r=>({...r,expandido:abierto?null:f.id}))}>
+                        <div>
+                          <div style={{fontWeight:700,fontSize:'0.9rem'}}>{f.nombre}</div>
+                          <div style={{fontSize:'0.72rem',color:'var(--text2)'}}>{new Date(f.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'})} · {f.correctas_cant}/{f.total_cant} correctas</div>
+                        </div>
+                        <div style={{display:'flex',alignItems:'center',gap:10}}>
+                          <span className="chip" style={{background:nota>=6?'var(--success)':'var(--danger)',color:'#fff',fontWeight:700,fontSize:'0.85rem'}}>{nota.toFixed(1)}</span>
+                          <span style={{color:'var(--text2)'}}>{abierto?'▲':'▼'}</span>
+                        </div>
+                      </div>
+                      {abierto && (
+                        <div style={{marginTop:10,borderTop:'1px solid var(--border)',paddingTop:10,display:'flex',flexDirection:'column',gap:10}}>
+                          {(resultados.ev.preguntas||[]).map((q, qi) => {
+                            const elegidas = (f.respuestas && f.respuestas[qi]) || [];
+                            const correctas = q.correctas || [];
+                            const bien = elegidas.length === correctas.length && elegidas.every(x => correctas.includes(x));
+                            return (
+                              <div key={qi}>
+                                <div style={{fontSize:'0.82rem',fontWeight:600,marginBottom:4}}>{qi+1}. {q.texto} {bien?'✅':'❌'}</div>
+                                <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                                  {q.opciones.map((op, oi) => {
+                                    const marco = elegidas.includes(oi);
+                                    const esCorr = correctas.includes(oi);
+                                    return (
+                                      <div key={oi} style={{fontSize:'0.78rem',display:'flex',alignItems:'center',gap:6,color: esCorr?'var(--success)':(marco?'var(--danger)':'var(--text2)')}}>
+                                        <span>{marco?'●':'○'}</span>
+                                        <span>{op}</span>
+                                        {esCorr && <span style={{fontSize:'0.68rem'}}>✔ correcta</span>}
+                                        {marco && !esCorr && <span style={{fontSize:'0.68rem'}}>(marcó)</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
+            <button className="btn btn-ghost" onClick={()=>setResultados(null)}>Cerrar</button>
           </div>
         </Modal>
       )}
@@ -9603,26 +9844,80 @@ function AlumnoMateriales({ alumno, user }) {
 function AlumnoEvaluaciones({ alumno }) {
   const [evals, setEvals] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [respuestasPrev, setRespuestasPrev] = useState({});  // { evaluacion_id: fila } — intentos ya hechos
+  const [tomando, setTomando] = useState(null);              // evaluación que se está respondiendo
+  const [seleccion, setSeleccion] = useState([]);            // [[idx...], ...] respuestas del alumno
+  const [enviando, setEnviando] = useState(false);
+  const [resultadoVer, setResultadoVer] = useState(null);    // fila de respuesta a mostrar (nota + detalle)
+  const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
-  useEffect(() => {
-    // El alumno solo ve las evaluaciones de SU aula.
+  const cargar = async () => {
     const miAula = alumno?.aula_id;
     if (!miAula) { setEvals([]); setLoading(false); return; }
-    supabase.from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
-      .eq('aula_id', miAula)
-      .neq('visible', false)
-      .order('id', { ascending: false })
-      .then(({ data }) => {
-        const now = new Date().toISOString();
-        setEvals((data || []).filter(ev => !ev.publicar_en || ev.publicar_en <= now));
-        setLoading(false);
-      });
-  }, []);
+    let { data, error } = await supabase.from('evaluaciones')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
+      .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
+    if (error) {
+      const r = await supabase.from('evaluaciones')
+        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+        .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
+      data = r.data;
+    }
+    const now = new Date().toISOString();
+    const visibles = (data || []).filter(ev => !ev.publicar_en || ev.publicar_en <= now);
+    setEvals(visibles);
+    // Intentos previos del alumno (para bloquear el reintento y mostrar la nota).
+    if (alumno?.id) {
+      const { data: resp } = await supabase.from('evaluaciones_respuestas')
+        .select('evaluacion_id, respuestas, nota, correctas_cant, total_cant, created_at')
+        .eq('alumno_id', alumno.id);
+      const mapa = {}; (resp || []).forEach(r => { mapa[r.evaluacion_id] = r; });
+      setRespuestasPrev(mapa);
+    }
+    setLoading(false);
+  };
+  useEffect(() => { cargar(); }, []);
 
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
   const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
+
+  const abrirQuiz = ev => {
+    setTomando(ev);
+    setSeleccion((ev.preguntas || []).map(() => []));
+  };
+  const marcar = (qi, oi, multiple) => {
+    setSeleccion(prev => prev.map((sel, idx) => {
+      if (idx !== qi) return sel;
+      if (multiple) return sel.includes(oi) ? sel.filter(x => x !== oi) : [...sel, oi].sort((a,b)=>a-b);
+      return [oi];
+    }));
+  };
+  const enviarQuiz = async () => {
+    const preguntas = tomando.preguntas || [];
+    const sinResponder = seleccion.findIndex(s => !s.length);
+    if (sinResponder >= 0) return toast(`Falta responder la pregunta ${sinResponder + 1}`, 'error');
+    let correctasCant = 0;
+    preguntas.forEach((q, i) => {
+      const elegidas = seleccion[i] || [];
+      const corr = q.correctas || [];
+      const bien = elegidas.length === corr.length && elegidas.every(x => corr.includes(x));
+      if (bien) correctasCant++;
+    });
+    const total = preguntas.length || 1;
+    const nota = Math.round((correctasCant / total) * 10 * 10) / 10;
+    setEnviando(true);
+    const fila = { evaluacion_id: tomando.id, alumno_id: alumno.id, respuestas: seleccion, nota, correctas_cant: correctasCant, total_cant: preguntas.length };
+    const { error } = await supabase.from('evaluaciones_respuestas').insert(fila);
+    setEnviando(false);
+    if (error) {
+      if (/duplicate|unique/i.test(error.message || '')) { toast('Ya realizaste esta evaluación', 'info'); setTomando(null); cargar(); return; }
+      return toast('No se pudo enviar: ' + error.message, 'error');
+    }
+    setRespuestasPrev(p => ({ ...p, [tomando.id]: { ...fila, created_at: new Date().toISOString() } }));
+    setTomando(null);
+    setResultadoVer({ ...fila, ev: tomando, created_at: new Date().toISOString() });
+  };
 
   if (loading) return <Loading />;
   return (
@@ -9634,15 +9929,19 @@ function AlumnoEvaluaciones({ alumno }) {
           {evals.map(ev => {
             const vencida = isVencida(ev);
             const proxVencer = isProxVencer(ev);
+            const esQuiz = ev.tipo === 'quiz';
+            const hecho = respuestasPrev[ev.id];
             return (
-              <div key={ev.id} className="card" style={{borderLeft:`4px solid ${vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--accent)'}`,opacity:vencida?0.7:1}}>
+              <div key={ev.id} className="card" style={{borderLeft:`4px solid ${vencida?'var(--danger)':proxVencer?'var(--warning)':'var(--accent)'}`,opacity:vencida&&!hecho?0.7:1}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:16,flexWrap:'wrap'}}>
                   <div style={{flex:1}}>
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:6}}>
                       <div style={{fontWeight:700,fontSize:'1rem'}}>{ev.titulo}</div>
                       {ev.tema && <span className="chip chip-blue">{ev.tema}</span>}
-                      {vencida && <span className="chip chip-red">⏰ Vencida</span>}
-                      {proxVencer && !vencida && <span className="chip chip-yellow">⚠️ Vence pronto</span>}
+                      {esQuiz && <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>{(ev.preguntas||[]).length} preguntas</span>}
+                      {hecho && <span className="chip chip-green">✓ Realizada</span>}
+                      {vencida && !hecho && <span className="chip chip-red">⏰ Vencida</span>}
+                      {proxVencer && !vencida && !hecho && <span className="chip chip-yellow">⚠️ Vence pronto</span>}
                     </div>
                     {ev.descripcion && <div style={{fontSize:'0.88rem',color:'var(--text2)',marginBottom:10,lineHeight:1.5}}>{ev.descripcion}</div>}
                     {ev.fecha_limite && (
@@ -9652,14 +9951,24 @@ function AlumnoEvaluaciones({ alumno }) {
                     )}
                   </div>
                   <div style={{flexShrink:0}}>
-                    {vencida ? (
-                      <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>
-                        ⏰ Plazo vencido
-                      </div>
+                    {esQuiz ? (
+                      hecho ? (
+                        <div style={{textAlign:'center'}}>
+                          <div style={{fontSize:'0.72rem',color:'var(--text2)',marginBottom:4}}>Tu nota</div>
+                          <div style={{fontSize:'1.6rem',fontWeight:800,color:(parseFloat(hecho.nota)||0)>=6?'var(--success)':'var(--danger)'}}>{(parseFloat(hecho.nota)||0).toFixed(1)}</div>
+                          <button className="btn btn-ghost btn-sm" style={{marginTop:4}} onClick={()=>setResultadoVer({ ...hecho, ev })}>Ver detalle</button>
+                        </div>
+                      ) : vencida ? (
+                        <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>⏰ Plazo vencido</div>
+                      ) : (
+                        <button className="btn btn-primary" style={{display:'inline-flex',alignItems:'center',gap:8}} onClick={()=>abrirQuiz(ev)}>📝 Realizar evaluación</button>
+                      )
                     ) : (
-                      <a href={ev.link_google} target="_blank" rel="noreferrer" className="btn btn-primary" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:8}}>
-                        📋 Ir a la evaluación
-                      </a>
+                      vencida ? (
+                        <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>⏰ Plazo vencido</div>
+                      ) : (
+                        <a href={ev.link_google} target="_blank" rel="noreferrer" className="btn btn-primary" style={{textDecoration:'none',display:'inline-flex',alignItems:'center',gap:8}}>📋 Ir a la evaluación</a>
+                      )
                     )}
                   </div>
                 </div>
@@ -9667,6 +9976,75 @@ function AlumnoEvaluaciones({ alumno }) {
             );
           })}
         </div>
+      )}
+
+      {tomando && (
+        <Modal title={`📝 ${tomando.titulo}`} onClose={() => { if (confirm('¿Salir sin enviar? No se guardará nada y podés volver a intentar.')) setTomando(null); }}>
+          <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14,padding:'8px 12px',background:'var(--surface2)',borderRadius:8}}>⚠️ Tenés <strong>un solo intento</strong>. Respondé todas las preguntas y presioná "Enviar respuestas". Las preguntas con varias opciones correctas piden marcar todas.</div>
+          {(tomando.preguntas || []).map((q, qi) => {
+            const multiple = (q.correctas || []).length > 1;
+            return (
+              <div key={qi} className="card" style={{marginBottom:12,padding:14}}>
+                <div style={{fontWeight:700,fontSize:'0.92rem',marginBottom:4}}>{qi+1}. {q.texto}</div>
+                {multiple && <div style={{fontSize:'0.72rem',color:'var(--accent)',marginBottom:8}}>Marcá todas las correctas</div>}
+                <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:6}}>
+                  {q.opciones.map((op, oi) => {
+                    const elegida = (seleccion[qi] || []).includes(oi);
+                    return (
+                      <label key={oi} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'8px 12px',borderRadius:8,border:`1.5px solid ${elegida?'var(--accent)':'var(--border)'}`,background:elegida?'var(--surface2)':'transparent'}}>
+                        <input type={multiple?'checkbox':'radio'} name={`q${qi}`} checked={elegida} onChange={()=>marcar(qi, oi, multiple)} style={{width:'auto',margin:0,flexShrink:0}} />
+                        <span style={{fontSize:'0.88rem'}}>{op}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <button className="btn btn-ghost" onClick={() => { if (confirm('¿Salir sin enviar?')) setTomando(null); }}>Cancelar</button>
+            <button className="btn btn-primary" onClick={enviarQuiz} disabled={enviando}>{enviando?'Enviando…':'✅ Enviar respuestas'}</button>
+          </div>
+        </Modal>
+      )}
+
+      {resultadoVer && (
+        <Modal title={`📊 ${resultadoVer.ev.titulo}`} onClose={() => setResultadoVer(null)}>
+          <div style={{textAlign:'center',marginBottom:16}}>
+            <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>Tu nota</div>
+            <div style={{fontSize:'2.4rem',fontWeight:800,color:(parseFloat(resultadoVer.nota)||0)>=6?'var(--success)':'var(--danger)'}}>{(parseFloat(resultadoVer.nota)||0).toFixed(1)}</div>
+            <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>{resultadoVer.correctas_cant} de {resultadoVer.total_cant} correctas</div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+            {(resultadoVer.ev.preguntas || []).map((q, qi) => {
+              const elegidas = (resultadoVer.respuestas && resultadoVer.respuestas[qi]) || [];
+              const corr = q.correctas || [];
+              const bien = elegidas.length === corr.length && elegidas.every(x => corr.includes(x));
+              return (
+                <div key={qi} className="card" style={{padding:12,background:'var(--surface2)'}}>
+                  <div style={{fontSize:'0.85rem',fontWeight:600,marginBottom:6}}>{qi+1}. {q.texto} {bien?'✅':'❌'}</div>
+                  <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                    {q.opciones.map((op, oi) => {
+                      const marco = elegidas.includes(oi);
+                      const esCorr = corr.includes(oi);
+                      return (
+                        <div key={oi} style={{fontSize:'0.8rem',display:'flex',alignItems:'center',gap:6,color:esCorr?'var(--success)':(marco?'var(--danger)':'var(--text2)')}}>
+                          <span>{marco?'●':'○'}</span>
+                          <span>{op}</span>
+                          {esCorr && <span style={{fontSize:'0.68rem'}}>✔ correcta</span>}
+                          {marco && !esCorr && <span style={{fontSize:'0.68rem'}}>(tu respuesta)</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
+            <button className="btn btn-primary" onClick={()=>setResultadoVer(null)}>Cerrar</button>
+          </div>
+        </Modal>
       )}
     </div>
   );
