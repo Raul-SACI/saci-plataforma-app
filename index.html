@@ -4382,16 +4382,35 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
     const onChange = col.key === 'proceso'
       ? (v) => setProceso(fila.grupo, v)
       : (v) => setTexto(fila.id, col.key, v);
+    const esActividades = col.key === 'actividades';
+    // La celda crece sola para que se lea todo el texto (no se corta).
+    const autoAlto = (el) => { if (!el) return; el.style.height = 'auto'; el.style.height = (el.scrollHeight + 2) + 'px'; };
+    // En Actividades, Enter arranca una actividad nueva en el mismo subproceso
+    // (con guion). Shift+Enter hace un salto de línea normal dentro de la misma.
+    const onKeyDown = esActividades ? (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const el = e.target;
+        const v = fila.actividades || '';
+        const s = el.selectionStart, en = el.selectionEnd;
+        const ins = '\n– ';
+        const nv = v.slice(0, s) + ins + v.slice(en);
+        onChange(nv);
+        requestAnimationFrame(() => { try { el.selectionStart = el.selectionEnd = s + ins.length; autoAlto(el); } catch (x) {} });
+      }
+    } : undefined;
     return (
       <div>
         <div style={{position:'relative'}}>
           <textarea
+            ref={autoAlto}
             value={fila[col.key]}
             readOnly={soloLectura}
-            onChange={e => onChange(e.target.value)}
-            placeholder={soloLectura ? '' : '...'}
-            rows={2}
-            style={{width:'100%',border:'none',background:'transparent',color: colorActual || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colorActual ? 600 : 400}} />
+            onChange={e => { onChange(e.target.value); autoAlto(e.target); }}
+            onKeyDown={onKeyDown}
+            placeholder={soloLectura ? '' : (esActividades ? 'Escribí la actividad y apretá Enter para la siguiente…' : '...')}
+            rows={esActividades ? 3 : 2}
+            style={{width:'100%',border:'none',background:'transparent',color: colorActual || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,paddingBottom: esActividades ? 6 : 18,fontFamily:'inherit',fontWeight: colorActual ? 600 : 400,minHeight: esActividades ? 70 : undefined,overflow:'hidden',lineHeight:1.4}} />
           {!soloLectura && (
             <button type="button" title="Color del texto"
               onClick={() => setColorAbierto(abierto ? null : cellKey)}
