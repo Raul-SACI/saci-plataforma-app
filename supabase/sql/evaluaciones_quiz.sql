@@ -19,7 +19,7 @@ alter table public.evaluaciones
 -- 2) Respuestas de los alumnos (un solo intento por alumno y evaluación).
 create table if not exists public.evaluaciones_respuestas (
   id             uuid primary key default gen_random_uuid(),
-  evaluacion_id  bigint references public.evaluaciones(id) on delete cascade,
+  evaluacion_id  uuid   references public.evaluaciones(id)     on delete cascade,
   alumno_id      uuid   references public.alumnos(id)       on delete cascade,
   respuestas     jsonb  default '[]'::jsonb,   -- [[0], [1,2], ...] índices elegidos por pregunta
   nota           numeric,                       -- 0 a 10
