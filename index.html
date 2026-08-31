@@ -8153,12 +8153,22 @@ function AdminVideos({ aulaActiva }) {
   );
 }
 
-// Agrupa materiales por subtema (los "sin subtema" primero, después ordenados natural/numérico: 2024, 2025...).
-function agruparPorSubtema(lista) {
+// Agrupa materiales por subtema. "Sin subtema" primero; después respeta el orden
+// manual del tema (arreglo `orden`) y, para los que no estén en esa lista, ordena
+// natural/numérico (2024, 2025...).
+function agruparPorSubtema(lista, orden) {
   const g = {};
   (lista || []).forEach(m => { const k = (m.subtema || '').trim(); (g[k] = g[k] || []).push(m); });
+  const ord = Array.isArray(orden) ? orden : [];
   return Object.keys(g)
-    .sort((a, b) => a === '' ? -1 : b === '' ? 1 : a.localeCompare(b, 'es', { numeric: true }))
+    .sort((a, b) => {
+      if (a === '') return -1; if (b === '') return 1;
+      const ia = ord.indexOf(a), ib = ord.indexOf(b);
+      if (ia !== -1 && ib !== -1) return ia - ib;   // ambos con orden manual
+      if (ia !== -1) return -1;                      // los que tienen orden manual van primero
+      if (ib !== -1) return 1;
+      return a.localeCompare(b, 'es', { numeric: true });
+    })
     .map(k => ({ subtema: k, items: g[k] }));
 }
 
@@ -8353,6 +8363,23 @@ function AdminMateriales({ aulaActiva }) {
     ));
   };
 
+  // Mueve un subtema arriba/abajo dentro de su tema y guarda el orden en el tema.
+  const moverSubtema = async (tema, subName, dir) => {
+    const tMats = mats.filter(m => m.tema_id === tema.id);
+    const actuales = agruparPorSubtema(tMats, tema.orden_subtemas).map(g => g.subtema).filter(s => s !== '');
+    const i = actuales.indexOf(subName);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= actuales.length) return;
+    const nuevo = [...actuales];
+    [nuevo[i], nuevo[j]] = [nuevo[j], nuevo[i]];
+    // Optimista: actualizo en memoria para que se vea al instante.
+    setTemas(ts => ts.map(t => t.id === tema.id ? { ...t, orden_subtemas: nuevo } : t));
+    const { error } = await supabase.from('temas_materiales').update({ orden_subtemas: nuevo }).eq('id', tema.id);
+    if (error && /orden_subtemas|column/i.test(error.message || '')) {
+      toast('Para que quede guardado, corré la migración temas_materiales_orden_subtemas.sql', 'info');
+    }
+  };
+
   const toggleDescarga = async (id, val) => {
     await supabase.from('materiales').update({ permite_descarga: val }).eq('id', id);
     load();
@@ -8447,14 +8474,21 @@ function AdminMateriales({ aulaActiva }) {
                           {['Tipo','Título','Descarga',''].map(h => <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--text2)'}}>{h}</th>)}
                         </tr></thead>
                         <tbody>
-                          {agruparPorSubtema(tMats).map(g => {
+                          {(() => { const _grupos = agruparPorSubtema(tMats, t.orden_subtemas); const _subOnly = _grupos.filter(x => x.subtema !== '').map(x => x.subtema); return _grupos.map(g => {
                             const subKey = `${t.id}__${g.subtema}`;
                             const subAbierto = g.subtema === '' || !subCerr[subKey];
+                            const _pos = _subOnly.indexOf(g.subtema);
                             return (
                             <React.Fragment key={g.subtema || '_sin_'}>
                               {g.subtema && (
-                                <tr style={{background:'var(--surface2)',cursor:'pointer'}} onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))}>
-                                  <td colSpan={4} style={{padding:'8px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>{subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span></td>
+                                <tr style={{background:'var(--surface2)'}}>
+                                  <td colSpan={4} style={{padding:'6px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>
+                                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                      <span style={{cursor:'pointer',flex:1}} onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))}>{subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span></span>
+                                      <button className="btn btn-ghost btn-sm" title="Subir subtema" disabled={_pos <= 0} onClick={() => moverSubtema(t, g.subtema, -1)}>▲</button>
+                                      <button className="btn btn-ghost btn-sm" title="Bajar subtema" disabled={_pos >= _subOnly.length - 1} onClick={() => moverSubtema(t, g.subtema, 1)}>▼</button>
+                                    </div>
+                                  </td>
                                 </tr>
                               )}
                               {subAbierto && g.items.map(m => {
@@ -8484,7 +8518,7 @@ function AdminMateriales({ aulaActiva }) {
                               })}
                             </React.Fragment>
                             );
-                          })}
+                          }); })()}
                         </tbody>
                       </table>
                     )}
@@ -9860,7 +9894,7 @@ function AlumnoMateriales({ alumno, user }) {
             </div>
             {isOpen && (
               <div style={{border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 12px 12px',padding:16,background:'var(--surface)'}}>
-                {agruparPorSubtema(tMats).map(g => {
+                {agruparPorSubtema(tMats, t.orden_subtemas).map(g => {
                   const subKey = `${t.id}__${g.subtema}`;
                   const subAbierto = g.subtema === '' || !subCerr[subKey];
                   return (
