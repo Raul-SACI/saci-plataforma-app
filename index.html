@@ -8812,28 +8812,39 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [] };
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [], para_todos: true, alumnos_ids: [] };
   const [form, setForm] = useState(emptyForm);
   const [resultados, setResultados] = useState(null);   // { ev, filas } cuando se ven resultados de un quiz
+  const [listaAlumnos, setListaAlumnos] = useState([]); // alumnos del aula (para "solo algunos")
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
-  // Lee tipo/preguntas de forma resiliente por si la migración del quiz todavía no se corrió.
+  // Lee tipo/preguntas/destinatarios de forma resiliente por si las migraciones todavía no se corrieron.
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
+    supabase.from('alumnos').select('id, nombre, apellido, email').eq('aula_id', aulaActiva).order('apellido')
+      .then(({ data }) => setListaAlumnos(data || []));
     let { data, error } = await supabase
       .from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids')
       .eq('aula_id', aulaActiva)
       .order('id', { ascending: false });
     if (error) {
       const r = await supabase
         .from('evaluaciones')
-        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
         .eq('aula_id', aulaActiva)
         .order('id', { ascending: false });
       data = r.data; error = r.error;
-      if (error) console.error('EVAL:', error);
+      if (error) {
+        const r2 = await supabase
+          .from('evaluaciones')
+          .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+          .eq('aula_id', aulaActiva)
+          .order('id', { ascending: false });
+        data = r2.data; error = r2.error;
+        if (error) console.error('EVAL:', error);
+      }
     }
     setEvals(data || []); setLoading(false);
   };
@@ -8876,18 +8887,21 @@ function AdminEvaluaciones({ aulaActiva }) {
       aula_id: aulaActiva,
       tipo: form.tipo,
       preguntas: preguntasLimpias,
+      para_todos: form.para_todos !== false,
+      alumnos_ids: form.para_todos !== false ? [] : (form.alumnos_ids || []),
     };
     let { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
       : await supabase.from('evaluaciones').insert(payload);
-    if (error && /tipo|preguntas|column/i.test(error.message || '')) {
-      // La migración del quiz todavía no se corrió: guardo sin esos campos para no bloquear.
-      const { tipo, preguntas, ...base } = payload;
+    if (error && /tipo|preguntas|para_todos|alumnos_ids|column/i.test(error.message || '')) {
+      // Alguna migración todavía no se corrió: guardo sin esos campos para no bloquear.
+      const { tipo, preguntas, para_todos, alumnos_ids, ...base } = payload;
       const r = editing
         ? await supabase.from('evaluaciones').update(base).eq('id', editing)
         : await supabase.from('evaluaciones').insert(base);
       error = r.error;
       if (!error && esQuiz) toast('Guardado, pero falta correr la migración evaluaciones_quiz.sql para las preguntas', 'info');
+      else if (!error && form.para_todos === false) toast('Guardado. Para limitar por alumno, corré la migración evaluaciones_alumnos.sql', 'info');
     }
     if (error) return toast(error.message, 'error');
     if (!editing && form.visible !== false && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
@@ -8911,7 +8925,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [] });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [] });
     setEditing(ev.id); setModal(true);
   };
 
@@ -9142,6 +9156,26 @@ function AdminEvaluaciones({ aulaActiva }) {
               <input type="checkbox" checked={form.visible} onChange={e => setForm(p=>({...p,visible:e.target.checked}))} style={{width:'auto'}} />
               Visible para los alumnos
             </label>
+          </div>
+          <div className="form-group">
+            <label>👥 ¿Quién puede ver esta evaluación?</label>
+            <div style={{display:'flex',gap:8,marginTop:6,marginBottom:8}}>
+              <button type="button" onClick={() => setForm(p => ({ ...p, para_todos: true }))} className={`btn btn-sm ${form.para_todos !== false ? 'btn-primary' : 'btn-ghost'}`} style={{flex:1,justifyContent:'center'}}>Todos los alumnos</button>
+              <button type="button" onClick={() => setForm(p => ({ ...p, para_todos: false }))} className={`btn btn-sm ${form.para_todos === false ? 'btn-primary' : 'btn-ghost'}`} style={{flex:1,justifyContent:'center'}}>Solo algunos</button>
+            </div>
+            {form.para_todos === false && (
+              <div style={{border:'1px solid var(--border)',borderRadius:10,padding:'8px 12px',maxHeight:200,overflowY:'auto'}}>
+                {listaAlumnos.length === 0 ? (
+                  <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>No hay alumnos en esta aula.</div>
+                ) : listaAlumnos.map(a => (
+                  <label key={a.id} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'5px 0'}}>
+                    <input type="checkbox" checked={form.alumnos_ids.includes(a.id)} onChange={e => setForm(p => ({ ...p, alumnos_ids: e.target.checked ? [...p.alumnos_ids, a.id] : p.alumnos_ids.filter(x => x !== a.id) }))} style={{width:'auto'}} />
+                    <span style={{fontSize:'0.85rem'}}>{`${a.apellido || ''} ${a.nombre || ''}`.trim() || 'Alumno'} <span style={{color:'var(--text2)',fontSize:'0.75rem'}}>{a.email}</span></span>
+                  </label>
+                ))}
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:6}}>Seleccionados: {form.alumnos_ids.length}</div>
+              </div>
+            )}
           </div>
           <div className="form-group">
             <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
@@ -10012,16 +10046,24 @@ function AlumnoEvaluaciones({ alumno }) {
     const miAula = alumno?.aula_id;
     if (!miAula) { setEvals([]); setLoading(false); return; }
     let { data, error } = await supabase.from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids')
       .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
     if (error) {
       const r = await supabase.from('evaluaciones')
-        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+        .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas')
         .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
-      data = r.data;
+      data = r.data; error = r.error;
+      if (error) {
+        const r2 = await supabase.from('evaluaciones')
+          .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en')
+          .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
+        data = r2.data;
+      }
     }
     const now = new Date().toISOString();
-    const visibles = (data || []).filter(ev => !ev.publicar_en || ev.publicar_en <= now);
+    // Muestra la evaluación si es para todos, o si este alumno está en la lista.
+    const paraMi = ev => ev.para_todos !== false || (Array.isArray(ev.alumnos_ids) && ev.alumnos_ids.includes(alumno?.id));
+    const visibles = (data || []).filter(ev => (!ev.publicar_en || ev.publicar_en <= now) && paraMi(ev));
     setEvals(visibles);
     // Intentos previos del alumno (para bloquear el reintento y mostrar la nota).
     if (alumno?.id) {
