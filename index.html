@@ -606,15 +606,21 @@ function exportarSalaPDF(el, titulo) {
     '  var portraitW=(210-2*margin)*MM, landscapeW=(297-2*margin)*MM;',
     '  var orient = natural>portraitW ? "landscape" : "portrait";',
     '  var pageW = orient==="landscape" ? landscapeW : portraitW;',
-    '  var scale = Math.min(1, pageW/natural);',
+    '  var scale = pageW/natural; if(scale>2.6)scale=2.6;',   // ajusta al ancho de la hoja (agranda si es angosto)
     '  var st=document.createElement("style"); st.textContent="@page{size:A4 "+orient+";margin:"+margin+"mm;}"; document.head.appendChild(st);',
     '  wrap.style.transformOrigin="top left"; wrap.style.transform="scale("+scale+")";',
-    '  var sw=document.querySelector(".cg-scalewrap"); sw.style.width=pageW+"px"; sw.style.height=Math.ceil(wrap.scrollHeight*scale)+"px";',
+    '  var sw=document.querySelector(".cg-scalewrap"); sw.style.width=Math.ceil(natural*scale)+"px"; sw.style.height=Math.ceil(wrap.scrollHeight*scale)+"px"; sw.style.margin="0 auto";',
     '}catch(e){}',
     'setTimeout(function(){try{window.focus();window.print();}catch(e){}},250);',
     '},350);});',
   ].join('');
-  const tit = String(titulo || 'Sala de Juegos').replace(/[<>]/g, '');
+  // Título de arriba: prioriza el título de la matriz que se está armando
+  // (input/elemento marcado con "cg-titulo"); si no hay, usa el nombre de la sección.
+  let tmat = '';
+  try { const tin = el.querySelector('.cg-titulo'); if (tin) tmat = (tin.value != null ? tin.value : tin.textContent) || ''; } catch (e) {}
+  const seccion = String(titulo || 'Sala de Juegos').replace(/[<>]/g, '');
+  const tit = String((tmat && tmat.trim()) || seccion).replace(/[<>]/g, '');
+  const sub = (tmat && tmat.trim()) ? seccion : '';   // subtítulo = sección, solo si el título es el de la matriz
   // El PDF incluye SOLO el desarrollo del práctico. Cada herramienta marca su
   // desarrollo (la matriz/dibujo terminado) con la clase "cg-export". Si no hay
   // ninguno marcado, se exporta todo el contenido (compatibilidad).
@@ -623,21 +629,24 @@ function exportarSalaPDF(el, titulo) {
     ? Array.from(marcados).map(n => n.outerHTML).join('')
     : el.innerHTML;
   win.document.open();
-  win.document.write('<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>' +
+  win.document.write('<!doctype html><html class="light" data-theme="light"><head><meta charset="utf-8"><title>' +
     tit + '</title>' + estilos +
     '<style>' +
     '@page { size: A4; margin: 10mm; }' +
     'html, body { background:#fff !important; }' +
     'body { margin:0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }' +
     '.cg-wm { position: fixed; top:0; left:0; right:0; bottom:0; display:flex; align-items:center; justify-content:center; z-index:0; pointer-events:none; }' +
-    '.cg-wm img { width: 165mm; max-width: 92%; opacity: 0.06; }' +
+    '.cg-wm img { width: 150mm; max-width: 80%; opacity: 0.13; }' +   // marca de agua que se nota sobre la matriz sin tapar
     '.cg-corner-logo { position: fixed; top: 5mm; right: 5mm; height: 16mm; width: auto; z-index: 3; }' +   // logo en la esquina sup. derecha de cada hoja
-    '.cg-header { position: relative; z-index: 2; padding: 0 26mm 6px 2mm; border-bottom: 1px solid #999; margin-bottom: 8px; }' +
-    '.cg-h-title { font-weight: 700; font-size: 14px; color: #111; }' +
-    '.cg-h-cpn { font-size: 11px; color: #333; margin-top: 2px; }' +
+    '.cg-header { position: relative; z-index: 2; padding: 0 26mm 8px 2mm; border-bottom: 2px solid #444; margin-bottom: 10px; text-align: center; }' +
+    '.cg-h-title { font-weight: 800; font-size: 17px; color: #111; text-transform: uppercase; letter-spacing: 0.02em; }' +
+    '.cg-h-sub { font-size: 11px; color: #555; margin-top: 2px; }' +
+    '.cg-h-cpn { font-size: 11px; color: #333; margin-top: 3px; }' +
     '.cg-body { position: relative; z-index: 1; padding: 4mm; }' +
     '.cg-scalewrap { overflow: hidden; }' +
     '.cg-scale, .cg-scale * { overflow: visible !important; }' +   // que nada se recorte al escalar
+    // Celdas transparentes: dejan ver la marca de agua a través de la matriz.
+    '.cg-scale .msa-tabla th, .cg-scale .msa-tabla td { background: transparent !important; }' +
     '.cg-body button { display:none !important; }' +               // los controles/paleta no van en el PDF
     '.cg-noexport { display:none !important; }' +                  // bloques marcados como solo-edición
     '.cg-toolbar-print { position: fixed; bottom:10px; right:10px; z-index:5; }' +
@@ -646,7 +655,7 @@ function exportarSalaPDF(el, titulo) {
     '<div class="cg-wm"><img src="' + logo + '" alt=""></div>' +
     '<img class="cg-corner-logo" src="' + logo + '" alt="">' +
     '<div class="cg-body">' +
-    '<div class="cg-header"><div class="cg-h-title">' + tit + '</div><div class="cg-h-cpn">CPN Raúl Emiliano Díaz Cortés</div></div>' +
+    '<div class="cg-header"><div class="cg-h-title">' + tit + '</div>' + (sub ? '<div class="cg-h-sub">' + sub + '</div>' : '') + '<div class="cg-h-cpn">CPN Raúl Emiliano Díaz Cortés</div></div>' +
     '<div class="cg-scalewrap"><div class="cg-scale">' + cuerpo + '</div></div></div>' +
     '<div class="cg-toolbar-print"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>' +
     '<scr' + 'ipt>' + ajuste + cierre +
@@ -2931,7 +2940,7 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
 
       {!soloLectura && (
         <div className="cg-noexport" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-          <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del cursograma (ej: Circuito de emisión de la Orden de Compra)"
+          <input className="cg-titulo" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del cursograma (ej: Circuito de emisión de la Orden de Compra)"
             style={{ flex: 1, minWidth: 260, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)' }} />
           <button className="btn btn-primary btn-sm" onClick={() => guardar()} disabled={saving}>{saving ? '⏳' : '💾'} Guardar</button>
           {esAdmin && actual?.id && !actual?.publicada && <button className="btn btn-ghost btn-sm" onClick={() => guardar(true)} disabled={saving}>📢 Publicar</button>}
@@ -3359,7 +3368,7 @@ function MatrizActividades({ alumno, aulaActiva, esAdmin }) {
         </div>
       )}
 
-      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Actividades de Control — Ventas)" disabled={soloLectura}
+      <input className="cg-titulo" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Actividades de Control — Ventas)" disabled={soloLectura}
         style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 12 }} />
 
       {/* Columnas opcionales */}
@@ -3522,7 +3531,7 @@ function MatrizRiesgos({ alumno, aulaActiva, esAdmin }) {
         </div>
       )}
 
-      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Riesgos — Ventas)" disabled={soloLectura}
+      <input className="cg-titulo" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Riesgos — Ventas)" disabled={soloLectura}
         style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 14 }} />
 
       <div className="cg-export" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -3826,7 +3835,7 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
       )}
 
       {/* Título */}
-      <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del informe (ej: Ventas 2019 vs 2018 por sucursal)" disabled={soloLectura}
+      <input className="cg-titulo" value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título del informe (ej: Ventas 2019 vs 2018 por sucursal)" disabled={soloLectura}
         style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 12 }} />
 
       {/* Panel de definición de variables */}
@@ -4609,7 +4618,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
       {/* Título + acciones */}
       {!soloLectura && (
         <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
-          <input placeholder="Título de la matriz (ej: Compras con contrato)" value={titulo}
+          <input className="cg-titulo" placeholder="Título de la matriz (ej: Compras con contrato)" value={titulo}
             onChange={e => setTitulo(e.target.value)}
             style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
           <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
@@ -4919,7 +4928,7 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
       {/* Título + acciones */}
       {!soloLectura && (
         <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
-          <input placeholder="Título del diagrama (ej: Devolución de compra)" value={titulo}
+          <input className="cg-titulo" placeholder="Título del diagrama (ej: Devolución de compra)" value={titulo}
             onChange={e => setTitulo(e.target.value)}
             style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
           <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
@@ -5210,7 +5219,7 @@ function Fragmentaciones({ alumno, aulaActiva, esAdmin }) {
       {/* Título + acciones */}
       {!soloLectura && (
         <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'center'}}>
-          <input placeholder="Título (ej: Subsistema de Compras)" value={titulo}
+          <input className="cg-titulo" placeholder="Título (ej: Subsistema de Compras)" value={titulo}
             onChange={e => setTitulo(e.target.value)}
             style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
           <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
@@ -5498,7 +5507,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
       {/* Título + acciones */}
       {!soloLectura && (
         <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap',alignItems:'center'}}>
-          <input placeholder="Título (ej: Organigrama empresa industrial)" value={titulo}
+          <input className="cg-titulo" placeholder="Título (ej: Organigrama empresa industrial)" value={titulo}
             onChange={e => setTitulo(e.target.value)}
             style={{flex:1,minWidth:200,padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontWeight:600}} />
           <button className="btn btn-primary" onClick={() => guardar()} disabled={saving}>{saving ? 'Guardando...' : '💾 Guardar'}</button>
