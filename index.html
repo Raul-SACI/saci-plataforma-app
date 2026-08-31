@@ -615,6 +615,13 @@ function exportarSalaPDF(el, titulo) {
     '},350);});',
   ].join('');
   const tit = String(titulo || 'Sala de Juegos').replace(/[<>]/g, '');
+  // El PDF incluye SOLO el desarrollo del práctico. Cada herramienta marca su
+  // desarrollo (la matriz/dibujo terminado) con la clase "cg-export". Si no hay
+  // ninguno marcado, se exporta todo el contenido (compatibilidad).
+  const marcados = el.querySelectorAll('.cg-export');
+  const cuerpo = marcados.length
+    ? Array.from(marcados).map(n => n.outerHTML).join('')
+    : el.innerHTML;
   win.document.open();
   win.document.write('<!doctype html><html data-theme="light"><head><meta charset="utf-8"><title>' +
     tit + '</title>' + estilos +
@@ -640,7 +647,7 @@ function exportarSalaPDF(el, titulo) {
     '<img class="cg-corner-logo" src="' + logo + '" alt="">' +
     '<div class="cg-body">' +
     '<div class="cg-header"><div class="cg-h-title">' + tit + '</div><div class="cg-h-cpn">CPN Raúl Emiliano Díaz Cortés</div></div>' +
-    '<div class="cg-scalewrap"><div class="cg-scale">' + el.innerHTML + '</div></div></div>' +
+    '<div class="cg-scalewrap"><div class="cg-scale">' + cuerpo + '</div></div></div>' +
     '<div class="cg-toolbar-print"><button onclick="window.print()" style="padding:8px 14px;font-size:13px;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>' +
     '<scr' + 'ipt>' + ajuste + cierre +
     '</body></html>');
@@ -3019,8 +3026,8 @@ function Cursogramas({ alumno, aulaActiva, esAdmin }) {
         </div>
       )}
 
-      {/* Lienzo (papel blanco) */}
-      <div style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: '#e9e9ee' }}>
+      {/* Lienzo (papel blanco) — este es el "desarrollo" que se exporta a PDF */}
+      <div className="cg-export" style={{ overflow: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: '#e9e9ee' }}>
         <div style={{ position: 'relative', width: anchoTotal, height: altoTotal, background: '#fff', margin: 12 }}>
           {/* Título del proceso */}
           <div style={{ position: 'absolute', left: 0, top: 0, width: anchoTotal, height: 34, borderBottom: '1.5px solid #111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, color: '#111', textAlign: 'center', padding: '0 8px' }}>{titulo || 'Cursograma'}</div>
@@ -3094,7 +3101,6 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           <div className="page-title">🎮 Sala de Juegos</div>
           <div className="page-subtitle">Herramientas para practicar los temas de la materia</div>
         </div>
-        <button className="btn btn-ghost" onClick={() => exportarSalaPDF(contenidoRef.current, 'Sala de Juegos — ' + (JUEGOS.find(j => j.id === tab)?.label || ''))} title="Exportar a PDF (A4) con el logo como marca de agua">🖨️ Exportar PDF</button>
       </div>
 
       {/* Pestañas */}
@@ -3129,6 +3135,12 @@ function SalaDeJuegos({ alumno, aulaActiva, esAdmin }) {
           : tab === 'informes'
           ? <InformesDireccion alumno={alumno} aulaActiva={aulaActiva} esAdmin={esAdmin} />
           : <Proximamente nombre={JUEGOS.find(j => j.id === tab)?.label} />}
+      </div>
+
+      {/* Exportar el desarrollo a PDF — abajo, junto a donde se arma el práctico.
+          El PDF incluye SOLO el desarrollo (la matriz/dibujo), no el banco ni los selectores. */}
+      <div style={{display:'flex',justifyContent:'center',padding:'20px 0 8px',borderTop:'1px solid var(--border)',marginTop:16}}>
+        <button className="btn btn-primary" onClick={() => exportarSalaPDF(contenidoRef.current, 'Sala de Juegos — ' + (JUEGOS.find(j => j.id === tab)?.label || ''))} title="Exporta a PDF (A4, con el logo como marca de agua) únicamente el desarrollo del práctico">🖨️ Exportar desarrollo a PDF</button>
       </div>
     </div>
   );
@@ -3360,8 +3372,8 @@ function MatrizActividades({ alumno, aulaActiva, esAdmin }) {
         </div>
       )}
 
-      {/* Tabla */}
-      <div ref={scrollRef} onScroll={refreshSb} style={{ overflow: 'auto', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 8 }}>
+      {/* Tabla — desarrollo que se exporta a PDF */}
+      <div ref={scrollRef} onScroll={refreshSb} className="cg-export" style={{ overflow: 'auto', maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 8 }}>
         <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
           <thead>
             <tr>
@@ -3513,7 +3525,7 @@ function MatrizRiesgos({ alumno, aulaActiva, esAdmin }) {
       <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Título (ej: Matriz de Riesgos — Ventas)" disabled={soloLectura}
         style={{ width: '100%', fontWeight: 700, fontSize: '1rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', marginBottom: 14 }} />
 
-      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      <div className="cg-export" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {/* Gráfico */}
         <div style={{ display: 'flex', gap: 6 }}>
           {/* Eje Y (rótulo + escala) */}
@@ -3946,7 +3958,7 @@ function InformesDireccion({ alumno, aulaActiva, esAdmin }) {
           Agregá al menos un nivel de columnas con un valor para dibujar el cuadro.
         </div>
       ) : (
-        <div className="scroll-x" style={{ overflowX: 'auto', maxWidth: '100%', paddingBottom: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+        <div className="scroll-x cg-export" style={{ overflowX: 'auto', maxWidth: '100%', paddingBottom: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
           <table style={{ borderCollapse: 'collapse', minWidth: 'max-content' }}>
             <thead>
               <tr>
@@ -4479,8 +4491,8 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
         </div>
       )}
 
-      {/* La matriz */}
-      <div className="card" style={{overflowX:'auto',padding:0}}>
+      {/* La matriz — este es el "desarrollo" que se exporta a PDF */}
+      <div className="card cg-export" style={{overflowX:'auto',padding:0}}>
         <table className="msa-tabla">
           <thead>
             <tr>
@@ -4906,8 +4918,8 @@ function DiagramaContab({ alumno, aulaActiva, esAdmin }) {
         </div>
       )}
 
-      {/* Diagrama */}
-      <div className="card" style={{padding:14}}>
+      {/* Diagrama — desarrollo que se exporta a PDF */}
+      <div className="card cg-export" style={{padding:14}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:10}}>
           <strong style={{fontSize:'0.9rem'}}>📊 Diagrama</strong>
           {!soloLectura && (
@@ -5110,8 +5122,8 @@ function Fragmentaciones({ alumno, aulaActiva, esAdmin }) {
       )}
       {soloLectura && <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10}}>{titulo}</div>}
 
-      {/* La tira de fichas */}
-      <div className="card" style={{padding:16, overflowX:'auto'}}>
+      {/* La tira de fichas — desarrollo que se exporta a PDF */}
+      <div className="card cg-export" style={{padding:16, overflowX:'auto'}}>
         {!soloLectura && <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:12}}>Escribí el nombre en cada ficha. Usá ◀ ▶ para cambiar el orden, el círculo para el color y 🗑️ para borrarla.</div>}
         <div style={{display:'flex', alignItems:'flex-start', minWidth:'min-content', paddingBottom:8}}>
           {fichas.map((f, i) => {
@@ -5426,7 +5438,7 @@ function Organigramas({ alumno, aulaActiva, esAdmin }) {
             </label>
           </div>
         )}
-        <div ref={scrollRef} onScroll={refreshSb} className="scroll-x" style={{overflow:'auto', maxWidth:'100%', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
+        <div ref={scrollRef} onScroll={refreshSb} className="scroll-x cg-export" style={{overflow:'auto', maxWidth:'100%', maxHeight:'72vh', border:'1px solid var(--border)', borderRadius:8}}>
           <div className="og-canvas" style={{width:cw, height:ch}}>
             <svg width={cw} height={ch} style={{position:'absolute',top:0,left:0,pointerEvents:'none',zIndex:1}}>
               {conexiones.map((k, i) => {
