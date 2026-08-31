@@ -9237,6 +9237,12 @@ function AlumnoVideos({ alumno, user }) {
             <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:16}}>
               <strong style={{color:'var(--text)'}}>{vencidoAviso.titulo}</strong> ya no está disponible.
             </div>
+            {vencidoAviso.descripcion && (
+              <div style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px',marginBottom:16,textAlign:'left'}}>
+                <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--text2)',marginBottom:6}}>📋 En este video vas a ver</div>
+                <div style={{fontSize:'0.86rem',color:'var(--text)',whiteSpace:'pre-wrap',lineHeight:1.5}}>{vencidoAviso.descripcion}</div>
+              </div>
+            )}
             <div style={{background:'rgba(255,71,87,0.1)',border:'1px solid var(--danger)',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:'0.85rem',color:'var(--danger)'}}>
               Venció el {fmtVence(vencidoAviso.vence_en, true)}
             </div>
