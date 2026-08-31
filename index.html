@@ -9347,6 +9347,7 @@ function AlumnoVideos({ alumno, user }) {
             {estaVencido(v) && <span className="chip chip-red" style={{marginLeft:6,fontSize:'0.62rem'}}>⌛ Vencido</span>}
             {extensionVigente(v) && <span className="chip chip-green" style={{marginLeft:6,fontSize:'0.62rem'}}>⏱️ +24hs</span>}
           </div>
+          {v.descripcion && <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:2,lineHeight:1.4,whiteSpace:'pre-wrap'}}>{v.descripcion}</div>}
           {v.vence_en && !estaVencido(v) && (
             <div style={{fontSize:'0.68rem',marginTop:2,color:venceProximo(v)?'var(--warning)':'var(--text2)',fontWeight:venceProximo(v)?700:500}}>
               {venceProximo(v) ? '⚠️ Vence' : '⌛ Disponible hasta'} el {fmtVence(v.vence_en)}
