@@ -4105,6 +4105,7 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const [nuevaPieza, setNuevaPieza] = useState({ nombre: '', tipo: 'archivo' });
   const [verBanco, setVerBanco] = useState(true);
   const [piezaSel, setPiezaSel] = useState(null);  // pieza elegida por clic para colocar tocando una celda
+  const [piezaFoco, setPiezaFoco] = useState(null); // pieza YA colocada que se tocó, para copiarla (clic o Ctrl+C)
   const [bancoExp, setBancoExp] = useState(false); // banco desplegado (ver más) o compacto
   const [anchos, setAnchos] = useState({});        // ancho por columna (px)
   const [colores, setColores] = useState({});      // color de texto por celda: { "filaId_colKey": "#hex" }
@@ -4178,6 +4179,22 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const quitarPieza = (filaId, colKey, uid) => {
     setFilas(fs => fs.map(f => f.id === filaId ? { ...f, [colKey]: f[colKey].filter(p => p.uid !== uid) } : f));
   };
+
+  // Ctrl+C (o Cmd+C) copia la pieza que tocaste en la matriz para pegarla en otra
+  // celda tocándola. Si hay texto seleccionado, deja copiar el texto normalmente.
+  // Escape cancela la selección.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') { setPiezaSel(null); setPiezaFoco(null); return; }
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+        const txt = (window.getSelection && window.getSelection().toString()) || '';
+        if (txt) return; // hay texto marcado: copiar texto como siempre
+        if (piezaFoco) { setPiezaSel({ nombre: piezaFoco.nombre, tipo: piezaFoco.tipo }); toast(`"${piezaFoco.nombre}" copiada — tocá la celda destino 📋`, 'info'); }
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [piezaFoco]);
   const setTexto = (filaId, colKey, valor) => {
     setFilas(fs => fs.map(f => f.id === filaId ? { ...f, [colKey]: valor } : f));
   };
@@ -4442,10 +4459,19 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
       onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}
       onClick={() => colocarPieza(fila.id, col.key)}
       style={{cursor: (!soloLectura && piezaSel) ? 'pointer' : 'default'}}>
-      {fila[col.key].map(p => (
-        <MsaPieza key={p.uid} pieza={p}
-          onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
-      ))}
+      {fila[col.key].map(p => {
+        const foco = piezaFoco && piezaFoco.uid === p.uid;
+        return (
+          <div key={p.uid}
+            onClick={soloLectura ? undefined : (e) => { e.stopPropagation(); const sel = { nombre: p.nombre, tipo: p.tipo }; setPiezaFoco({ ...sel, uid: p.uid }); setPiezaSel(sel); }}
+            title={soloLectura ? p.nombre : 'Clic (o Ctrl+C) para copiar esta pieza y pegarla tocando otra celda'}
+            style={{display:'inline-block', cursor: soloLectura ? 'default' : 'copy', outline: foco ? '2px solid var(--accent)' : 'none', outlineOffset:1, borderRadius:8}}>
+            <MsaPieza pieza={p}
+              onDragStart={soloLectura ? undefined : onDragStart}
+              onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
+          </div>
+        );
+      })}
     </div>
   );
   // Agrupa las filas por proceso (grupos contiguos con el mismo "grupo").
