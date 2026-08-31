@@ -608,8 +608,7 @@ function exportarSalaPDF(el, titulo) {
     '  var pageW = orient==="landscape" ? landscapeW : portraitW;',
     '  var scale = pageW/natural; if(scale>2.6)scale=2.6;',   // ajusta al ancho de la hoja (agranda si es angosto)
     '  var st=document.createElement("style"); st.textContent="@page{size:A4 "+orient+";margin:"+margin+"mm;}"; document.head.appendChild(st);',
-    '  wrap.style.transformOrigin="top left"; wrap.style.transform="scale("+scale+")";',
-    '  var sw=document.querySelector(".cg-scalewrap"); sw.style.width=Math.ceil(natural*scale)+"px"; sw.style.height=Math.ceil(wrap.scrollHeight*scale)+"px"; sw.style.margin="0 auto";',
+    '  wrap.style.zoom = scale;',   // zoom (no transform): permite que la matriz alta se reparta en varias hojas sin cortarse
     '}catch(e){}',
     'setTimeout(function(){try{window.focus();window.print();}catch(e){}},250);',
     '},350);});',
@@ -643,10 +642,13 @@ function exportarSalaPDF(el, titulo) {
     '.cg-h-sub { font-size: 11px; color: #555; margin-top: 2px; }' +
     '.cg-h-cpn { font-size: 11px; color: #333; margin-top: 3px; }' +
     '.cg-body { position: relative; z-index: 1; padding: 4mm; }' +
-    '.cg-scalewrap { overflow: hidden; }' +
     '.cg-scale, .cg-scale * { overflow: visible !important; }' +   // que nada se recorte al escalar
-    // Celdas transparentes: dejan ver la marca de agua a través de la matriz.
-    '.cg-scale .msa-tabla th, .cg-scale .msa-tabla td { background: transparent !important; }' +
+    // Todo transparente (tarjetas, contenedores y celdas): deja ver la marca de
+    // agua a través de la matriz. Solo las piezas y el texto tapan (eso está bien).
+    '.cg-scale, .cg-scale .card, .cg-scale .cg-export, .cg-scale .scroll-x, .cg-scale .msa-tabla, .cg-scale .msa-tabla th, .cg-scale .msa-tabla td { background: transparent !important; box-shadow: none !important; }' +
+    // La matriz se reparte en varias hojas sin cortar filas por la mitad.
+    '.cg-scale table { page-break-inside: auto; }' +
+    '.cg-scale tr, .cg-scale .msa-pieza { page-break-inside: avoid; }' +
     '.cg-body button { display:none !important; }' +               // los controles/paleta no van en el PDF
     '.cg-noexport { display:none !important; }' +                  // bloques marcados como solo-edición
     '.cg-toolbar-print { position: fixed; bottom:10px; right:10px; z-index:5; }' +
