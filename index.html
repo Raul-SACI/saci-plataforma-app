@@ -4084,8 +4084,11 @@ const MSA_PALETA = [
   { hex: '#7c3aed', label: 'Violeta' },
 ];
 
-function filaVacia() {
-  return { id: Math.random().toString(36).slice(2), proceso: '', subproceso: '', sector: '', in_arch: [], in_doc: [], actividades: '', out_arch: [], out_doc: [] };
+const nidMsa = () => Math.random().toString(36).slice(2);
+// Cada fila es un SUBPROCESO. Las filas con el mismo "grupo" pertenecen al mismo
+// PROCESO (la celda Proceso se combina verticalmente sobre todos sus subprocesos).
+function filaVacia(grupo) {
+  return { id: nidMsa(), grupo: grupo || nidMsa(), proceso: '', subproceso: '', sector: '', in_arch: [], in_doc: [], actividades: '', out_arch: [], out_doc: [] };
 }
 
 // Editor de la matriz: banco de piezas arriba + tabla abajo. Se usa en admin y alumno.
@@ -4178,8 +4181,24 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
   const setTexto = (filaId, colKey, valor) => {
     setFilas(fs => fs.map(f => f.id === filaId ? { ...f, [colKey]: valor } : f));
   };
+  // El Proceso se guarda en TODAS las filas del grupo, así no se pierde si se
+  // borra el primer subproceso (la celda combinada muestra el valor del grupo).
+  const setProceso = (grupo, valor) => {
+    setFilas(fs => fs.map(f => f.grupo === grupo ? { ...f, proceso: valor } : f));
+  };
 
-  const agregarFila = () => setFilas(fs => [...fs, filaVacia()]);
+  // "+ Agregar proceso": fila nueva con su propio grupo (proceso independiente).
+  const agregarProceso = () => setFilas(fs => [...fs, filaVacia()]);
+  // "+ Subproceso": agrega otra fila al MISMO proceso, justo debajo de las suyas,
+  // heredando el nombre del proceso del grupo.
+  const agregarSubproceso = (grupo) => setFilas(fs => {
+    let lastIdx = -1, proc = '';
+    fs.forEach((f, i) => { if (f.grupo === grupo) { lastIdx = i; proc = f.proceso; } });
+    const nueva = { ...filaVacia(grupo), proceso: proc };
+    const copia = [...fs];
+    copia.splice(lastIdx + 1, 0, nueva);
+    return copia;
+  });
   const quitarFila = (id) => setFilas(fs => fs.length > 1 ? fs.filter(f => f.id !== id) : fs);
 
   // Arrastrar el borde de una columna para cambiar su ancho (como en Excel).
@@ -4355,6 +4374,69 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
 
   const soloLectura = !!actual?.soloLectura;
 
+  // Celda de texto (Proceso, Subproceso, Sector, Actividades) con color de texto.
+  const celdaTexto = (fila, col) => {
+    const cellKey = `${fila.id}_${col.key}`;
+    const colorActual = colores[cellKey] || null;
+    const abierto = colorAbierto === cellKey;
+    const onChange = col.key === 'proceso'
+      ? (v) => setProceso(fila.grupo, v)
+      : (v) => setTexto(fila.id, col.key, v);
+    return (
+      <div>
+        <div style={{position:'relative'}}>
+          <textarea
+            value={fila[col.key]}
+            readOnly={soloLectura}
+            onChange={e => onChange(e.target.value)}
+            placeholder={soloLectura ? '' : '...'}
+            rows={2}
+            style={{width:'100%',border:'none',background:'transparent',color: colorActual || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colorActual ? 600 : 400}} />
+          {!soloLectura && (
+            <button type="button" title="Color del texto"
+              onClick={() => setColorAbierto(abierto ? null : cellKey)}
+              style={{position:'absolute',bottom:4,right:4,width:16,height:16,borderRadius:'50%',border:'1px solid var(--border)',background: colorActual || 'var(--text)',cursor:'pointer',padding:0,display:'block'}} />
+          )}
+        </div>
+        {!soloLectura && abierto && (
+          <div style={{display:'flex',gap:6,justifyContent:'flex-end',padding:'4px 4px 2px',flexWrap:'wrap'}}>
+            {MSA_PALETA.map(c => (
+              <button key={c.label} type="button" title={c.label}
+                onClick={() => setColorCelda(fila.id, col.key, c.hex)}
+                style={{width:20,height:20,borderRadius:'50%',cursor:'pointer',padding:0,position:'relative',
+                  background: c.hex || 'var(--text)',
+                  border: colorActual === c.hex ? '2px solid var(--text)' : '1px solid var(--border)'}}>
+                {c.hex === null && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,lineHeight:1,color:'var(--surface)'}}>✕</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+  // Celda de piezas (Inputs / Outputs) donde se sueltan archivos y documentos.
+  const celdaPiezas = (fila, col) => (
+    <div
+      className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
+      onDragOver={soloLectura ? undefined : (e) => { e.preventDefault(); setDragOver(fila.id+col.key); }}
+      onDragLeave={() => setDragOver(null)}
+      onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}
+      onClick={() => colocarPieza(fila.id, col.key)}
+      style={{cursor: (!soloLectura && piezaSel) ? 'pointer' : 'default'}}>
+      {fila[col.key].map(p => (
+        <MsaPieza key={p.uid} pieza={p}
+          onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
+      ))}
+    </div>
+  );
+  // Agrupa las filas por proceso (grupos contiguos con el mismo "grupo").
+  const grupos = [];
+  filas.forEach(f => {
+    const last = grupos[grupos.length - 1];
+    if (last && last.grupo === f.grupo) last.filas.push(f);
+    else grupos.push({ grupo: f.grupo, filas: [f] });
+  });
+
   return (
     <div className="page-content fade-in">
       {!embebido && (
@@ -4511,75 +4593,46 @@ function MsaEditor({ alumno, aulaActiva, esAdmin, embebido }) {
             </tr>
           </thead>
           <tbody>
-            {filas.map(fila => (
+            {grupos.map(g => g.filas.map((fila, idx) => (
               <tr key={fila.id}>
-                {MSA_COLS.map(col => (
-                  <td key={col.key} style={{minWidth: col.tipo==='piezas' ? 130 : 110}}>
-                    {col.tipo === 'texto' ? (() => {
-                      const cellKey = `${fila.id}_${col.key}`;
-                      const colorActual = colores[cellKey] || null;
-                      const abierto = colorAbierto === cellKey;
-                      return (
-                      <div>
-                        <div style={{position:'relative'}}>
-                          <textarea
-                            value={fila[col.key]}
-                            readOnly={soloLectura}
-                            onChange={e => setTexto(fila.id, col.key, e.target.value)}
-                            placeholder={soloLectura ? '' : '...'}
-                            rows={2}
-                            style={{width:'100%',border:'none',background:'transparent',color: colorActual || 'var(--text)',resize:'vertical',fontSize:'0.8rem',padding:6,fontFamily:'inherit',fontWeight: colorActual ? 600 : 400}} />
-                          {!soloLectura && (
-                            <button type="button"
-                              title="Color del texto"
-                              onClick={() => setColorAbierto(abierto ? null : cellKey)}
-                              style={{position:'absolute',bottom:4,right:4,width:16,height:16,borderRadius:'50%',border:'1px solid var(--border)',background: colorActual || 'var(--text)',cursor:'pointer',padding:0,display:'block'}} />
-                          )}
-                        </div>
-                        {!soloLectura && abierto && (
-                          <div style={{display:'flex',gap:6,justifyContent:'flex-end',padding:'4px 4px 2px',flexWrap:'wrap'}}>
-                            {MSA_PALETA.map(c => (
-                              <button key={c.label} type="button" title={c.label}
-                                onClick={() => setColorCelda(fila.id, col.key, c.hex)}
-                                style={{width:20,height:20,borderRadius:'50%',cursor:'pointer',padding:0,position:'relative',
-                                  background: c.hex || 'var(--text)',
-                                  border: colorActual === c.hex ? '2px solid var(--text)' : '1px solid var(--border)'}}>
-                                {c.hex === null && <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,lineHeight:1,color:'var(--surface)'}}>✕</span>}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      );
-                    })() : (
-                      <div
-                        className={`msa-celda ${dragOver === fila.id+col.key ? 'msa-drop' : ''}`}
-                        onDragOver={soloLectura ? undefined : (e) => { e.preventDefault(); setDragOver(fila.id+col.key); }}
-                        onDragLeave={() => setDragOver(null)}
-                        onDrop={soloLectura ? undefined : (e) => onDrop(e, fila.id, col.key)}
-                        onClick={() => colocarPieza(fila.id, col.key)}
-                        style={{cursor: (!soloLectura && piezaSel) ? 'pointer' : 'default'}}>
-                        {fila[col.key].map(p => (
-                          <MsaPieza key={p.uid} pieza={p}
-                            onRemove={soloLectura ? undefined : () => quitarPieza(fila.id, col.key, p.uid)} />
-                        ))}
-                      </div>
-                    )}
-                  </td>
-                ))}
+                {MSA_COLS.map(col => {
+                  // La columna Proceso se combina verticalmente sobre todos los
+                  // subprocesos del grupo: solo se dibuja en la primera fila.
+                  if (col.key === 'proceso') {
+                    if (idx !== 0) return null;
+                    return (
+                      <td key={col.key} rowSpan={g.filas.length} style={{minWidth:110, verticalAlign:'top', background:'var(--surface2)'}}>
+                        {celdaTexto(g.filas[0], col)}
+                      </td>
+                    );
+                  }
+                  return (
+                    <td key={col.key} style={{minWidth: col.tipo==='piezas' ? 130 : 110}}>
+                      {col.tipo === 'texto' ? celdaTexto(fila, col) : celdaPiezas(fila, col)}
+                    </td>
+                  );
+                })}
                 {!soloLectura && (
-                  <td style={{textAlign:'center'}}>
-                    <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => quitarFila(fila.id)}>🗑️</button>
+                  <td style={{textAlign:'center',whiteSpace:'nowrap',verticalAlign:'top'}}>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4}}>
+                      <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} title="Quitar este subproceso" onClick={() => quitarFila(fila.id)}>🗑️</button>
+                      {idx === g.filas.length - 1 && (
+                        <button className="btn btn-ghost btn-sm" title="Agregar otro subproceso a este proceso" onClick={() => agregarSubproceso(g.grupo)}>➕</button>
+                      )}
+                    </div>
                   </td>
                 )}
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
       </div>
 
       {!soloLectura && (
-        <button className="btn btn-ghost" style={{marginTop:12}} onClick={agregarFila}>+ Agregar fila</button>
+        <div style={{display:'flex',gap:10,marginTop:12,flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={agregarProceso}>+ Agregar proceso</button>
+          <span style={{fontSize:'0.75rem',color:'var(--text2)',alignSelf:'center'}}>Con el ➕ de cada fila agregás otro subproceso al mismo proceso.</span>
+        </div>
       )}
     </div>
   );
