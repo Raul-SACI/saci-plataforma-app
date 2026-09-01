@@ -9129,10 +9129,10 @@ function AdminEvaluaciones({ aulaActiva }) {
                   {q.opciones.map((op, j) => {
                     const esCorrecta = (q.correctas||[]).includes(j);
                     return (
-                      <div key={j} style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
-                        <button type="button" onClick={()=>toggleCorrecta(i,j)} title={esCorrecta?'Correcta':'Marcar como correcta'} style={{flexShrink:0,width:28,height:28,borderRadius:6,border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{esCorrecta?'✓':''}</button>
-                        <input placeholder={`Opción ${LETRAS[j]||j+1}`} value={op} onChange={e=>setOpcion(i,j,e.target.value)} style={{flex:1}} />
-                        {q.opciones.length > 2 && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>quitarOpcion(i,j)} style={{flexShrink:0}}>✕</button>}
+                      <div key={j} style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:6}}>
+                        <button type="button" onClick={()=>toggleCorrecta(i,j)} title={esCorrecta?'Correcta':'Marcar como correcta'} style={{flexShrink:0,width:28,height:28,marginTop:2,borderRadius:6,border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{esCorrecta?'✓':''}</button>
+                        <textarea ref={el=>{ if(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; } }} placeholder={`Opción ${LETRAS[j]||j+1}`} value={op} rows={1} onChange={e=>{ setOpcion(i,j,e.target.value); e.target.style.height='auto'; e.target.style.height=(e.target.scrollHeight+2)+'px'; }} style={{flex:1,resize:'vertical',overflow:'hidden',lineHeight:1.4,minHeight:32}} />
+                        {q.opciones.length > 2 && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>quitarOpcion(i,j)} style={{flexShrink:0,marginTop:2}}>✕</button>}
                       </div>
                     );
                   })}
