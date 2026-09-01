@@ -5770,12 +5770,15 @@ function AdminExtensiones({ aulaActiva }) {
   const [facturandoId, setFacturandoId] = useState(null);
   const [facturaVer, setFacturaVer] = useState(null);
   const [arcaMsg, setArcaMsg] = useState(null);
+  const [factConfirm, setFactConfirm] = useState(null); // { ext, fecha } confirmar fecha de emisión
   const toast = useToast();
+  const hoyISO = new Date().toISOString().slice(0, 10);
 
   // Emitir la Factura C de una extensión (misma función de ARCA que en Pagos).
-  const facturarExt = async (ext) => {
+  // fecha = fecha de emisión (YYYY-MM-DD); permite facturar con fecha anterior.
+  const facturarExt = async (ext, fecha) => {
     if (ext.factura_cae) return;
-    if (!confirm(`¿Emitir Factura C por $ ${parseFloat(ext.monto).toLocaleString('es-AR')} de ${ext.alumnos?.nombre || 'este alumno'}?`)) return;
+    setFactConfirm(null);
     setFacturandoId(ext.id); setArcaMsg(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -5783,7 +5786,7 @@ function AdminExtensiones({ aulaActiva }) {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=facturar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ tabla: 'extensiones_video', id: ext.id }),
+        body: JSON.stringify({ tabla: 'extensiones_video', id: ext.id, fecha: fecha || undefined }),
       });
       const txt = await res.text();
       let j = null; try { j = JSON.parse(txt); } catch {}
@@ -5959,7 +5962,7 @@ function AdminExtensiones({ aulaActiva }) {
                       {e.estado === 'pagado' && Number(e.monto) > 0 && (
                         e.factura_cae
                           ? <button className="btn btn-ghost btn-sm" title="Ver / imprimir factura" onClick={() => setFacturaVer(e)} style={{color:'var(--success)',fontWeight:700,fontSize:'0.72rem',whiteSpace:'nowrap'}}>🧾 {e.factura_nro}</button>
-                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===e.id} onClick={() => facturarExt(e)}>{facturandoId===e.id ? '⏳...' : '🧾 Facturar'}</button>
+                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===e.id} onClick={() => setFactConfirm({ ext: e, fecha: hoyISO })}>{facturandoId===e.id ? '⏳...' : '🧾 Facturar'}</button>
                       )}
                       <button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => eliminar(e)}>🗑️</button>
                     </div>
@@ -5982,6 +5985,26 @@ function AdminExtensiones({ aulaActiva }) {
       )}
 
       {facturaVer && <FacturaModal pago={facturaVer} onClose={() => setFacturaVer(null)} />}
+
+      {factConfirm && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setFactConfirm(null)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:440}}>
+            <div className="modal-header"><h3>🧾 Emitir Factura C</h3></div>
+            <div style={{padding:'4px 4px 0'}}>
+              <div style={{fontSize:'0.86rem',marginBottom:14}}>Factura C por <strong>$ {parseFloat(factConfirm.ext.monto).toLocaleString('es-AR')}</strong> de {factConfirm.ext.alumnos?.nombre || 'este alumno'}.</div>
+              <div className="form-group">
+                <label>📅 Fecha de emisión</label>
+                <input type="date" value={factConfirm.fecha} max={hoyISO} onChange={e => setFactConfirm(p => ({ ...p, fecha: e.target.value }))} />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Por defecto hoy. Podés poner una fecha anterior (ARCA permite hasta 10 días de diferencia para servicios).</div>
+              </div>
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:10}}>
+                <button className="btn btn-ghost" onClick={() => setFactConfirm(null)}>Cancelar</button>
+                <button className="btn btn-primary" disabled={!factConfirm.fecha} onClick={() => facturarExt(factConfirm.ext, factConfirm.fecha)}>🧾 Emitir factura</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setModal(false)}>
@@ -6980,6 +7003,8 @@ function AdminPagos({ aulaActiva }) {
   const [arcaMsg, setArcaMsg] = useState(null);
   const [facturandoId, setFacturandoId] = useState(null);
   const [facturaVer, setFacturaVer] = useState(null);
+  const [factConfirm, setFactConfirm] = useState(null); // { pago, fecha } confirmar fecha de emisión
+  const hoyISO = new Date().toISOString().slice(0, 10);
   const [refCount, setRefCount] = useState({});       // { referrerId: cant referidos que ya pagaron }
   const [aplicarDesc, setAplicarDesc] = useState(false); // aplicar descuento por referidos al pago que se registra
   const [aulasList, setAulasList] = useState([]);      // aulas para asignar/reasignar el aula de un pago
@@ -7105,17 +7130,17 @@ function AdminPagos({ aulaActiva }) {
     } finally { setArcaProbando(false); }
   };
 
-  // Emitir la Factura C de un pago (etapa 2).
-  const facturarPago = async (pago) => {
+  // Emitir la Factura C de un pago (etapa 2). fecha = fecha de emisión (permite anterior).
+  const facturarPago = async (pago, fecha) => {
     if (pago.factura_cae) return;
-    if (!confirm(`¿Emitir Factura C por $ ${parseFloat(pago.monto).toLocaleString('es-AR')} de ${pago.alumnos?.nombre || 'este alumno'}?`)) return;
+    setFactConfirm(null);
     setFacturandoId(pago.id); setArcaMsg(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch(`${SUPABASE_URL}/functions/v1/facturar-arca?action=facturar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ pago_id: pago.id }),
+        body: JSON.stringify({ pago_id: pago.id, fecha: fecha || undefined }),
       });
       const txt = await res.text();
       let j = null; try { j = JSON.parse(txt); } catch {}
@@ -7424,7 +7449,7 @@ function AdminPagos({ aulaActiva }) {
                       <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
                         {p.factura_cae
                           ? <button className="btn btn-ghost btn-sm" title="Ver / imprimir factura" onClick={() => setFacturaVer(p)} style={{color:'var(--success)',fontWeight:700,fontSize:'0.72rem',whiteSpace:'nowrap'}}>🧾 {p.factura_nro}</button>
-                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===p.id} onClick={() => facturarPago(p)}>{facturandoId===p.id ? '⏳...' : '🧾 Facturar'}</button>}
+                          : <button className="btn btn-ghost btn-sm" disabled={facturandoId===p.id} onClick={() => setFactConfirm({ pago: p, fecha: hoyISO })}>{facturandoId===p.id ? '⏳...' : '🧾 Facturar'}</button>}
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
                         <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}>🗑️</button>
                       </div>
@@ -7438,6 +7463,21 @@ function AdminPagos({ aulaActiva }) {
       </div>
 
       {facturaVer && <FacturaModal pago={facturaVer} onClose={() => setFacturaVer(null)} />}
+
+      {factConfirm && (
+        <Modal title="🧾 Emitir Factura C" onClose={() => setFactConfirm(null)}>
+          <div style={{fontSize:'0.86rem',marginBottom:14}}>Factura C por <strong>$ {parseFloat(factConfirm.pago.monto).toLocaleString('es-AR')}</strong> de {factConfirm.pago.alumnos?.nombre || 'este alumno'}.</div>
+          <div className="form-group">
+            <label>📅 Fecha de emisión</label>
+            <input type="date" value={factConfirm.fecha} max={hoyISO} onChange={e => setFactConfirm(p => ({ ...p, fecha: e.target.value }))} />
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Por defecto hoy. Podés poner una fecha anterior (ARCA permite hasta 10 días de diferencia para servicios).</div>
+          </div>
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:10}}>
+            <button className="btn btn-ghost" onClick={() => setFactConfirm(null)}>Cancelar</button>
+            <button className="btn btn-primary" disabled={!factConfirm.fecha} onClick={() => facturarPago(factConfirm.pago, factConfirm.fecha)}>🧾 Emitir factura</button>
+          </div>
+        </Modal>
+      )}
 
       {preciosModal && (
         <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>

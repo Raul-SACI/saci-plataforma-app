@@ -144,10 +144,23 @@ async function ultimoComprobante(token: string, sign: string): Promise<number> {
   return nro ? parseInt(nro[1]) : 0;
 }
 
-async function emitir(token: string, sign: string, importe: number) {
+async function emitir(token: string, sign: string, importe: number, fechaISO?: string) {
   const nro = (await ultimoComprobante(token, sign)) + 1;
+  const ymd = (d: Date) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  // Fecha de emisión: por defecto hoy. Se puede pedir una fecha anterior (ej: para
+  // facturar cobros de fin de mes). ARCA permite, para servicios, hasta 10 días
+  // corridos de diferencia con la fecha actual; si se pasa, avisamos claro.
   const hoy = new Date();
-  const fch = `${hoy.getFullYear()}${String(hoy.getMonth() + 1).padStart(2, "0")}${String(hoy.getDate()).padStart(2, "0")}`;
+  let fch = ymd(hoy);
+  if (fechaISO && /^\d{4}-\d{2}-\d{2}$/.test(fechaISO)) {
+    const pedida = new Date(`${fechaISO}T12:00:00Z`);
+    const hoyUTC = new Date(`${ymd(hoy).slice(0,4)}-${ymd(hoy).slice(4,6)}-${ymd(hoy).slice(6,8)}T12:00:00Z`);
+    const dias = Math.round((hoyUTC.getTime() - pedida.getTime()) / 86400000);
+    if (Math.abs(dias) > 10) {
+      throw new Error(`La fecha ${fechaISO} está a ${Math.abs(dias)} días de hoy. ARCA solo permite emitir con hasta 10 días de diferencia para servicios. Elegí una fecha más cercana.`);
+    }
+    fch = fechaISO.replace(/-/g, "");
+  }
   const imp = importe.toFixed(2);
   const det = `<ar:FECAEDetRequest>` +
     `<ar:Concepto>2</ar:Concepto>` + // servicios
@@ -206,7 +219,7 @@ serve(async (req) => {
       if (!importe || importe <= 0) return j({ ok: false, error: "Importe inválido" }, 400);
 
       const { token, sign } = await obtenerTA(sb);
-      const f = await emitir(token, sign, importe);
+      const f = await emitir(token, sign, importe, typeof body.fecha === "string" ? body.fecha : undefined);
       await sb.from(tabla).update({
         factura_nro: f.nroFmt, factura_cae: f.cae, factura_cae_vto: f.caeVto,
         factura_fecha: f.fecha, factura_pto_vta: f.ptoVta, factura_tipo: "C", factura_env: ENV,
