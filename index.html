@@ -503,6 +503,9 @@ const bunnyLib = (id) => BUNNY_LIBRARIES.find(l => String(l.id) === String(id)) 
 const bunnyCdnDe = (id) => bunnyLib(id).cdn;
 // Thumbnail y embed de un video según SU biblioteca (fallback a la principal para videos viejos).
 const bunnyThumbUrl = (v) => { const bid = v && (v.bunny_id || v.bunny_video_id); return bid ? `https://${bunnyCdnDe(v.bunny_library)}/${bid}/thumbnail.jpg` : ''; };
+// Normaliza el valor guardado del "video resumen" a un arreglo de ids.
+// Acepta el formato viejo (un solo id string) y el nuevo (arreglo de ids).
+const resumenIds = (val) => Array.isArray(val) ? val.filter(Boolean).map(String) : (val ? [String(val)] : []);
 // URL para embeber un video (Bunny, YouTube, Vimeo, Drive o link directo). Reutilizable.
 const embedUrlDeVideo = (v) => {
   if (!v) return null;
@@ -8222,6 +8225,7 @@ function AdminMateriales({ aulaActiva }) {
   const [vistaTab, setVistaTab] = useState('temas');
   const [dragTema, setDragTema] = useState(null);
   const [dragOverTema, setDragOverTema] = useState(null);
+  const [resumenPicker, setResumenPicker] = useState(null);   // { tema, subKey, label } — elegir videos resumen
   const fileRef = useRef();
   const toast = useToast();
 
@@ -8399,14 +8403,17 @@ function AdminMateriales({ aulaActiva }) {
     }
   };
 
-  // Asigna (o quita) el video resumen de un subtema (o del tema, con subKey='').
-  const setVideoResumen = async (tema, subKey, videoId) => {
-    const mapa = { ...(tema.videos_resumen && typeof tema.videos_resumen === 'object' ? tema.videos_resumen : {}) };
-    if (videoId) mapa[subKey] = videoId; else delete mapa[subKey];
+  // Agrega o saca un video de la lista de resúmenes de un subtema (o del tema, subKey='').
+  const toggleVideoResumen = async (tema, subKey, videoId) => {
+    const base = tema.videos_resumen && typeof tema.videos_resumen === 'object' && !Array.isArray(tema.videos_resumen) ? tema.videos_resumen : {};
+    const actuales = resumenIds(base[subKey]);
+    const nuevos = actuales.includes(String(videoId)) ? actuales.filter(x => x !== String(videoId)) : [...actuales, String(videoId)];
+    const mapa = { ...base };
+    if (nuevos.length) mapa[subKey] = nuevos; else delete mapa[subKey];
     setTemas(ts => ts.map(t => t.id === tema.id ? { ...t, videos_resumen: mapa } : t));
     const { error } = await supabase.from('temas_materiales').update({ videos_resumen: mapa }).eq('id', tema.id);
     if (error && /videos_resumen|column/i.test(error.message || '')) {
-      toast('Para guardar el video resumen, corré la migración materiales_video_resumen.sql', 'info');
+      toast('Para guardar los videos resumen, corré la migración materiales_video_resumen.sql', 'info');
     }
   };
 
@@ -8485,6 +8492,9 @@ function AdminMateriales({ aulaActiva }) {
                     </div>
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    {(() => { const n = resumenIds(t.videos_resumen && t.videos_resumen['']).length; return (
+                      <button className="btn btn-ghost btn-sm" title="Video(s) resumen del tema" onClick={e => { e.stopPropagation(); setResumenPicker({ tema: t, subKey: '', label: t.nombre }); }} style={n ? {color:'var(--accent2)',fontWeight:700} : undefined}>🎬 {n ? `Resúmenes (${n})` : 'Video resumen'}</button>
+                    ); })()}
                     <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>{tMats.length} materiales</span>
                     <button className="btn btn-ghost btn-sm" onClick={e => { e.stopPropagation(); openEditTema(t); }}>✏️</button>
                     <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); deleteTema(t.id); }}>🗑️</button>
@@ -8515,10 +8525,9 @@ function AdminMateriales({ aulaActiva }) {
                                   <td colSpan={4} style={{padding:'6px 16px',fontWeight:700,fontSize:'0.78rem',color:t.color||'var(--accent)'}}>
                                     <div style={{display:'flex',alignItems:'center',gap:8}}>
                                       <span style={{cursor:'pointer',flex:1}} onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))}>{subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span></span>
-                                      <select value={(t.videos_resumen && t.videos_resumen[g.subtema]) || ''} onChange={e => setVideoResumen(t, g.subtema, e.target.value)} title="Video resumen de este subtema" style={{fontSize:'0.72rem',padding:'3px 6px',borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',maxWidth:190}}>
-                                        <option value="">🎬 Sin video resumen</option>
-                                        {videosAula.map(v => <option key={v.id} value={v.id}>{v.titulo}</option>)}
-                                      </select>
+                                      {(() => { const n = resumenIds(t.videos_resumen && t.videos_resumen[g.subtema]).length; return (
+                                        <button className="btn btn-ghost btn-sm" title="Elegir video(s) resumen de este subtema" onClick={() => setResumenPicker({ tema: t, subKey: g.subtema, label: g.subtema })} style={n ? {color:'var(--accent2)',fontWeight:700} : undefined}>🎬 {n ? `Resúmenes (${n})` : 'Video resumen'}</button>
+                                      ); })()}
                                       <button className="btn btn-ghost btn-sm" title="Subir subtema" disabled={_pos <= 0} onClick={() => moverSubtema(t, g.subtema, -1)}>▲</button>
                                       <button className="btn btn-ghost btn-sm" title="Bajar subtema" disabled={_pos >= _subOnly.length - 1} onClick={() => moverSubtema(t, g.subtema, 1)}>▼</button>
                                     </div>
@@ -8625,6 +8634,36 @@ function AdminMateriales({ aulaActiva }) {
           </div>
         )
       )}
+
+      {/* Elegir video(s) resumen de un subtema o tema */}
+      {resumenPicker && (() => {
+        const tActual = temas.find(t => t.id === resumenPicker.tema.id) || resumenPicker.tema;
+        const elegidos = resumenIds(tActual.videos_resumen && tActual.videos_resumen[resumenPicker.subKey]);
+        return (
+          <Modal title={`🎬 Videos resumen — ${resumenPicker.label || 'Tema'}`} onClose={() => setResumenPicker(null)}>
+            <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:10}}>Elegí uno o varios videos. El alumno los verá como botones al lado de los PDFs de este {resumenPicker.subKey ? 'subtema' : 'tema'}.</div>
+            {videosAula.length === 0 ? (
+              <Empty icon="🎬" text="No hay videos cargados en esta aula." />
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:4,maxHeight:340,overflowY:'auto'}}>
+                {videosAula.map(v => {
+                  const marcado = elegidos.includes(String(v.id));
+                  return (
+                    <label key={v.id} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'7px 10px',borderRadius:8,border:`1px solid ${marcado?'var(--accent)':'var(--border)'}`,background:marcado?'var(--surface2)':'transparent'}}>
+                      <input type="checkbox" checked={marcado} onChange={() => toggleVideoResumen(tActual, resumenPicker.subKey, v.id)} style={{width:'auto'}} />
+                      <span style={{fontSize:'0.86rem'}}>{v.titulo}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:10}}>Elegidos: {elegidos.length}</div>
+            <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
+              <button className="btn btn-primary" onClick={() => setResumenPicker(null)}>Listo</button>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* Stats modal */}
       {statsModal && (
@@ -9806,12 +9845,10 @@ function AlumnoMateriales({ alumno, user }) {
   const toast = useToast();
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
   const watermarkEmail = alumno?.email || user?.email || '';
-  // Devuelve el video resumen (objeto) asociado a un subtema/tema, o null.
-  const videoResumenDe = (tema, sub) => {
-    const id = tema && tema.videos_resumen && tema.videos_resumen[sub || ''];
-    if (!id) return null;
-    return videosAula.find(v => String(v.id) === String(id)) || null;
-  };
+  // Devuelve los videos resumen (objetos) asociados a un subtema/tema (puede ser más de uno).
+  const videosResumenDe = (tema, sub) => resumenIds(tema && tema.videos_resumen && tema.videos_resumen[sub || ''])
+    .map(id => videosAula.find(v => String(v.id) === String(id)))
+    .filter(Boolean);
 
   const registrarVistaMaterial = async (mat) => {
     if (!mat?.id || !alumno?.id) return;
@@ -9965,7 +10002,7 @@ function AlumnoMateriales({ alumno, user }) {
                 </div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
-                {(() => { const vr = videoResumenDe(t, ''); return vr ? <button className="btn btn-sm" onClick={e => { e.stopPropagation(); setVideoResumen(vr); }} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 Ver resumen</button> : null; })()}
+                {videosResumenDe(t, '').map(vr => <button key={vr.id} className="btn btn-sm" onClick={e => { e.stopPropagation(); setVideoResumen(vr); }} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {videosResumenDe(t,'').length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
                 <span className="chip chip-blue">{tMats.length} materiales</span>
                 <span style={{color:'var(--text2)',fontSize:'1rem'}}>{isOpen?'▲':'▼'}</span>
               </div>
@@ -9977,12 +10014,12 @@ function AlumnoMateriales({ alumno, user }) {
                   const subAbierto = g.subtema === '' || !subCerr[subKey];
                   return (
                   <div key={g.subtema || '_sin_'} style={{marginBottom:12}}>
-                    {g.subtema && (() => { const vr = videoResumenDe(t, g.subtema); return (
-                      <div style={{display:'flex',alignItems:'center',gap:10,margin:'2px 0 8px',flexWrap:'wrap'}}>
+                    {g.subtema && (() => { const vrs = videosResumenDe(t, g.subtema); return (
+                      <div style={{display:'flex',alignItems:'center',gap:8,margin:'2px 0 8px',flexWrap:'wrap'}}>
                         <div onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))} style={{fontWeight:700,fontSize:'0.82rem',color:t.color||'var(--accent)',cursor:'pointer',userSelect:'none'}}>
                           {subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span>
                         </div>
-                        {vr && <button className="btn btn-sm" onClick={() => setVideoResumen(vr)} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 Ver resumen</button>}
+                        {vrs.map(vr => <button key={vr.id} className="btn btn-sm" onClick={() => setVideoResumen(vr)} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {vrs.length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
                       </div>
                     ); })()}
                     {subAbierto && <div className="grid-2">{g.items.map(m => <MatCard key={m.id} m={m} />)}</div>}
