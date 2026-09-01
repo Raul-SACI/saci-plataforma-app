@@ -10401,9 +10401,23 @@ function AlumnoPagos({ alumno }) {
 
   useEffect(() => {
     if (!alumno?.id) { setLoading(false); return; }
-    supabase.from('pagos').select('*').eq('alumno_id', alumno.id)
-      .order('fecha_pago', { ascending: false })
-      .then(({ data }) => { setPagos(data || []); setLoading(false); });
+    Promise.all([
+      supabase.from('pagos').select('*').eq('alumno_id', alumno.id).order('fecha_pago', { ascending: false }),
+      // Extensiones de 24hs pagadas (no las habilitadas manualmente en $0): también son cobros.
+      supabase.from('extensiones_video').select('*, videos(titulo)').eq('alumno_id', alumno.id).eq('estado', 'pagado').gt('monto', 0).order('created_at', { ascending: false }),
+    ]).then(([{ data: pData }, { data: eData }]) => {
+      const exts = (eData || []).map(e => ({
+        ...e,
+        esExtension: true,
+        plan: 'Extensión 24hs',
+        notas: '🎬 ' + (e.videos?.titulo || 'Video'),
+        fecha_pago: (e.created_at || '').slice(0, 10),
+        proximo_pago: null,
+      }));
+      const all = [...(pData || []), ...exts].sort((a, b) => String(b.fecha_pago || '').localeCompare(String(a.fecha_pago || '')));
+      setPagos(all);
+      setLoading(false);
+    });
   }, [alumno]);
 
   const totalPagado = pagos.reduce((s, p) => s + (parseFloat(p.monto) || 0), 0);
@@ -10455,7 +10469,7 @@ function AlumnoPagos({ alumno }) {
               <div key={p.id} className="card" style={{padding:'14px 18px'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:10}}>
                   <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
-                    <span className={`chip ${planColor(p.plan)}`}>{p.plan === 'Parcial' ? '💰' : p.plan === 'Final' ? '✅' : '📚'} {p.plan || '—'}</span>
+                    <span className={`chip ${p.esExtension ? 'chip-blue' : planColor(p.plan)}`}>{p.esExtension ? '🎬' : p.plan === 'Parcial' ? '💰' : p.plan === 'Final' ? '✅' : '📚'} {p.plan || '—'}</span>
                     {p.notas && <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{p.notas}</span>}
                   </div>
                   <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.1rem',color:'var(--success)'}}>
