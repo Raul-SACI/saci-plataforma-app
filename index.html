@@ -8937,8 +8937,9 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [], para_todos: true, alumnos_ids: [] };
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [], para_todos: true, alumnos_ids: [], premio: { titulo: '', url: '', permite_descarga: true } };
   const [form, setForm] = useState(emptyForm);
+  const [premioSubiendo, setPremioSubiendo] = useState(false); // subiendo el archivo del premio
   const [resultados, setResultados] = useState(null);   // { ev, filas } cuando se ven resultados de un quiz
   const [listaAlumnos, setListaAlumnos] = useState([]); // alumnos del aula (para "solo algunos")
   const [banco, setBanco] = useState([]);               // banco de preguntas reutilizable (global)
@@ -8962,7 +8963,7 @@ function AdminEvaluaciones({ aulaActiva }) {
     loadBanco();
     let { data, error } = await supabase
       .from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio')
       .eq('aula_id', aulaActiva)
       .order('id', { ascending: false });
     if (error) {
@@ -9025,19 +9026,21 @@ function AdminEvaluaciones({ aulaActiva }) {
       preguntas: preguntasLimpias,
       para_todos: form.para_todos !== false,
       alumnos_ids: form.para_todos !== false ? [] : (form.alumnos_ids || []),
+      premio: (form.premio && form.premio.url) ? { titulo: form.premio.titulo || null, url: form.premio.url, permite_descarga: form.premio.permite_descarga !== false } : null,
     };
     let { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
       : await supabase.from('evaluaciones').insert(payload);
-    if (error && /tipo|preguntas|para_todos|alumnos_ids|column/i.test(error.message || '')) {
+    if (error && /tipo|preguntas|para_todos|alumnos_ids|premio|column/i.test(error.message || '')) {
       // Alguna migración todavía no se corrió: guardo sin esos campos para no bloquear.
-      const { tipo, preguntas, para_todos, alumnos_ids, ...base } = payload;
+      const { tipo, preguntas, para_todos, alumnos_ids, premio, ...base } = payload;
       const r = editing
         ? await supabase.from('evaluaciones').update(base).eq('id', editing)
         : await supabase.from('evaluaciones').insert(base);
       error = r.error;
       if (!error && esQuiz) toast('Guardado, pero falta correr la migración evaluaciones_quiz.sql para las preguntas', 'info');
       else if (!error && form.para_todos === false) toast('Guardado. Para limitar por alumno, corré la migración evaluaciones_alumnos.sql', 'info');
+      else if (!error && form.premio && form.premio.url) toast('Guardado. Para el premio, corré la migración evaluaciones_premio.sql', 'info');
     }
     if (error) return toast(error.message, 'error');
     if (!editing && form.visible !== false && !(form.publicar_en && new Date(form.publicar_en) > new Date()))
@@ -9061,7 +9064,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [] });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [], premio: (ev.premio && typeof ev.premio === 'object') ? { titulo: ev.premio.titulo || '', url: ev.premio.url || '', permite_descarga: ev.premio.permite_descarga !== false } : { titulo: '', url: '', permite_descarga: true } });
     setEditing(ev.id); setModal(true);
   };
 
@@ -9195,6 +9198,20 @@ function AdminEvaluaciones({ aulaActiva }) {
     setForm(p => ({ ...p, tipo: 'quiz', preguntas: [...p.preguntas, ...elegidas] }));
     setBancoPicker(false); setBancoSel([]); setBancoBusca('');
     toast(`${elegidas.length} pregunta(s) agregada(s) desde el banco ✅`, 'success');
+  };
+
+  // Sube el archivo del premio al bucket público de materiales y guarda su URL.
+  const subirPremio = async (file) => {
+    setPremioSubiendo(true);
+    try {
+      const path = `premios/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const { error } = await supabase.storage.from('materiales').upload(path, file);
+      if (error) throw error;
+      const { data } = supabase.storage.from('materiales').getPublicUrl(path);
+      setForm(p => ({ ...p, premio: { ...(p.premio || {}), url: data.publicUrl, titulo: (p.premio && p.premio.titulo) || file.name.replace(/\.[^.]+$/, '') } }));
+      toast('Archivo del premio subido ✅', 'success');
+    } catch (e) { toast('No se pudo subir el archivo: ' + (e.message || e), 'error'); }
+    finally { setPremioSubiendo(false); }
   };
 
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
@@ -9379,9 +9396,29 @@ function AdminEvaluaciones({ aulaActiva }) {
               </div>
             )}
           </div>
+
+          <div className="form-group" style={{borderTop:'1px solid var(--border)',paddingTop:12}}>
+            <label>🎁 Premio al completar (opcional)</label>
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:8}}>Un archivo (PDF con resúmenes, preguntas, etc.) que se desbloquea para el alumno que <strong>completa</strong> esta prueba en la app.</div>
+            <input placeholder="Título del premio (ej: Resumen exclusivo Unidad 1)" value={(form.premio&&form.premio.titulo)||''} onChange={e=>setForm(p=>({...p,premio:{...(p.premio||{}),titulo:e.target.value}}))} style={{marginBottom:8}} />
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap',marginBottom:8}}>
+              <label className="btn btn-ghost btn-sm" style={{margin:0,cursor:'pointer'}}>
+                {premioSubiendo ? '⏳ Subiendo…' : (form.premio&&form.premio.url ? '🔁 Cambiar archivo' : '📎 Subir archivo (PDF)')}
+                <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,image/*" style={{display:'none'}} disabled={premioSubiendo} onChange={e=>{ if(e.target.files[0]) subirPremio(e.target.files[0]); e.target.value=''; }} />
+              </label>
+              {form.premio&&form.premio.url && <><span style={{fontSize:'0.78rem',color:'var(--success)'}}>✔ Archivo cargado</span><a href={form.premio.url} target="_blank" rel="noreferrer" style={{fontSize:'0.78rem'}}>ver</a><button type="button" className="btn btn-ghost btn-sm" onClick={()=>setForm(p=>({...p,premio:{...(p.premio||{}),url:''}}))}>quitar</button></>}
+            </div>
+            {form.premio&&form.premio.url && (
+              <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',fontSize:'0.85rem'}}>
+                <input type="checkbox" checked={form.premio.permite_descarga!==false} onChange={e=>setForm(p=>({...p,premio:{...(p.premio||{}),permite_descarga:e.target.checked}}))} style={{width:'auto'}} />
+                Permitir que lo <strong>descarguen</strong> (si lo destildás, es solo visualización)
+              </label>
+            )}
+          </div>
+
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>Cancelar</button>
-            <button className="btn btn-primary" onClick={save}>💾 Guardar</button>
+            <button className="btn btn-primary" onClick={save} disabled={premioSubiendo}>💾 Guardar</button>
           </div>
         </Modal>
       )}
@@ -10333,14 +10370,17 @@ function AlumnoEvaluaciones({ alumno }) {
   const [seleccion, setSeleccion] = useState([]);            // [[idx...], ...] respuestas del alumno
   const [enviando, setEnviando] = useState(false);
   const [resultadoVer, setResultadoVer] = useState(null);    // fila de respuesta a mostrar (nota + detalle)
+  const [premioVer, setPremioVer] = useState(null);          // premio (archivo) que se está viendo
   const toast = useToast();
+  const watermarkName = alumno?.nombre || 'SACi';
+  const watermarkEmail = alumno?.email || '';
   const today = new Date().toISOString().split('T')[0];
 
   const cargar = async () => {
     const miAula = alumno?.aula_id;
     if (!miAula) { setEvals([]); setLoading(false); return; }
     let { data, error } = await supabase.from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio')
       .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
     if (error) {
       const r = await supabase.from('evaluaciones')
@@ -10449,6 +10489,7 @@ function AlumnoEvaluaciones({ alumno }) {
                           <div style={{fontSize:'0.72rem',color:'var(--text2)',marginBottom:4}}>Tu nota</div>
                           <div style={{fontSize:'1.6rem',fontWeight:800,color:(parseFloat(hecho.nota)||0)>=6?'var(--success)':'var(--danger)'}}>{(parseFloat(hecho.nota)||0).toFixed(1)}</div>
                           <button className="btn btn-ghost btn-sm" style={{marginTop:4}} onClick={()=>setResultadoVer({ ...hecho, ev })}>Ver detalle</button>
+                          {ev.premio && ev.premio.url && <button className="btn btn-sm" style={{marginTop:6,display:'block',width:'100%',background:'var(--gold, #c48a00)',color:'#fff'}} onClick={()=>setPremioVer(ev.premio)}>🎁 {ev.premio.titulo || 'Premio'}</button>}
                         </div>
                       ) : vencida ? (
                         <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>⏰ Plazo vencido</div>
@@ -10507,6 +10548,12 @@ function AlumnoEvaluaciones({ alumno }) {
             <div style={{fontSize:'2.4rem',fontWeight:800,color:(parseFloat(resultadoVer.nota)||0)>=6?'var(--success)':'var(--danger)'}}>{(parseFloat(resultadoVer.nota)||0).toFixed(1)}</div>
             <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>{resultadoVer.correctas_cant} de {resultadoVer.total_cant} correctas</div>
           </div>
+          {resultadoVer.ev.premio && resultadoVer.ev.premio.url && (
+            <div className="card" style={{padding:'12px 16px',marginBottom:14,border:'1px solid var(--gold, #c48a00)',background:'rgba(196,138,0,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+              <div style={{fontWeight:700}}>🎁 ¡Desbloqueaste un premio! <span style={{fontWeight:400,color:'var(--text2)'}}>{resultadoVer.ev.premio.titulo || ''}</span></div>
+              <button className="btn btn-sm" style={{background:'var(--gold, #c48a00)',color:'#fff'}} onClick={()=>setPremioVer(resultadoVer.ev.premio)}>Abrir premio</button>
+            </div>
+          )}
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {(resultadoVer.ev.preguntas || []).map((q, qi) => {
               const elegidas = (resultadoVer.respuestas && resultadoVer.respuestas[qi]) || [];
@@ -10538,6 +10585,31 @@ function AlumnoEvaluaciones({ alumno }) {
           </div>
         </Modal>
       )}
+
+      {/* Visor del premio (descarga o solo visualización) */}
+      {premioVer && (() => {
+        const url = premioVer.url;
+        const esPdf = /\.pdf(\?|$)/i.test(url || '');
+        const permite = premioVer.permite_descarga !== false;
+        const src = (!permite && esPdf) ? `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(url)}#toolbar=0` : url;
+        return (
+          <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setPremioVer(null)}>
+            <div style={{background:'var(--surface)',border:'1px solid var(--gold, #c48a00)',borderRadius:18,width:'95vw',maxWidth:1100,height:'92vh',display:'flex',flexDirection:'column'}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px',borderBottom:'1px solid var(--border)'}}>
+                <div style={{fontWeight:700}}>🎁 {premioVer.titulo || 'Premio'}</div>
+                <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                  {permite && <a href={url} target="_blank" rel="noreferrer" className="btn btn-success btn-sm" style={{textDecoration:'none'}}>⬇️ Descargar</a>}
+                  <button className="modal-close" onClick={() => setPremioVer(null)}>✕</button>
+                </div>
+              </div>
+              <div style={{flex:1,overflow:'hidden',borderRadius:'0 0 18px 18px',position:'relative'}}>
+                <iframe src={src} style={{width:'100%',height:'100%',border:'none'}} {...(!permite ? {sandbox:'allow-scripts allow-same-origin'} : {})} />
+                {!permite && <WatermarkOverlay name={watermarkName} email={watermarkEmail} />}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
