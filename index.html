@@ -7861,6 +7861,15 @@ function AdminVideos({ aulaActiva }) {
     setStatsLoading(false);
   };
 
+  // Borra una visualización: le devuelve 1 intento al alumno en ese video.
+  const devolverIntento = async (v) => {
+    if (!confirm(`¿Devolverle este intento a ${v.alumnos?.nombre || 'este alumno'}? Se borra esta visualización y podrá volver a ver el video.`)) return;
+    const { error } = await supabase.from('visualizaciones').delete().eq('id', v.id);
+    if (error) return toast('No se pudo: ' + error.message, 'error');
+    setStatsData(d => d.filter(x => x.id !== v.id));
+    toast('Intento devuelto ✅', 'success');
+  };
+
   if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
@@ -8053,6 +8062,9 @@ function AdminVideos({ aulaActiva }) {
                             <td style={{padding:'10px 14px',fontFamily:'Space Mono',fontSize:'0.78rem',color:'var(--text2)'}}>
                               {d.toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'})}
                               {' '}<span style={{color:'var(--accent)'}}>{d.toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>
+                            </td>
+                            <td style={{padding:'10px 14px',textAlign:'right'}}>
+                              {v.alumno_id && <button className="btn btn-ghost btn-sm" title="Devolver este intento (borra la visualización)" onClick={() => devolverIntento(v)}>🔄 Devolver intento</button>}
                             </td>
                           </tr>
                         );
