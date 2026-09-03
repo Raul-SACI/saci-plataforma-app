@@ -8941,14 +8941,25 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [form, setForm] = useState(emptyForm);
   const [resultados, setResultados] = useState(null);   // { ev, filas } cuando se ven resultados de un quiz
   const [listaAlumnos, setListaAlumnos] = useState([]); // alumnos del aula (para "solo algunos")
+  const [banco, setBanco] = useState([]);               // banco de preguntas reutilizable (global)
+  const [bancoModal, setBancoModal] = useState(false);  // administrar el banco
+  const [bancoPicker, setBancoPicker] = useState(false);// elegir del banco para la evaluación
+  const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
+  const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
   // Lee tipo/preguntas/destinatarios de forma resiliente por si las migraciones todavía no se corrieron.
+  const loadBanco = () => {
+    supabase.from('banco_preguntas').select('id, tema, texto, opciones, correctas').order('tema', { ascending: true }).order('created_at', { ascending: true })
+      .then(({ data }) => setBanco(data || []));
+  };
+
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
     supabase.from('alumnos').select('id, nombre, apellido, email').eq('aula_id', aulaActiva).order('apellido')
       .then(({ data }) => setListaAlumnos(data || []));
+    loadBanco();
     let { data, error } = await supabase
       .from('evaluaciones')
       .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids')
@@ -9136,6 +9147,56 @@ function AdminEvaluaciones({ aulaActiva }) {
     setResultados({ ev, filas: (data || []).map(r => ({ ...r, nombre: nombres[r.alumno_id] || 'Alumno' })), expandido: null });
   };
 
+  // ── Banco de preguntas ──────────────────────────────────────────────────
+  const plantillaBanco = () => {
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['Tema', 'Pregunta', 'Opción A', 'Opción B', 'Opción C', 'Opción D', 'Opción E', 'Correctas'],
+      ['Compras y Almacenes', '¿Qué es el TCO?', 'El precio de lista', 'El costo total del ciclo de vida de la compra', 'El costo del área de compras', '', '', 'B'],
+      ['Decisiones', 'Seleccioná las decisiones operativas', 'Autorizar reposición de stock', 'Ingresar a un nuevo mercado', 'Reponer insumos de oficina', '', '', 'A,C'],
+    ]);
+    ws['!cols'] = [{ wch: 24 }, { wch: 46 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 30 }, { wch: 12 }];
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Banco'); XLSX.writeFile(wb, 'plantilla_banco_preguntas.xlsx');
+  };
+  const importarBanco = async (file) => {
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+      const nuevas = []; const errores = [];
+      rows.forEach((r, i) => {
+        const texto = String(r['Pregunta'] ?? r['pregunta'] ?? '').trim();
+        if (!texto) return;
+        const opciones = [];
+        LETRAS.forEach(L => { const s = String(r['Opción ' + L] ?? r['Opcion ' + L] ?? r[L] ?? '').trim(); if (s) opciones.push(s); });
+        if (opciones.length < 2) { errores.push(`Fila ${i+2}: menos de 2 opciones`); return; }
+        const corrRaw = String(r['Correctas'] ?? r['correctas'] ?? r['Correcta'] ?? '').trim().toUpperCase();
+        const correctas = corrRaw.split(/[,;\s]+/).filter(Boolean).map(x => LETRAS.indexOf(x)).filter(x => x >= 0 && x < opciones.length);
+        if (!correctas.length) { errores.push(`Fila ${i+2}: sin correcta válida`); return; }
+        nuevas.push({ tema: String(r['Tema'] ?? r['tema'] ?? '').trim() || null, texto, opciones, correctas: [...new Set(correctas)].sort((a,b)=>a-b) });
+      });
+      if (!nuevas.length) return toast('No se importó ninguna pregunta. Revisá el formato.' + (errores.length ? ' ' + errores[0] : ''), 'error');
+      const { error } = await supabase.from('banco_preguntas').insert(nuevas);
+      if (error) return toast(/banco_preguntas|relation|column/i.test(error.message || '') ? 'Falta correr la migración banco_preguntas.sql' : error.message, 'error');
+      toast(`${nuevas.length} pregunta(s) agregada(s) al banco ✅${errores.length ? ` · ${errores.length} con error` : ''}`, errores.length ? 'info' : 'success');
+      loadBanco();
+    } catch (e) { toast('Error al leer el Excel: ' + e.message, 'error'); }
+  };
+  const borrarDelBanco = async (id) => {
+    if (!confirm('¿Eliminar esta pregunta del banco?')) return;
+    await supabase.from('banco_preguntas').delete().eq('id', id);
+    setBanco(b => b.filter(x => x.id !== id));
+  };
+  // Agrega las preguntas elegidas del banco a la evaluación que se está armando.
+  const agregarDelBanco = () => {
+    const elegidas = banco.filter(b => bancoSel.includes(b.id)).map(b => ({
+      texto: b.texto || '', opciones: [...(b.opciones || [])], correctas: [...(b.correctas || [])],
+    }));
+    if (!elegidas.length) return toast('Elegí al menos una pregunta', 'error');
+    setForm(p => ({ ...p, tipo: 'quiz', preguntas: [...p.preguntas, ...elegidas] }));
+    setBancoPicker(false); setBancoSel([]); setBancoBusca('');
+    toast(`${elegidas.length} pregunta(s) agregada(s) desde el banco ✅`, 'success');
+  };
+
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
   const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
 
@@ -9148,7 +9209,10 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div className="page-title">📝 Evaluaciones</div>
           <div className="page-subtitle">{evals.filter(e=>e.visible!==false).length} activas · {evals.filter(e=>isVencida(e)).length} vencidas</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={() => setBancoModal(true)}>🏦 Banco de preguntas{banco.length ? ` (${banco.length})` : ''}</button>
+          <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
+        </div>
       </div>
 
       {evals.length === 0 ? <Empty icon="📝" text="No hay evaluaciones. Creá una prueba en la app o agregá un link de Google Forms." /> : (
@@ -9235,6 +9299,7 @@ function AdminEvaluaciones({ aulaActiva }) {
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:8}}>
                 <label style={{margin:0}}>Preguntas ({form.preguntas.length})</label>
                 <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={() => { setBancoSel([]); setBancoBusca(''); setBancoPicker(true); }}>🏦 Elegir del banco</button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={descargarPlantillaQuiz}>⬇️ Plantilla Excel</button>
                   <label className="btn btn-ghost btn-sm" style={{margin:0,cursor:'pointer'}}>
                     📤 Importar Excel
@@ -9383,6 +9448,78 @@ function AdminEvaluaciones({ aulaActiva }) {
           </div>
         </Modal>
       )}
+
+      {/* Administrar el banco de preguntas */}
+      {bancoModal && (
+        <Modal title={`🏦 Banco de preguntas (${banco.length})`} onClose={() => setBancoModal(false)}>
+          <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:10}}>Preguntas reutilizables para armar cualquier evaluación. Importalas por Excel (con columna <strong>Tema</strong>) o desde acá.</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+            <button className="btn btn-ghost btn-sm" onClick={plantillaBanco}>⬇️ Plantilla Excel</button>
+            <label className="btn btn-primary btn-sm" style={{margin:0,cursor:'pointer'}}>📤 Importar al banco
+              <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={e => { if (e.target.files[0]) importarBanco(e.target.files[0]); e.target.value=''; }} />
+            </label>
+          </div>
+          {banco.length === 0 ? <Empty icon="🏦" text="El banco está vacío. Importá tus preguntas con la plantilla." /> : (
+            <div style={{maxHeight:420,overflowY:'auto',display:'flex',flexDirection:'column',gap:8}}>
+              {Object.entries(banco.reduce((a,q)=>{ const k=q.tema||'Sin tema'; (a[k]=a[k]||[]).push(q); return a; },{})).map(([tema,qs]) => (
+                <div key={tema}>
+                  <div style={{fontWeight:700,fontSize:'0.78rem',color:'var(--accent)',margin:'6px 0'}}>{tema} <span style={{color:'var(--text2)',fontWeight:400}}>({qs.length})</span></div>
+                  {qs.map(q => (
+                    <div key={q.id} className="card" style={{padding:'8px 12px',marginBottom:6,background:'var(--surface2)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
+                      <div style={{fontSize:'0.82rem'}}>{q.texto} <span style={{color:'var(--text2)'}}>· {(q.opciones||[]).length} opciones</span></div>
+                      <button className="btn btn-danger btn-sm" style={{flexShrink:0}} onClick={() => borrarDelBanco(q.id)}>🗑️</button>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn btn-ghost" onClick={() => setBancoModal(false)}>Cerrar</button></div>
+        </Modal>
+      )}
+
+      {/* Elegir preguntas del banco para la evaluación */}
+      {bancoPicker && (() => {
+        const filtro = bancoBusca.trim().toLowerCase();
+        const lista = banco.filter(q => !filtro || (q.texto||'').toLowerCase().includes(filtro) || (q.tema||'').toLowerCase().includes(filtro));
+        const grupos = Object.entries(lista.reduce((a,q)=>{ const k=q.tema||'Sin tema'; (a[k]=a[k]||[]).push(q); return a; },{}));
+        return (
+          <Modal title="🏦 Elegir preguntas del banco" onClose={() => setBancoPicker(false)}>
+            {banco.length === 0 ? <Empty icon="🏦" text="El banco está vacío. Cargá preguntas desde 🏦 Banco de preguntas." /> : (
+              <>
+                <input placeholder="Buscar por texto o tema…" value={bancoBusca} onChange={e => setBancoBusca(e.target.value)} style={{marginBottom:10}} />
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                  <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>Elegidas: {bancoSel.length}</span>
+                  <div style={{display:'flex',gap:6}}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setBancoSel(lista.map(q=>q.id))}>Todas</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => setBancoSel([])}>Ninguna</button>
+                  </div>
+                </div>
+                <div style={{maxHeight:400,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+                  {grupos.map(([tema,qs]) => (
+                    <div key={tema}>
+                      <div style={{fontWeight:700,fontSize:'0.76rem',color:'var(--accent)',margin:'6px 0 3px'}}>{tema}</div>
+                      {qs.map(q => {
+                        const sel = bancoSel.includes(q.id);
+                        return (
+                          <label key={q.id} style={{display:'flex',gap:9,alignItems:'flex-start',cursor:'pointer',padding:'6px 8px',borderRadius:8,border:`1px solid ${sel?'var(--accent)':'var(--border)'}`,background:sel?'var(--surface2)':'transparent',marginBottom:4}}>
+                            <input type="checkbox" checked={sel} onChange={() => setBancoSel(s => sel ? s.filter(x=>x!==q.id) : [...s, q.id])} style={{width:'auto',marginTop:2,flexShrink:0}} />
+                            <span style={{fontSize:'0.82rem'}}>{q.texto} <span style={{color:'var(--text2)'}}>· {(q.correctas||[]).length>1?'varias correctas':'una correcta'}</span></span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:12}}>
+                  <button className="btn btn-ghost" onClick={() => setBancoPicker(false)}>Cancelar</button>
+                  <button className="btn btn-primary" onClick={agregarDelBanco} disabled={!bancoSel.length}>➕ Agregar {bancoSel.length || ''}</button>
+                </div>
+              </>
+            )}
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
