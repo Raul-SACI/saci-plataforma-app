@@ -8937,7 +8937,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
-  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [], para_todos: true, alumnos_ids: [], premio: { titulo: '', url: '', permite_descarga: true } };
+  const emptyForm = { titulo: '', descripcion: '', link_google: '', fecha_limite: '', tema: '', visible: true, publicar_en: '', tipo: 'quiz', preguntas: [], para_todos: true, alumnos_ids: [], premio: { titulo: '', url: '', permite_descarga: true }, precio_extension: '' };
   const [form, setForm] = useState(emptyForm);
   const [premioSubiendo, setPremioSubiendo] = useState(false); // subiendo el archivo del premio
   const [resultados, setResultados] = useState(null);   // { ev, filas } cuando se ven resultados de un quiz
@@ -8963,7 +8963,7 @@ function AdminEvaluaciones({ aulaActiva }) {
     loadBanco();
     let { data, error } = await supabase
       .from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio, precio_extension')
       .eq('aula_id', aulaActiva)
       .order('id', { ascending: false });
     if (error) {
@@ -9027,13 +9027,14 @@ function AdminEvaluaciones({ aulaActiva }) {
       para_todos: form.para_todos !== false,
       alumnos_ids: form.para_todos !== false ? [] : (form.alumnos_ids || []),
       premio: (form.premio && form.premio.url) ? { titulo: form.premio.titulo || null, url: form.premio.url, permite_descarga: form.premio.permite_descarga !== false } : null,
+      precio_extension: form.precio_extension !== '' && form.precio_extension != null ? Number(form.precio_extension) : null,
     };
     let { error } = editing
       ? await supabase.from('evaluaciones').update(payload).eq('id', editing)
       : await supabase.from('evaluaciones').insert(payload);
-    if (error && /tipo|preguntas|para_todos|alumnos_ids|premio|column/i.test(error.message || '')) {
+    if (error && /tipo|preguntas|para_todos|alumnos_ids|premio|precio_extension|column/i.test(error.message || '')) {
       // Alguna migración todavía no se corrió: guardo sin esos campos para no bloquear.
-      const { tipo, preguntas, para_todos, alumnos_ids, premio, ...base } = payload;
+      const { tipo, preguntas, para_todos, alumnos_ids, premio, precio_extension, ...base } = payload;
       const r = editing
         ? await supabase.from('evaluaciones').update(base).eq('id', editing)
         : await supabase.from('evaluaciones').insert(base);
@@ -9064,7 +9065,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [], premio: (ev.premio && typeof ev.premio === 'object') ? { titulo: ev.premio.titulo || '', url: ev.premio.url || '', permite_descarga: ev.premio.permite_descarga !== false } : { titulo: '', url: '', permite_descarga: true } });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [], premio: (ev.premio && typeof ev.premio === 'object') ? { titulo: ev.premio.titulo || '', url: ev.premio.url || '', permite_descarga: ev.premio.permite_descarga !== false } : { titulo: '', url: '', permite_descarga: true }, precio_extension: ev.precio_extension != null ? String(ev.precio_extension) : '' });
     setEditing(ev.id); setModal(true);
   };
 
@@ -9356,8 +9357,15 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div className="form-group">
             <label>📅 Fecha y hora límite (opcional)</label>
             <input type="datetime-local" value={form.fecha_limite} onChange={e => setForm(p=>({...p,fecha_limite:e.target.value}))} />
-            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el link se mostrará como vencido para los alumnos</div>
+            <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Después de esta fecha y hora el alumno la ve como vencida y no puede ingresar (salvo que compre una extensión, si le ponés precio abajo)</div>
           </div>
+          {form.tipo === 'quiz' && (
+            <div className="form-group">
+              <label>💳 Precio de extensión tras el vencimiento (opcional)</label>
+              <input type="number" min="0" step="100" placeholder="Ej: 3000 — vacío = no se puede extender" value={form.precio_extension} onChange={e => setForm(p=>({...p,precio_extension:e.target.value}))} />
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Si la prueba venció, el alumno que no la hizo puede pagar por Mercado Pago para reabrirla <strong>24 hs</strong> (sigue siendo 1 solo intento). Dejalo vacío para no ofrecer extensión.</div>
+            </div>
+          )}
           <div className="form-group">
             <label style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer'}}>
               <input type="checkbox" checked={form.visible} onChange={e => setForm(p=>({...p,visible:e.target.checked}))} style={{width:'auto'}} />
@@ -10371,6 +10379,8 @@ function AlumnoEvaluaciones({ alumno }) {
   const [enviando, setEnviando] = useState(false);
   const [resultadoVer, setResultadoVer] = useState(null);    // fila de respuesta a mostrar (nota + detalle)
   const [premioVer, setPremioVer] = useState(null);          // premio (archivo) que se está viendo
+  const [extsActivas, setExtsActivas] = useState({});        // { evaluacion_id: vence_en } extensiones pagas vigentes
+  const [comprando, setComprando] = useState(false);         // generando el link de pago de la extensión
   const toast = useToast();
   const watermarkName = alumno?.nombre || 'SACi';
   const watermarkEmail = alumno?.email || '';
@@ -10380,7 +10390,7 @@ function AlumnoEvaluaciones({ alumno }) {
     const miAula = alumno?.aula_id;
     if (!miAula) { setEvals([]); setLoading(false); return; }
     let { data, error } = await supabase.from('evaluaciones')
-      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio')
+      .select('id, titulo, descripcion, link_google, fecha_limite, tema, visible, estado, publicar_en, tipo, preguntas, para_todos, alumnos_ids, premio, precio_extension')
       .eq('aula_id', miAula).neq('visible', false).order('id', { ascending: false });
     if (error) {
       const r = await supabase.from('evaluaciones')
@@ -10406,11 +10416,43 @@ function AlumnoEvaluaciones({ alumno }) {
         .eq('alumno_id', alumno.id);
       const mapa = {}; (resp || []).forEach(r => { mapa[r.evaluacion_id] = r; });
       setRespuestasPrev(mapa);
+      // Extensiones pagas vigentes (para reabrir pruebas vencidas). Resiliente si falta la tabla.
+      const { data: exts } = await supabase.from('evaluaciones_extensiones')
+        .select('evaluacion_id, vence_en, estado')
+        .eq('alumno_id', alumno.id).eq('estado', 'pagado');
+      const em = {}; const ahora = Date.now();
+      (exts || []).forEach(x => { if (x.vence_en && new Date(x.vence_en).getTime() > ahora) em[x.evaluacion_id] = x.vence_en; });
+      setExtsActivas(em);
     }
     setLoading(false);
   };
   useEffect(() => { cargar(); }, []);
 
+  // Al volver de Mercado Pago (?pago=ok/error/pendiente) avisamos y recargamos.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get('pago');
+    if (!p) return;
+    if (p === 'ok') toast('¡Pago recibido! Si no ves la prueba habilitada, esperá unos segundos y recargá.', 'success');
+    else if (p === 'pendiente') toast('Tu pago quedó pendiente. Cuando se acredite, se habilita la prueba.', 'info');
+    else if (p === 'error') toast('El pago no se completó.', 'error');
+    try { window.history.replaceState({}, '', window.location.pathname); } catch (e) {}
+    setTimeout(() => cargar(), 1500);
+  }, []);
+
+  const comprarExtensionEval = async (ev) => {
+    if (!alumno?.id) return;
+    setComprando(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('crear-pago-extension', { body: { evaluacion_id: ev.id, alumno_id: alumno.id } });
+      if (error) throw new Error('No se pudo iniciar el pago');
+      if (data?.error) throw new Error(data.error);
+      const link = data?.init_point || data?.sandbox_init_point;
+      if (!link) throw new Error('No se recibió el link de pago');
+      window.location.href = link;
+    } catch (err) { setComprando(false); toast(err.message || 'No se pudo iniciar el pago', 'error'); }
+  };
+
+  const tieneExtension = ev => !!extsActivas[ev.id];   // extensión paga vigente
   const isVencida = ev => ev.fecha_limite && new Date(ev.fecha_limite) < new Date();
   const isProxVencer = ev => ev.fecha_limite && new Date(ev.fecha_limite) >= new Date() && new Date(ev.fecha_limite) <= new Date(Date.now() + 3*24*60*60*1000);
 
@@ -10491,10 +10533,21 @@ function AlumnoEvaluaciones({ alumno }) {
                           <button className="btn btn-ghost btn-sm" style={{marginTop:4}} onClick={()=>setResultadoVer({ ...hecho, ev })}>Ver detalle</button>
                           {ev.premio && ev.premio.url && <button className="btn btn-sm" style={{marginTop:6,display:'block',width:'100%',background:'var(--gold, #c48a00)',color:'#fff'}} onClick={()=>setPremioVer(ev.premio)}>🎁 {ev.premio.titulo || 'Premio'}</button>}
                         </div>
-                      ) : vencida ? (
-                        <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>⏰ Plazo vencido</div>
+                      ) : (vencida && !tieneExtension(ev)) ? (
+                        (ev.precio_extension && Number(ev.precio_extension) > 0) ? (
+                          <div style={{textAlign:'center'}}>
+                            <div style={{fontSize:'0.78rem',color:'var(--text2)',marginBottom:6}}>⏰ Plazo vencido</div>
+                            <button className="btn" style={{background:'var(--success)',color:'#fff',display:'inline-flex',alignItems:'center',gap:6}} disabled={comprando} onClick={()=>comprarExtensionEval(ev)}>💳 {comprando?'Abriendo pago…':`Comprar extensión · $${Number(ev.precio_extension).toLocaleString('es-AR')}`}</button>
+                            <div style={{fontSize:'0.68rem',color:'var(--text2)',marginTop:4}}>Reabre la prueba 24 hs para rendirla</div>
+                          </div>
+                        ) : (
+                          <div style={{padding:'10px 20px',borderRadius:10,background:'var(--surface2)',color:'var(--text2)',fontSize:'0.84rem',textAlign:'center'}}>⏰ Plazo vencido</div>
+                        )
                       ) : (
-                        <button className="btn btn-primary" style={{display:'inline-flex',alignItems:'center',gap:8}} onClick={()=>abrirQuiz(ev)}>📝 Realizar evaluación</button>
+                        <div style={{textAlign:'center'}}>
+                          {vencida && tieneExtension(ev) && <div style={{fontSize:'0.7rem',color:'var(--success)',marginBottom:5,fontWeight:700}}>⏱️ Extensión activa</div>}
+                          <button className="btn btn-primary" style={{display:'inline-flex',alignItems:'center',gap:8}} onClick={()=>abrirQuiz(ev)}>📝 Realizar evaluación</button>
+                        </div>
                       )
                     ) : (
                       vencida ? (
