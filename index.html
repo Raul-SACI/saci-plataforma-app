@@ -5771,6 +5771,11 @@ function AdminExtensiones({ aulaActiva }) {
   const [facturaVer, setFacturaVer] = useState(null);
   const [arcaMsg, setArcaMsg] = useState(null);
   const [factConfirm, setFactConfirm] = useState(null); // { ext, fecha } confirmar fecha de emisión
+  const [evals, setEvals] = useState([]);              // evaluaciones tipo quiz del aula
+  const [evalExts, setEvalExts] = useState([]);        // extensiones de evaluación otorgadas
+  const [evalModal, setEvalModal] = useState(false);
+  const [evalForm, setEvalForm] = useState({ evaluacion_id: '', alumnos_ids: [], modo: '24hs', fecha: '' });
+  const [savingEval, setSavingEval] = useState(false);
   const toast = useToast();
   const hoyISO = new Date().toISOString().slice(0, 10);
 
@@ -5808,6 +5813,20 @@ function AdminExtensiones({ aulaActiva }) {
     ]);
     setVideos(vData || []);
     setAlumnos(aData || []);
+
+    // Evaluaciones tipo quiz del aula (para extender el plazo a un alumno). Resiliente.
+    const { data: evData } = await supabase.from('evaluaciones')
+      .select('id, titulo, fecha_limite, tipo').eq('aula_id', aulaActiva).order('id', { ascending: false });
+    const quizEvals = (evData || []).filter(e => (e.tipo || 'quiz') === 'quiz');
+    setEvals(quizEvals);
+    const idsEvals = quizEvals.map(e => e.id);
+    if (idsEvals.length) {
+      const { data: exExt } = await supabase.from('evaluaciones_extensiones')
+        .select('*, evaluaciones(titulo), alumnos(nombre, email)')
+        .in('evaluacion_id', idsEvals)
+        .order('created_at', { ascending: false });
+      setEvalExts(exExt || []);
+    } else setEvalExts([]);
 
     const idsVideos = (vData || []).map(v => v.id);
     if (!idsVideos.length) { setExts([]); setLoading(false); return; }
@@ -5861,6 +5880,38 @@ function AdminExtensiones({ aulaActiva }) {
     load();
   };
 
+  // Extiende manualmente (sin cobrar) el plazo de una evaluación a uno o varios alumnos.
+  const habilitarEvalManual = async () => {
+    if (!evalForm.evaluacion_id) return toast('Elegí una evaluación', 'error');
+    if (!evalForm.alumnos_ids.length) return toast('Elegí al menos un alumno', 'error');
+    let venceISO;
+    if (evalForm.modo === 'fecha') {
+      if (!evalForm.fecha) return toast('Elegí la fecha de vencimiento', 'error');
+      const d = new Date(evalForm.fecha);
+      if (isNaN(d.getTime()) || d <= new Date()) return toast('La fecha tiene que ser futura', 'error');
+      venceISO = d.toISOString();
+    } else {
+      venceISO = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    }
+    setSavingEval(true);
+    const filas = evalForm.alumnos_ids.map(aid => ({
+      evaluacion_id: evalForm.evaluacion_id, alumno_id: aid, vence_en: venceISO, monto: 0, estado: 'pagado', mp_payment_id: 'MANUAL',
+    }));
+    const { error } = await supabase.from('evaluaciones_extensiones').insert(filas);
+    setSavingEval(false);
+    if (error) return toast(/evaluaciones_extensiones|relation|column/i.test(error.message || '') ? 'Falta correr la migración evaluaciones_extensiones.sql' : 'Error: ' + error.message, 'error');
+    toast(`Plazo extendido a ${filas.length} alumno(s) ✅`, 'success');
+    setEvalModal(false);
+    setEvalForm({ evaluacion_id: '', alumnos_ids: [], modo: '24hs', fecha: '' });
+    load();
+  };
+  const eliminarEvalExt = async (e) => {
+    if (!confirm(`¿Quitar la extensión de ${e.alumnos?.nombre}?`)) return;
+    await supabase.from('evaluaciones_extensiones').delete().eq('id', e.id);
+    toast('Extensión quitada', 'info');
+    load();
+  };
+
   const fmt = (valor) => {
     const d = new Date(valor);
     const tz = 'America/Argentina/Buenos_Aires';
@@ -5891,11 +5942,16 @@ function AdminExtensiones({ aulaActiva }) {
       <div className="page-header">
         <div>
           <div className="page-title">⏱️ Extensiones</div>
-          <div className="page-subtitle">Compras de 24hs extra por video</div>
+          <div className="page-subtitle">Extensiones de acceso a videos y de plazo de evaluaciones</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm({alumnos_ids:[],videos_ids:[],modo:'24hs',fecha:''}); setModal(true); }}>
-          + Habilitar Manualmente
-        </button>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={() => { setEvalForm({evaluacion_id:'',alumnos_ids:[],modo:'24hs',fecha:''}); setEvalModal(true); }}>
+            📝 Extender evaluación
+          </button>
+          <button className="btn btn-primary" onClick={() => { setForm({alumnos_ids:[],videos_ids:[],modo:'24hs',fecha:''}); setModal(true); }}>
+            + Habilitar video
+          </button>
+        </div>
       </div>
 
       <div className="stats-grid" style={{marginBottom:20}}>
@@ -5974,6 +6030,33 @@ function AdminExtensiones({ aulaActiva }) {
         </div>
       )}
 
+      {/* Extensiones de plazo de EVALUACIONES otorgadas por el docente */}
+      {evalExts.length > 0 && (
+        <div style={{marginTop:24}}>
+          <div style={{fontWeight:700,marginBottom:10,fontSize:'0.9rem'}}>📝 Extensiones de evaluaciones</div>
+          <div className="card" style={{overflowX:'auto'}}>
+            <table>
+              <thead><tr><th>Alumno</th><th>Evaluación</th><th>Otorgada</th><th>Puede rendir hasta</th><th>Estado</th><th></th></tr></thead>
+              <tbody>
+                {evalExts.map(e => {
+                  const vig = e.estado === 'pagado' && new Date(e.vence_en) > new Date();
+                  return (
+                    <tr key={e.id}>
+                      <td><strong>{e.alumnos?.nombre || '—'}</strong></td>
+                      <td style={{color:'var(--text2)',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{e.evaluaciones?.titulo || '—'}</td>
+                      <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{fmt(e.created_at)}{e.mp_payment_id === 'MANUAL' && <span style={{marginLeft:6}}>· Manual</span>}</td>
+                      <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{e.vence_en ? fmt(e.vence_en) : '—'}</td>
+                      <td>{vig ? <span className="chip chip-green">✅ Activa</span> : e.estado === 'pendiente' ? <span className="chip" style={{background:'rgba(255,176,32,0.15)',color:'var(--warning)'}}>⏳ Pendiente</span> : e.estado === 'rechazado' ? <span className="chip chip-red">❌ Rechazada</span> : <span className="chip" style={{background:'var(--surface2)',color:'var(--text2)'}}>Vencida</span>}</td>
+                      <td><button className="btn btn-ghost btn-sm" style={{color:'var(--danger)'}} onClick={() => eliminarEvalExt(e)}>🗑️</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {arcaMsg && (
         <div className="card" style={{padding:'12px 16px',marginTop:12,borderColor: arcaMsg.ok?'var(--success)':'var(--danger)',background: arcaMsg.ok?'rgba(67,233,123,0.08)':'rgba(255,71,87,0.08)'}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
@@ -6001,6 +6084,54 @@ function AdminExtensiones({ aulaActiva }) {
                 <button className="btn btn-ghost" onClick={() => setFactConfirm(null)}>Cancelar</button>
                 <button className="btn btn-primary" disabled={!factConfirm.fecha} onClick={() => facturarExt(factConfirm.ext, factConfirm.fecha)}>🧾 Emitir factura</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {evalModal && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setEvalModal(false)}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{maxWidth:520}}>
+            <div className="modal-header">
+              <h3>📝 Extender plazo de evaluación</h3>
+              <button className="modal-close" onClick={() => setEvalModal(false)}>✕</button>
+            </div>
+            <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:14}}>Reabre la prueba para que el alumno la pueda rendir aunque esté vencida (sin cobrarle). Sigue siendo 1 solo intento.</div>
+            <div className="form-group">
+              <label>Evaluación</label>
+              <select value={evalForm.evaluacion_id} onChange={e => setEvalForm(p => ({ ...p, evaluacion_id: e.target.value }))}>
+                <option value="">— Elegí una prueba —</option>
+                {evals.map(ev => <option key={ev.id} value={ev.id}>{ev.titulo}{ev.fecha_limite ? ` (vence ${fmt(ev.fecha_limite)})` : ''}</option>)}
+              </select>
+              {evals.length === 0 && <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>No hay pruebas en la app en esta aula.</div>}
+            </div>
+            <div className="form-group">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                <label style={{margin:0}}>Alumnos <span style={{color:'var(--text2)',fontWeight:400}}>({evalForm.alumnos_ids.length} elegidos)</span></label>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEvalForm(p => ({ ...p, alumnos_ids: p.alumnos_ids.length === alumnos.length && alumnos.length ? [] : alumnos.map(a => a.id) }))}>{evalForm.alumnos_ids.length === alumnos.length && alumnos.length ? 'Ninguno' : 'Todos'}</button>
+              </div>
+              <div style={{border:'1px solid var(--border)',borderRadius:10,padding:'6px 12px',maxHeight:180,overflowY:'auto',marginTop:6}}>
+                {alumnos.length === 0 ? <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>No hay alumnos.</div> : alumnos.map(a => (
+                  <label key={a.id} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'5px 0'}}>
+                    <input type="checkbox" checked={evalForm.alumnos_ids.includes(a.id)} onChange={() => setEvalForm(p => ({ ...p, alumnos_ids: p.alumnos_ids.includes(a.id) ? p.alumnos_ids.filter(x => x !== a.id) : [...p.alumnos_ids, a.id] }))} style={{width:'auto'}} />
+                    <span style={{fontSize:'0.85rem'}}>{a.nombre}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="form-group">
+              <label>¿Hasta cuándo puede rendir?</label>
+              <div style={{display:'flex',gap:8,marginTop:6}}>
+                <button type="button" className={`btn btn-sm ${evalForm.modo==='24hs'?'btn-primary':'btn-ghost'}`} style={{flex:1,justifyContent:'center'}} onClick={() => setEvalForm(p => ({ ...p, modo: '24hs' }))}>24 horas</button>
+                <button type="button" className={`btn btn-sm ${evalForm.modo==='fecha'?'btn-primary':'btn-ghost'}`} style={{flex:1,justifyContent:'center'}} onClick={() => setEvalForm(p => ({ ...p, modo: 'fecha' }))}>Fecha elegida</button>
+              </div>
+              {evalForm.modo === 'fecha' && (
+                <input type="datetime-local" value={evalForm.fecha} min={new Date().toISOString().slice(0,16)} onChange={e => setEvalForm(p => ({ ...p, fecha: e.target.value }))} style={{marginTop:8}} />
+              )}
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+              <button className="btn btn-ghost" onClick={() => setEvalModal(false)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={habilitarEvalManual} disabled={savingEval}>{savingEval ? 'Guardando…' : '✅ Extender plazo'}</button>
             </div>
           </div>
         </div>
