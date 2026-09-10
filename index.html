@@ -9972,14 +9972,18 @@ function AlumnoVideos({ alumno, user }) {
           <div style={{fontSize:'0.8rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:current?.id===v.id?'var(--accent)':(estaVencido(v)?'var(--text2)':'var(--text)')}}>
             {v.titulo}
             {estaVencido(v) && <span className="chip chip-red" style={{marginLeft:6,fontSize:'0.62rem'}}>⌛ Vencido</span>}
-            {extensionVigente(v) && <span className="chip chip-green" style={{marginLeft:6,fontSize:'0.62rem'}}>⏱️ +24hs</span>}
+            {extensionVigente(v) && <span className="chip chip-green" style={{marginLeft:6,fontSize:'0.62rem'}}>⏱️ Extendido</span>}
           </div>
           {v.descripcion && <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:2,lineHeight:1.4,whiteSpace:'pre-wrap'}}>{v.descripcion}</div>}
-          {v.vence_en && !estaVencido(v) && (
+          {extensionVigente(v) ? (
+            <div style={{fontSize:'0.68rem',marginTop:2,color:'var(--success)',fontWeight:700}}>
+              ⏱️ Acceso extendido hasta el {fmtVence(extensiones[v.id].vence_en)}
+            </div>
+          ) : (v.vence_en && !estaVencido(v)) ? (
             <div style={{fontSize:'0.68rem',marginTop:2,color:venceProximo(v)?'var(--warning)':'var(--text2)',fontWeight:venceProximo(v)?700:500}}>
               {venceProximo(v) ? '⚠️ Vence' : '⌛ Disponible hasta'} el {fmtVence(v.vence_en)}
             </div>
-          )}
+          ) : null}
           {puedeComprarExtension(v) && (
             <button onClick={e => { e.stopPropagation(); setVencidoAviso(v); }}
               style={{marginTop:5,display:'inline-flex',alignItems:'center',gap:5,background:'var(--success)',color:'#fff',border:'none',borderRadius:20,padding:'3px 10px',fontSize:'0.68rem',fontWeight:700,cursor:'pointer'}}>
