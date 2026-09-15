@@ -9934,7 +9934,12 @@ function AlumnoVideos({ alumno, user }) {
   const reproducirVideo = (v) => {
     setConfirmVista(null);
     setCurrent(v);
-    registrarVista(v);
+    // Videos de Bunny: la vista NO se cuenta al abrir. Se registra recién cuando el
+    // reproductor arranca de verdad (ver useEffect más abajo). Si Bunny todavía lo está
+    // "procesando", nunca arranca y por lo tanto no consume una visualización.
+    // Los videos externos (YouTube/Vimeo/Drive) sí se registran al abrir, como antes.
+    const esBunny = !!(v.bunny_id || v.bunny_video_id);
+    if (!esBunny) registrarVista(v);
     // Subir automáticamente hasta el reproductor para que el alumno vea que el video se abrió.
     setTimeout(() => {
       if (videoContRef.current) {
@@ -9961,6 +9966,44 @@ function AlumnoVideos({ alumno, user }) {
       el.webkitRequestFullscreen();
     }
   };
+
+  // Para videos de Bunny: registrar la visualización recién cuando el reproductor
+  // EMPIEZA a reproducir. Si el video figura "procesando" (Bunny todavía lo está
+  // codificando), nunca arranca y no se cuenta como visualización. Usamos el protocolo
+  // player.js (postMessage), que el reproductor de Bunny soporta.
+  useEffect(() => {
+    if (!current) return;
+    const bid = current.bunny_id || current.bunny_video_id;
+    if (!bid) return; // solo Bunny; los externos ya se registraron al abrir
+    let registrado = false;
+    let intentos = 0;
+    const suscribir = () => {
+      const iframe = videoContRef.current && videoContRef.current.querySelector('iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        ['play', 'playing', 'timeupdate'].forEach(ev =>
+          iframe.contentWindow.postMessage(
+            JSON.stringify({ context: 'player.js', method: 'addEventListener', value: ev, listener: ev }),
+            '*'
+          ));
+      } catch (_) {}
+    };
+    const onMsg = (e) => {
+      let data = e.data;
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { return; } }
+      if (!data || data.context !== 'player.js') return;
+      if (data.event === 'ready') { suscribir(); return; }
+      if (!registrado && (data.event === 'play' || data.event === 'playing' || data.event === 'timeupdate')) {
+        registrado = true;
+        registrarVista(current);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    // Reintentar la suscripción por si el "ready" del iframe llegó antes de montar el listener.
+    const t = setInterval(() => { suscribir(); if (++intentos >= 6 || registrado) clearInterval(t); }, 800);
+    suscribir();
+    return () => { window.removeEventListener('message', onMsg); clearInterval(t); };
+  }, [current]);
 
   const VideoItem = ({ v }) => {
     const bid = v.bunny_id || v.bunny_video_id;
