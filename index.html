@@ -9934,7 +9934,12 @@ function AlumnoVideos({ alumno, user }) {
   const reproducirVideo = (v) => {
     setConfirmVista(null);
     setCurrent(v);
-    registrarVista(v);
+    // Videos de Bunny: la vista NO se cuenta al abrir. Se registra recién cuando el
+    // reproductor arranca de verdad (ver useEffect más abajo). Si Bunny todavía lo está
+    // "procesando", nunca arranca y por lo tanto no consume una visualización.
+    // Los videos externos (YouTube/Vimeo/Drive) sí se registran al abrir, como antes.
+    const esBunny = !!(v.bunny_id || v.bunny_video_id);
+    if (!esBunny) registrarVista(v);
     // Subir automáticamente hasta el reproductor para que el alumno vea que el video se abrió.
     setTimeout(() => {
       if (videoContRef.current) {
@@ -9961,6 +9966,44 @@ function AlumnoVideos({ alumno, user }) {
       el.webkitRequestFullscreen();
     }
   };
+
+  // Para videos de Bunny: registrar la visualización recién cuando el reproductor
+  // EMPIEZA a reproducir. Si el video figura "procesando" (Bunny todavía lo está
+  // codificando), nunca arranca y no se cuenta como visualización. Usamos el protocolo
+  // player.js (postMessage), que el reproductor de Bunny soporta.
+  useEffect(() => {
+    if (!current) return;
+    const bid = current.bunny_id || current.bunny_video_id;
+    if (!bid) return; // solo Bunny; los externos ya se registraron al abrir
+    let registrado = false;
+    let intentos = 0;
+    const suscribir = () => {
+      const iframe = videoContRef.current && videoContRef.current.querySelector('iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        ['play', 'playing', 'timeupdate'].forEach(ev =>
+          iframe.contentWindow.postMessage(
+            JSON.stringify({ context: 'player.js', method: 'addEventListener', value: ev, listener: ev }),
+            '*'
+          ));
+      } catch (_) {}
+    };
+    const onMsg = (e) => {
+      let data = e.data;
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { return; } }
+      if (!data || data.context !== 'player.js') return;
+      if (data.event === 'ready') { suscribir(); return; }
+      if (!registrado && (data.event === 'play' || data.event === 'playing' || data.event === 'timeupdate')) {
+        registrado = true;
+        registrarVista(current);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    // Reintentar la suscripción por si el "ready" del iframe llegó antes de montar el listener.
+    const t = setInterval(() => { suscribir(); if (++intentos >= 6 || registrado) clearInterval(t); }, 800);
+    suscribir();
+    return () => { window.removeEventListener('message', onMsg); clearInterval(t); };
+  }, [current]);
 
   const VideoItem = ({ v }) => {
     const bid = v.bunny_id || v.bunny_video_id;
@@ -10211,6 +10254,10 @@ function AlumnoMateriales({ alumno, user }) {
   const [accesoErrorMat, setAccesoErrorMat] = useState(null);
   const [videosAula, setVideosAula] = useState([]);       // videos del aula (para el "Ver resumen")
   const [videoResumen, setVideoResumen] = useState(null); // video que se está viendo como resumen
+  const [contadoresVistasVid, setContadoresVistasVid] = useState({}); // vistas por video (para respetar el límite en el resumen)
+  const [resumenConfirm, setResumenConfirm] = useState(null);   // {video, restantes} antes de gastar una vista
+  const [resumenBloqueado, setResumenBloqueado] = useState(null); // {video, count} cuando llegó al límite
+  const resumenContRef = useRef();                        // contenedor del iframe del resumen (para detectar el "play")
   const toast = useToast();
   const watermarkName = alumno?.nombre || user?.email?.split('@')[0] || 'SACi';
   const watermarkEmail = alumno?.email || user?.email || '';
@@ -10230,6 +10277,89 @@ function AlumnoMateriales({ alumno, user }) {
     }
   };
 
+  // --- "Ver resumen": mirar un video (que también está en Mis Videos) desde Materiales ---
+  // Se cuenta como una visualización del MISMO video (tabla visualizaciones) y respeta el
+  // límite de vistas, para que no se pueda esquivar mirándolo como resumen. Comparte la clave
+  // de sesión con Mis Videos, así cuenta una sola vez por sesión mire desde donde mire.
+  const registrarVistaVideoResumen = async (v) => {
+    const alumnoId = alumno?.id;
+    if (!v?.id || !alumnoId) return;
+    const key = `vista_${v.id}_${alumnoId}`;
+    if (sessionStorage.getItem(key)) return;
+    const { error } = await supabase.from('visualizaciones').insert({ video_id: v.id, alumno_id: alumnoId });
+    if (!error) {
+      sessionStorage.setItem(key, '1');
+      setContadoresVistasVid(p => ({ ...p, [v.id]: (p[v.id] || 0) + 1 }));
+    }
+  };
+
+  // Abre el video resumen. Si el video tiene límite de vistas, se comporta igual que en
+  // Mis Videos: bloquea si ya llegó al tope y avisa antes de gastar una vista.
+  const abrirResumen = async (vr) => {
+    if (alumno?.id && vr.max_vistas != null) {
+      const sessionKey = `vista_${vr.id}_${alumno.id}`;
+      const yaEstaSesion = !!sessionStorage.getItem(sessionKey);
+      if (!yaEstaSesion) {
+        let vistas = contadoresVistasVid[vr.id];
+        if (vistas === undefined) {
+          const { count } = await supabase
+            .from('visualizaciones')
+            .select('id', { count: 'exact', head: true })
+            .eq('video_id', vr.id)
+            .eq('alumno_id', alumno.id);
+          vistas = count || 0;
+          setContadoresVistasVid(p => ({ ...p, [vr.id]: vistas }));
+        }
+        if (vistas >= vr.max_vistas) { setResumenBloqueado({ video: vr, count: vistas }); return; }
+        setResumenConfirm({ video: vr, restantes: vr.max_vistas - vistas }); return;
+      }
+    }
+    reproducirResumen(vr);
+  };
+
+  const reproducirResumen = (vr) => {
+    setResumenConfirm(null);
+    setVideoResumen(vr);
+    // Bunny se cuenta recién cuando el reproductor arranca (ver useEffect). Los externos, al abrir.
+    const esBunny = !!(vr.bunny_id || vr.bunny_video_id);
+    if (!esBunny) registrarVistaVideoResumen(vr);
+  };
+
+  // Para el resumen de Bunny: registrar la vista recién cuando arranca (si figura
+  // "procesando", nunca arranca y no cuenta). Mismo mecanismo player.js que en Mis Videos.
+  useEffect(() => {
+    if (!videoResumen) return;
+    const bid = videoResumen.bunny_id || videoResumen.bunny_video_id;
+    if (!bid) return;
+    let registrado = false;
+    let intentos = 0;
+    const suscribir = () => {
+      const iframe = resumenContRef.current && resumenContRef.current.querySelector('iframe');
+      if (!iframe || !iframe.contentWindow) return;
+      try {
+        ['play', 'playing', 'timeupdate'].forEach(ev =>
+          iframe.contentWindow.postMessage(
+            JSON.stringify({ context: 'player.js', method: 'addEventListener', value: ev, listener: ev }),
+            '*'
+          ));
+      } catch (_) {}
+    };
+    const onMsg = (e) => {
+      let data = e.data;
+      if (typeof data === 'string') { try { data = JSON.parse(data); } catch (_) { return; } }
+      if (!data || data.context !== 'player.js') return;
+      if (data.event === 'ready') { suscribir(); return; }
+      if (!registrado && (data.event === 'play' || data.event === 'playing' || data.event === 'timeupdate')) {
+        registrado = true;
+        registrarVistaVideoResumen(videoResumen);
+      }
+    };
+    window.addEventListener('message', onMsg);
+    const t = setInterval(() => { suscribir(); if (++intentos >= 6 || registrado) clearInterval(t); }, 800);
+    suscribir();
+    return () => { window.removeEventListener('message', onMsg); clearInterval(t); };
+  }, [videoResumen]);
+
   useEffect(() => {
     // El alumno solo ve el contenido de SU aula.
     const miAula = alumno?.aula_id;
@@ -10237,7 +10367,7 @@ function AlumnoMateriales({ alumno, user }) {
     Promise.all([
       supabase.from('temas_materiales').select('*').eq('aula_id', miAula).order('orden'),
       supabase.from('materiales').select('*').eq('aula_id', miAula).order('orden'),
-      supabase.from('videos').select('id, titulo, bunny_id, bunny_video_id, bunny_library, url_externa').eq('aula_id', miAula),
+      supabase.from('videos').select('id, titulo, bunny_id, bunny_video_id, bunny_library, url_externa, max_vistas, vence_en').eq('aula_id', miAula),
     ]).then(async ([{ data: tData }, { data: mData }, { data: vData }]) => {
       const now = new Date().toISOString();
       const mFiltered = (mData || []).filter(m => !m.publicar_en || m.publicar_en <= now);
@@ -10371,7 +10501,7 @@ function AlumnoMateriales({ alumno, user }) {
                 </div>
               </div>
               <div style={{display:'flex',alignItems:'center',gap:8}}>
-                {videosResumenDe(t, '').map(vr => <button key={vr.id} className="btn btn-sm" onClick={e => { e.stopPropagation(); setVideoResumen(vr); }} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {videosResumenDe(t,'').length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
+                {videosResumenDe(t, '').map(vr => <button key={vr.id} className="btn btn-sm" onClick={e => { e.stopPropagation(); abrirResumen(vr); }} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {videosResumenDe(t,'').length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
                 <span className="chip chip-blue">{tMats.length} materiales</span>
                 <span style={{color:'var(--text2)',fontSize:'1rem'}}>{isOpen?'▲':'▼'}</span>
               </div>
@@ -10388,7 +10518,7 @@ function AlumnoMateriales({ alumno, user }) {
                         <div onClick={() => setSubCerr(s => ({ ...s, [subKey]: !s[subKey] }))} style={{fontWeight:700,fontSize:'0.82rem',color:t.color||'var(--accent)',cursor:'pointer',userSelect:'none'}}>
                           {subAbierto ? '▼' : '▶'} 📁 {g.subtema} <span style={{color:'var(--text2)',fontWeight:400}}>({g.items.length})</span>
                         </div>
-                        {vrs.map(vr => <button key={vr.id} className="btn btn-sm" onClick={() => setVideoResumen(vr)} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {vrs.length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
+                        {vrs.map(vr => <button key={vr.id} className="btn btn-sm" onClick={() => abrirResumen(vr)} style={{background:'var(--accent2)',color:'#fff',display:'inline-flex',alignItems:'center',gap:5}}>🎬 {vrs.length > 1 ? vr.titulo : 'Ver resumen'}</button>)}
                       </div>
                     ); })()}
                     {subAbierto && <div className="grid-2">{g.items.map(m => <MatCard key={m.id} m={m} />)}</div>}
@@ -10425,7 +10555,7 @@ function AlumnoMateriales({ alumno, user }) {
                 <div style={{fontWeight:700,display:'flex',alignItems:'center',gap:8}}>🎬 Video resumen — {videoResumen.titulo}</div>
                 <button className="modal-close" onClick={() => setVideoResumen(null)}>✕</button>
               </div>
-              <div className="video-container video-stage" style={{position:'relative',margin:16,borderRadius:12,overflow:'hidden'}}>
+              <div ref={resumenContRef} className="video-container video-stage" style={{position:'relative',margin:16,borderRadius:12,overflow:'hidden'}}>
                 {src ? <iframe src={src} style={{width:'100%',height:'100%',border:'none'}} allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen={!esDrive} />
                   : <Empty icon="🎬" text="Video no disponible" />}
                 <WatermarkOverlay name={watermarkName} email={watermarkEmail} />
@@ -10434,6 +10564,39 @@ function AlumnoMateriales({ alumno, user }) {
           </div>
         );
       })()}
+
+      {/* Aviso antes de gastar una vista al mirar el resumen (video con límite) */}
+      {resumenConfirm && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setResumenConfirm(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--accent)',borderRadius:18,width:'90vw',maxWidth:440,padding:24}}>
+            <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10,display:'flex',alignItems:'center',gap:8}}>🎬 {resumenConfirm.video.titulo}</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:18,lineHeight:1.5}}>
+              Este resumen es el mismo video de <b>Mis Videos</b> y tiene visualizaciones limitadas.
+              Si lo reproducís ahora, te quedarán <b>{resumenConfirm.restantes - 1}</b> de {resumenConfirm.video.max_vistas} visualizaciones.
+            </div>
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button className="btn btn-ghost" onClick={() => setResumenConfirm(null)}>Cancelar</button>
+              <button className="btn btn-primary" onClick={() => reproducirResumen(resumenConfirm.video)}>▶️ Reproducir</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Llegó al límite de vistas: no puede abrir el resumen */}
+      {resumenBloqueado && (
+        <div className="modal-overlay" onClick={e => e.target===e.currentTarget && setResumenBloqueado(null)}>
+          <div style={{background:'var(--surface)',border:'1px solid var(--danger)',borderRadius:18,width:'90vw',maxWidth:440,padding:24}}>
+            <div style={{fontWeight:700,fontSize:'1.05rem',marginBottom:10,display:'flex',alignItems:'center',gap:8,color:'var(--danger)'}}>⌛ Sin visualizaciones disponibles</div>
+            <div style={{color:'var(--text2)',fontSize:'0.9rem',marginBottom:18,lineHeight:1.5}}>
+              Ya usaste las {resumenBloqueado.video.max_vistas} visualizaciones de <b>{resumenBloqueado.video.titulo}</b>.
+              Este resumen es el mismo video, así que tampoco podés verlo por acá. Contactá al docente si necesitás más.
+            </div>
+            <div style={{display:'flex',justifyContent:'flex-end'}}>
+              <button className="btn btn-primary" onClick={() => setResumenBloqueado(null)}>Entendido</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview modal - sin opción de descarga cuando está bloqueado */}
       {preview && (
