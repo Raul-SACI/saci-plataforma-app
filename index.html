@@ -7358,6 +7358,73 @@ function AdminPagos({ aulaActiva }) {
   // Cobros pendientes: suma de lo que falta cobrar a los alumnos con pago incompleto.
   const totalPendiente = incompletos.reduce((s, x) => s + (x.r.falta || 0), 0);
 
+  // Exportar a Excel: 3 hojas → pagos realizados, resumen por alumno y pendientes.
+  const exportarExcelPagos = () => {
+    if (!pagos.length) return toast('No hay pagos para exportar', 'error');
+    const fmtFecha = (d) => d ? new Date(d + 'T00:00:00').toLocaleDateString('es-AR') : '';
+    const aulaNombre = (aulasList.find(a => a.id === aulaActiva) || {}).nombre || '';
+
+    // Hoja 1: cada pago realizado (una fila por pago).
+    const hojaPagos = pagos.map(p => ({
+      Alumno: p.alumnos?.nombre || '',
+      Email: p.alumnos?.email || '',
+      Plan: p.plan || '',
+      Monto: parseFloat(p.monto) || 0,
+      'Fecha de pago': fmtFecha(p.fecha_pago),
+      'Próximo pago': fmtFecha(p.proximo_pago),
+      Facturado: p.factura_cae ? 'Sí' : 'No',
+      'N° Factura': p.factura_nro || '',
+      CAE: p.factura_cae || '',
+      Notas: p.notas || '',
+    }));
+
+    // Hoja 2: resumen por alumno (los que tienen al menos un pago), con su plan y estado.
+    const conPago = alumnos
+      .map(a => ({ a, r: resumenAlumno(a.id) }))
+      .filter(x => x.r.cant > 0)
+      .sort((x, y) => (x.a.nombre || '').localeCompare(y.a.nombre || ''));
+    const hojaResumen = conPago.map(({ a, r }) => ({
+      Alumno: a.nombre || '',
+      Plan: r.plan || '',
+      'Total pagado': r.paid || 0,
+      'Precio del plan': r.esperado || 0,
+      Falta: r.falta != null ? r.falta : 0,
+      Estado: r.completo === true ? 'Completo' : (r.completo === false ? 'Incompleto' : 'Sin precio'),
+      'Cant. pagos': r.cant || 0,
+    }));
+
+    // Hoja 3: pendientes (alumnos con saldo), ordenados por lo que más falta.
+    const hojaPend = incompletos
+      .slice()
+      .sort((x, y) => (y.r.falta || 0) - (x.r.falta || 0))
+      .map(({ a, r }) => ({
+        Alumno: a.nombre || '',
+        Plan: r.plan || '',
+        'Precio del plan': r.esperado || 0,
+        'Total pagado': r.paid || 0,
+        Falta: r.falta || 0,
+      }));
+
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet(hojaPagos);
+    ws1['!cols'] = [{wch:28},{wch:30},{wch:16},{wch:14},{wch:14},{wch:14},{wch:11},{wch:16},{wch:16},{wch:32}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Pagos realizados');
+
+    const ws2 = XLSX.utils.json_to_sheet(hojaResumen.length ? hojaResumen : [{ Alumno: '(sin datos)' }]);
+    ws2['!cols'] = [{wch:28},{wch:16},{wch:14},{wch:14},{wch:12},{wch:12},{wch:11}];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Resumen por alumno');
+
+    const ws3 = XLSX.utils.json_to_sheet(hojaPend.length ? hojaPend : [{ Alumno: '(no hay pendientes)' }]);
+    ws3['!cols'] = [{wch:28},{wch:16},{wch:14},{wch:14},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Pendientes');
+
+    const hoy = new Date();
+    const fecha = `${hoy.getFullYear()}-${String(hoy.getMonth()+1).padStart(2,'0')}-${String(hoy.getDate()).padStart(2,'0')}`;
+    const slug = (aulaNombre || 'aula').replace(/[^\w]+/g, '_');
+    XLSX.writeFile(wb, `pagos_${slug}_${fecha}.xlsx`);
+    toast('Excel de pagos exportado 📤', 'success');
+  };
+
   // Al abrir Pagos, generar (si toca hoy) los recordatorios de vencimiento de los incompletos.
   useEffect(() => {
     if (loading || !aulaActiva) return;
@@ -7396,6 +7463,7 @@ function AdminPagos({ aulaActiva }) {
             setPreciosForm(f); setPreciosModal(true);
           }}>⚙️ Precios de planes</button>
           <button className="btn btn-ghost" onClick={probarArca} disabled={arcaProbando} title="Probar la conexión con ARCA (facturación)">{arcaProbando ? '⏳ Probando...' : '🔌 Probar ARCA'}</button>
+          <button className="btn btn-ghost" onClick={exportarExcelPagos} title="Exportar a Excel: pagos realizados, resumen por alumno y pendientes">📊 Exportar Excel</button>
           <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setAplicarDesc(false); setModal(true); }}>➕ Registrar pago</button>
         </div>
       </div>
