@@ -7114,7 +7114,7 @@ function AdminAlumnos({ aulaActiva }) {
 // ─── ADMIN PAGOS ──────────────────────────────────────────────────────
 function AdminPagos({ aulaActiva }) {
   const today = new Date().toISOString().split('T')[0];
-  const PLANES = ['Parcial', 'Final', 'Cursado Completo'];
+  const PLANES_DEFAULT = ['Parcial', 'Final', 'Cursado Completo'];
   const emptyForm = { alumno_id: '', plan: 'Cursado Completo', monto: '', fecha_pago: today, proximo_pago: '', notas: '' };
 
   const [pagos, setPagos] = useState([]);
@@ -7139,7 +7139,11 @@ function AdminPagos({ aulaActiva }) {
   const [refCount, setRefCount] = useState({});       // { referrerId: cant referidos que ya pagaron }
   const [aplicarDesc, setAplicarDesc] = useState(false); // aplicar descuento por referidos al pago que se registra
   const [aulasList, setAulasList] = useState([]);      // aulas para asignar/reasignar el aula de un pago
+  const [nuevoPlan, setNuevoPlan] = useState('');      // nombre del plan que se está agregando en el modal de precios
   const toast = useToast();
+  // Planes del aula = los 3 estándar + los personalizados que el admin agregó
+  // (se guardan como claves dentro de "precios", así no hace falta migración de SQL).
+  const PLANES = [...PLANES_DEFAULT, ...Object.keys(precios || {}).filter(k => !PLANES_DEFAULT.includes(k))];
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
@@ -7289,7 +7293,7 @@ function AdminPagos({ aulaActiva }) {
 
   const guardarPrecios = async () => {
     const limpio = {};
-    PLANES.forEach(pl => {
+    Object.keys(preciosForm).forEach(pl => {
       const f = preciosForm[pl] || {};
       const u = parseFloat(f.unico), c = parseFloat(f.cuotas);
       const tu = parseFloat(f.tarjeta_unico), tc = parseFloat(f.tarjeta_cuotas);
@@ -7298,12 +7302,33 @@ function AdminPagos({ aulaActiva }) {
       if (!isNaN(c) && c > 0) obj.cuotas = c;
       if (!isNaN(tu) && tu > 0) obj.tarjeta_unico = tu;
       if (!isNaN(tc) && tc > 0) obj.tarjeta_cuotas = tc;
-      if (Object.keys(obj).length) limpio[pl] = obj;
+      // Los 3 planes estándar se guardan solo si tienen precio (como antes).
+      // Un plan personalizado se guarda siempre, así no se pierde aunque quede sin precio todavía.
+      if (Object.keys(obj).length || !PLANES_DEFAULT.includes(pl)) limpio[pl] = obj;
     });
     const { error } = await supabase.from('aulas').update({ precios: limpio }).eq('id', aulaActiva);
     if (error) return toast('Error: ' + error.message, 'error');
-    setPrecios(limpio); setPreciosModal(false);
+    setPrecios(limpio); setPreciosModal(false); setNuevoPlan('');
     toast('Precios guardados ✅', 'success');
+  };
+
+  // Agregar un plan personalizado nuevo dentro del modal de precios.
+  const agregarPlan = () => {
+    const nombre = (nuevoPlan || '').trim();
+    if (!nombre) return;
+    const existe = Object.keys(preciosForm).some(k => k.toLowerCase() === nombre.toLowerCase())
+      || PLANES_DEFAULT.some(k => k.toLowerCase() === nombre.toLowerCase());
+    if (existe) return toast('Ya existe un plan con ese nombre', 'error');
+    setPreciosForm(f => ({ ...f, [nombre]: { unico: '', cuotas: '', tarjeta_unico: '', tarjeta_cuotas: '' } }));
+    setNuevoPlan('');
+  };
+
+  // Quitar un plan personalizado (los 3 estándar no se pueden quitar).
+  const quitarPlan = (pl) => {
+    if (PLANES_DEFAULT.includes(pl)) return;
+    const usados = pagos.filter(p => p.plan === pl).length;
+    if (usados && !confirm(`Hay ${usados} pago(s) registrados con el plan "${pl}". Si lo quitás, esos pagos conservan el nombre pero el plan deja de aparecer en la lista. ¿Quitar igual?`)) return;
+    setPreciosForm(f => { const c = { ...f }; delete c[pl]; return c; });
   };
 
   const openEdit = p => {
@@ -7679,11 +7704,16 @@ function AdminPagos({ aulaActiva }) {
       )}
 
       {preciosModal && (
-        <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => setPreciosModal(false)}>
+        <Modal title="⚙️ Precios de los planes (esta aula)" onClose={() => { setPreciosModal(false); setNuevoPlan(''); }}>
           <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14}}>Por cada plan, poné el precio <strong>en 1 pago</strong> (contado) y el <strong>total en cuotas</strong> si paga en partes. Si es el mismo, dejá vacío el de cuotas. Cargá el precio de <strong>🏦 transferencia/efectivo</strong> y, si con <strong>💳 tarjeta de crédito</strong> es más caro, el precio de tarjeta (si dejás tarjeta vacío, se usa el de transferencia).</div>
-          {PLANES.map(pl => (
+          {Object.keys(preciosForm).map(pl => (
             <div key={pl} style={{marginBottom:16,borderBottom:'1px solid var(--border)',paddingBottom:14}}>
-              <div style={{fontWeight:700,marginBottom:8}}>{pl}</div>
+              <div style={{fontWeight:700,marginBottom:8,display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                <span>{pl}{!PLANES_DEFAULT.includes(pl) && <span className="chip chip-blue" style={{marginLeft:8,fontSize:'0.62rem'}}>personalizado</span>}</span>
+                {!PLANES_DEFAULT.includes(pl) && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => quitarPlan(pl)} title="Quitar este plan" style={{color:'var(--danger)',padding:'2px 8px'}}>🗑 Quitar</button>
+                )}
+              </div>
 
               <div style={{fontSize:'0.72rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>🏦 Transferencia / efectivo</div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:12}}>
@@ -7710,6 +7740,17 @@ function AdminPagos({ aulaActiva }) {
               </div>
             </div>
           ))}
+          {/* Agregar un plan nuevo */}
+          <div style={{background:'var(--surface2)',borderRadius:10,padding:'12px 14px',marginBottom:16}}>
+            <div style={{fontSize:'0.76rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:8}}>➕ Agregar un plan nuevo</div>
+            <div style={{display:'flex',gap:8}}>
+              <input type="text" value={nuevoPlan} onChange={e => setNuevoPlan(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); agregarPlan(); } }}
+                placeholder="Ej: Recursantes, Segundo Parcial, Beca…" style={{flex:1}} />
+              <button className="btn btn-primary" onClick={agregarPlan} disabled={!nuevoPlan.trim()}>Agregar</button>
+            </div>
+            <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:6}}>Aparece más arriba en la lista para que le pongas el precio. Recordá tocar <strong>Guardar precios</strong> para que quede.</div>
+          </div>
           <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={guardarPrecios}>💾 Guardar precios</button>
         </Modal>
       )}
@@ -7728,9 +7769,9 @@ function AdminPagos({ aulaActiva }) {
           {/* Plan */}
           <div className="form-group">
             <label>Tipo de plan</label>
-            <div style={{display:'flex',gap:8,marginTop:4}}>
+            <div style={{display:'flex',gap:8,marginTop:4,flexWrap:'wrap'}}>
               {PLANES.map(plan => (
-                <label key={plan} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',padding:'10px 14px',border:`2px solid ${form.plan===plan?'var(--accent)':'var(--border)'}`,borderRadius:10,flex:1,justifyContent:'center',background:form.plan===plan?'rgba(108,99,255,0.1)':'transparent',fontSize:'0.84rem',fontWeight:600,transition:'all 0.15s'}}>
+                <label key={plan} style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',padding:'10px 14px',border:`2px solid ${form.plan===plan?'var(--accent)':'var(--border)'}`,borderRadius:10,flex:'1 1 30%',minWidth:120,justifyContent:'center',background:form.plan===plan?'rgba(108,99,255,0.1)':'transparent',fontSize:'0.84rem',fontWeight:600,transition:'all 0.15s'}}>
                   <input type="radio" name="plan" value={plan} checked={form.plan===plan} onChange={() => setForm(p=>({...p,plan}))} style={{width:'auto',margin:0}} />
                   {plan === 'Parcial' ? '💰' : plan === 'Final' ? '✅' : '📚'} {plan}
                 </label>
