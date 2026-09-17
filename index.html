@@ -7889,6 +7889,7 @@ function AdminVideos({ aulaActiva }) {
   const [statsModal, setStatsModal] = useState(null); // video seleccionado para ver stats
   const [statsData, setStatsData] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [sumarAlumnoId, setSumarAlumnoId] = useState(''); // alumno elegido para sumarle una visualización
   const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', bunny_library: BUNNY_LIBRARY, url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', vence_en: '', precio_extension: '', para_todos: true, alumnos_ids: [] });
   const [bunnyLibSel, setBunnyLibSel] = useState(BUNNY_LIBRARY);   // repositorio elegido para buscar
   const [bunnyLoading, setBunnyLoading] = useState(false);
@@ -8110,6 +8111,21 @@ function AdminVideos({ aulaActiva }) {
     toast('Intento devuelto ✅', 'success');
   };
 
+  // Suma una visualización a un alumno: le devuelve 1 intento borrando su
+  // visualización más reciente de este video (statsData viene ordenado por fecha desc).
+  const sumarVisualizacion = async () => {
+    if (!sumarAlumnoId) return;
+    const fila = statsData.find(v => v.alumno_id === sumarAlumnoId);
+    if (!fila) return toast('Ese alumno no tiene visualizaciones para devolver', 'error');
+    const nom = fila.alumnos?.nombre || 'el alumno';
+    if (!confirm(`¿Sumarle una visualización a ${nom}? Se le devuelve 1 intento (se borra su visualización más reciente de este video) y va a poder verlo una vez más.`)) return;
+    const { error } = await supabase.from('visualizaciones').delete().eq('id', fila.id);
+    if (error) return toast('No se pudo: ' + error.message, 'error');
+    setStatsData(d => d.filter(x => x.id !== fila.id));
+    setSumarAlumnoId('');
+    toast(`Visualización sumada a ${nom} ✅`, 'success');
+  };
+
   if (!aulaActiva) return <SinAula />;
   if (loading) return <Loading />;
   return (
@@ -8247,7 +8263,7 @@ function AdminVideos({ aulaActiva }) {
 
             {/* Modal estadísticas de visualizaciones */}
       {statsModal && (
-        <Modal title={`👁️ Visualizaciones — ${statsModal.titulo}`} onClose={() => { setStatsModal(null); setStatsData([]); }}>
+        <Modal title={`👁️ Visualizaciones — ${statsModal.titulo}`} onClose={() => { setStatsModal(null); setStatsData([]); setSumarAlumnoId(''); }}>
           {statsLoading ? (
             <div style={{textAlign:'center',padding:'30px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
           ) : (
@@ -8270,6 +8286,29 @@ function AdminVideos({ aulaActiva }) {
                   <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Última vista</div>
                 </div>
               </div>
+              {/* Sumarle una visualización a un alumno (le devuelve 1 intento en este video) */}
+              {(() => {
+                const porAlumno = Object.values(statsData.filter(v => v.alumno_id).reduce((acc, v) => {
+                  const id = v.alumno_id;
+                  if (!acc[id]) acc[id] = { id, nombre: v.alumnos?.nombre || 'Anónimo', vistas: 0 };
+                  acc[id].vistas++;
+                  return acc;
+                }, {})).sort((a, b) => a.nombre.localeCompare(b.nombre));
+                if (!porAlumno.length) return null;
+                return (
+                  <div style={{background:'var(--surface2)',borderRadius:12,padding:'14px 16px',marginBottom:18}}>
+                    <div style={{fontSize:'0.76rem',fontWeight:700,color:'var(--text2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:8}}>➕ Sumar una visualización a un alumno</div>
+                    <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+                      <select value={sumarAlumnoId} onChange={e => setSumarAlumnoId(e.target.value)} style={{flex:'1 1 220px'}}>
+                        <option value="">-- Elegí un alumno --</option>
+                        {porAlumno.map(a => <option key={a.id} value={a.id}>{a.nombre} ({a.vistas} vista{a.vistas !== 1 ? 's' : ''})</option>)}
+                      </select>
+                      <button className="btn btn-primary" onClick={sumarVisualizacion} disabled={!sumarAlumnoId}>➕ Sumar visualización</button>
+                    </div>
+                    <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:6}}>Le devuelve 1 intento (borra su visualización más reciente) para que pueda volver a ver este video.</div>
+                  </div>
+                );
+              })()}
               {statsData.length === 0 ? (
                 <div style={{textAlign:'center',padding:'30px 0',color:'var(--text2)'}}>
                   <div style={{fontSize:'2rem',marginBottom:8}}>👁️</div>
