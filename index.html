@@ -819,7 +819,8 @@ async function tienePagoVencido(alumnoId, aulaId) {
     if (!ps.length) return false;
     const r = resumenPagoDe(ps, aula?.precios || {});
     if (r.completo !== false) return false;   // ya pagó o no hay precio → no bloquea
-    return ps.some(p => p.proximo_pago && p.proximo_pago < hoyISO);
+    // Bloquea desde el MISMO día del vencimiento (incluye hoy): proximo_pago <= hoy.
+    return ps.some(p => p.proximo_pago && p.proximo_pago <= hoyISO);
   } catch { return false; }
 }
 
