@@ -11241,6 +11241,8 @@ function AdminNovedades({ aulaActiva }) {
   const [form, setForm] = useState({ titulo: '', contenido: '', tipo: 'info', destacado: false, link: '' });
   const [refActivo, setRefActivo] = useState(false);   // promo de referidos visible para alumnos de esta aula
   const [refMonto, setRefMonto] = useState('');         // monto fijo del descuento por amigo referido
+  const [refPlanesOcultos, setRefPlanesOcultos] = useState([]);  // planes a los que NO se muestra la promo
+  const [refPlanesLista, setRefPlanesLista] = useState(['Parcial', 'Final', 'Cursado Completo']); // planes del aula
   const [seleccion, setSeleccion] = useState([]);       // ids de novedades seleccionadas
   const toast = useToast();
 
@@ -11261,11 +11263,28 @@ function AdminNovedades({ aulaActiva }) {
     // Ocultar del panel del admin las novedades dirigidas a un alumno puntual (recordatorios automáticos).
     setNovedades((data || []).filter(n => !n.alumno_id));
     setSeleccion([]);
-    try { const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto').eq('id', aulaActiva).single(); setRefActivo(!!a?.referidos_activo); setRefMonto(a?.referidos_monto != null ? String(a.referidos_monto) : ''); } catch { setRefActivo(false); }
+    try {
+      const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto, precios').eq('id', aulaActiva).single();
+      setRefActivo(!!a?.referidos_activo);
+      setRefMonto(a?.referidos_monto != null ? String(a.referidos_monto) : '');
+      const base = ['Parcial', 'Final', 'Cursado Completo'];
+      setRefPlanesLista([...base, ...Object.keys(a?.precios || {}).filter(k => !base.includes(k))]);
+    } catch { setRefActivo(false); }
+    // La lista de planes a ocultar va en su propia consulta: si la columna no existe todavía
+    // (SQL sin correr), solo falla esto y la promo sigue funcionando para todos.
+    try { const { data: a2 } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', aulaActiva).single(); setRefPlanesOcultos(Array.isArray(a2?.referidos_planes_ocultos) ? a2.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
     setLoading(false);
   };
 
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
+
+  const togglePlanOculto = async (plan) => {
+    const previo = refPlanesOcultos;
+    const nuevo = previo.includes(plan) ? previo.filter(p => p !== plan) : [...previo, plan];
+    setRefPlanesOcultos(nuevo);
+    const { error } = await supabase.from('aulas').update({ referidos_planes_ocultos: nuevo }).eq('id', aulaActiva);
+    if (error) { setRefPlanesOcultos(previo); return toast('Para usar esto agregá la columna "referidos_planes_ocultos" en la tabla aulas (correr el SQL indicado).', 'error'); }
+  };
 
   const toggleReferidos = async () => {
     const nuevo = !refActivo;
@@ -11362,6 +11381,19 @@ function AdminNovedades({ aulaActiva }) {
           </button>
         </div>
       </div>
+
+      {refActivo && (
+        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap',marginBottom:16,padding:'10px 14px',background:'rgba(67,233,123,0.06)',border:'1px solid var(--border)',borderRadius:10,fontSize:'0.82rem'}}>
+          <span style={{color:'var(--text2)'}}>🎁 <b>No mostrar</b> la promo de referidos a los alumnos con plan:</span>
+          {refPlanesLista.map(pl => (
+            <label key={pl} style={{display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+              <input type="checkbox" checked={refPlanesOcultos.includes(pl)} onChange={() => togglePlanOculto(pl)} style={{width:'auto',margin:0,cursor:'pointer'}} />
+              {pl}
+            </label>
+          ))}
+          {refPlanesOcultos.length === 0 && <span style={{color:'var(--text2)',fontStyle:'italic'}}>(se muestra a todos)</span>}
+        </div>
+      )}
 
       <CaminoExamen aulaId={aulaActiva} esAdmin={true} />
 
@@ -11468,6 +11500,8 @@ function AlumnoMuro({ alumno }) {
   const [misRef, setMisRef] = useState(null);   // { total, activos } de amigos referidos
   const [refActivo, setRefActivo] = useState(false);   // el admin habilitó la promo de referidos en esta aula
   const [refMonto, setRefMonto] = useState(0);          // monto fijo por amigo referido
+  const [refPlanesOcultos, setRefPlanesOcultos] = useState([]); // planes a los que el admin ocultó la promo
+  const [miPlan, setMiPlan] = useState(null);           // plan del pago más reciente del alumno
   const toast = useToast();
 
   const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
@@ -11500,6 +11534,17 @@ function AlumnoMuro({ alumno }) {
     if (!miAula) { setNovedades([]); setLoading(false); return; }
     // ¿El admin habilitó la promo de referidos en esta aula? (por defecto oculta).
     try { const { data: a } = await supabase.from('aulas').select('referidos_activo, referidos_monto').eq('id', miAula).single(); setRefActivo(!!a?.referidos_activo); setRefMonto(parseFloat(a?.referidos_monto) || 0); } catch { setRefActivo(false); }
+    // Planes a los que el admin decidió NO mostrar la promo (consulta aparte: si la columna
+    // no existe todavía, solo falla esto y la promo se sigue mostrando a todos).
+    try { const { data: ap } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', miAula).single(); setRefPlanesOcultos(Array.isArray(ap?.referidos_planes_ocultos) ? ap.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
+    // Plan del alumno = plan de su pago más reciente en esta aula (para decidir si ve la promo).
+    if (alumno?.id) {
+      try {
+        const { data: ps } = await supabase.from('pagos').select('plan, fecha_pago, aula_id').eq('alumno_id', alumno.id).order('fecha_pago', { ascending: false });
+        const mios = (ps || []).filter(p => p.aula_id == null || p.aula_id === miAula);
+        setMiPlan((mios.find(p => p.plan) || {}).plan || null);
+      } catch { setMiPlan(null); }
+    }
     // Si hoy corresponde, generar el recordatorio de vencimiento de pago de este alumno.
     if (alumno?.id) await generarRecordatorioPagoAlumno(alumno.id, miAula);
     const { data: novs } = await supabase
@@ -11581,8 +11626,8 @@ function AlumnoMuro({ alumno }) {
 
       <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
 
-      {/* Invitá a un amigo (solo si el admin habilitó la promo en esta aula) */}
-      {refActivo && (
+      {/* Invitá a un amigo (solo si el admin habilitó la promo en esta aula y el plan del alumno no está excluido) */}
+      {refActivo && !(miPlan && refPlanesOcultos.includes(miPlan)) && (
       <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
         <div style={{fontWeight:700,marginBottom:6}}>🎁 Invitá a un amigo y ganás</div>
         <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>
