@@ -6241,7 +6241,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [delInfo, setDelInfo] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' });
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' });
   const toast = useToast();
 
   const load = async () => {
@@ -6273,21 +6273,29 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       fecha_inicio: form.fecha_inicio || null,
       fecha_fin: form.fecha_fin || null,
       fecha_examen: form.fecha_examen || null,
+      aviso: (form.aviso || '').trim() || null,
     };
-    const { error } = editing
-      ? await supabase.from('aulas').update(payload).eq('id', editing)
-      : await supabase.from('aulas').insert({ ...payload, estado: 'activa' });
+    const guardar = (pl) => editing
+      ? supabase.from('aulas').update(pl).eq('id', editing)
+      : supabase.from('aulas').insert({ ...pl, estado: 'activa' });
+    let { error } = await guardar(payload);
+    // Si la columna "aviso" todavía no existe (SQL sin correr), reintenta sin ella.
+    if (error && /aviso/i.test(error.message || '')) {
+      const { aviso, ...sinAviso } = payload;
+      ({ error } = await guardar(sinAviso));
+      if (!error) toast('Guardado, pero para el aviso agregá la columna "aviso" en la tabla aulas (correr el SQL indicado).', 'info');
+    }
     setSaving(false);
     if (error) return toast('Error: ' + error.message, 'error');
     toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
     setModal(false); setEditing(null);
-    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' });
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' });
     load();
   };
 
-  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '' }); setEditing(null); setModal(true); };
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' }); setEditing(null); setModal(true); };
   const openEdit = a => {
-    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '' });
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '' });
     setEditing(a.id); setModal(true);
   };
 
@@ -6419,6 +6427,11 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                 <label>🧉 Fecha del examen (opcional)</label>
                 <input type="date" value={form.fecha_examen} onChange={e=>setForm(p=>({...p,fecha_examen:e.target.value}))} />
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Con esto se muestra el "Camino al examen" (cuenta regresiva) en Planificación, para vos y los alumnos.</div>
+              </div>
+              <div className="form-group">
+                <label>📢 Aviso para los alumnos (opcional)</label>
+                <textarea value={form.aviso} onChange={e=>setForm(p=>({...p,aviso:e.target.value}))} rows={3} placeholder="Ej: El acceso a esta aula se termina el día Domingo 27/09 a las 23:59 hs." />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Si lo cargás, les aparece un cartel a los alumnos de ESTA aula cada vez que entran. Dejalo vacío para no mostrar nada.</div>
               </div>
             </div>
             <div className="modal-footer">
@@ -11794,6 +11807,7 @@ function App() {
   const [previewLista, setPreviewLista] = useState([]);
   const [previewBusca, setPreviewBusca] = useState('');
   const [masOpen, setMasOpen] = useState(false);   // menú "Más" de la barra inferior (celular)
+  const [avisoAula, setAvisoAula] = useState(null);  // aviso del aula del alumno (cartel al entrar)
   // Aula en la que el admin está trabajando. Se guarda como preferencia local (no es dato de negocio).
   const [aulaActiva, setAulaActivaState] = useState(() => localStorage.getItem('saci_aula_activa') || null);
   const [aulasLista, setAulasLista] = useState([]);
@@ -11820,6 +11834,25 @@ function App() {
     document.addEventListener('contextmenu', block);
     return () => document.removeEventListener('contextmenu', block);
   }, [auth, preview]);
+
+  // Aviso del aula: si el alumno pertenece a un aula con un aviso cargado, se lo mostramos
+  // como cartel al entrar (una vez por sesión; vuelve a aparecer en el próximo inicio de sesión).
+  useEffect(() => {
+    const al = auth?.alumno;
+    if (!auth || auth.isAdmin || !al?.aula_id) return;
+    let cancelado = false;
+    const key = `aviso_visto_${al.aula_id}`;
+    try { if (sessionStorage.getItem(key)) return; } catch (_) {}
+    supabase.from('aulas').select('aviso').eq('id', al.aula_id).single()
+      .then(({ data }) => { if (!cancelado && data?.aviso && data.aviso.trim()) setAvisoAula(data.aviso.trim()); });
+    return () => { cancelado = true; };
+  }, [auth]);
+
+  const cerrarAviso = () => {
+    const al = auth?.alumno;
+    if (al?.aula_id) { try { sessionStorage.setItem(`aviso_visto_${al.aula_id}`, '1'); } catch (_) {} }
+    setAvisoAula(null);
+  };
 
   // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos del aula activa.
   const abrirPreview = async () => {
@@ -11994,6 +12027,16 @@ function App() {
 
   return (
     <div className="app-shell">
+      {avisoAula && !enPreview && (
+        <div className="modal-overlay" style={{zIndex:9999}} onClick={cerrarAviso}>
+          <div style={{background:'var(--surface)',border:'2px solid var(--warning)',borderRadius:18,width:'92vw',maxWidth:460,padding:'28px 26px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'2.6rem',marginBottom:12}}>📢</div>
+            <div style={{fontWeight:700,fontSize:'1.15rem',marginBottom:12}}>Aviso importante</div>
+            <div style={{color:'var(--text2)',fontSize:'0.95rem',lineHeight:1.55,whiteSpace:'pre-wrap',marginBottom:22}}>{avisoAula}</div>
+            <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={cerrarAviso}>Entendido</button>
+          </div>
+        </div>
+      )}
       <div className={`mobile-overlay ${sidebarOpen ? 'active' : ''}`} onClick={() => setSidebarOpen(false)} />
       <Sidebar page={page} setPage={p => { setPage(p); setSidebarOpen(false); }} isAdmin={isAdmin} user={user} alumno={alumno} onLogout={handleLogout} className={sidebarOpen ? 'open' : ''} onPreview={enPreview ? salirPreview : abrirPreview} enPreview={enPreview} />
       <div className="main-content">
