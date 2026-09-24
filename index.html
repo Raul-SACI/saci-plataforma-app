@@ -11243,8 +11243,11 @@ function AdminNovedades({ aulaActiva }) {
   const [refMonto, setRefMonto] = useState('');         // monto fijo del descuento por amigo referido
   const [refPlanesOcultos, setRefPlanesOcultos] = useState([]);  // planes a los que NO se muestra la promo
   const [refPlanesLista, setRefPlanesLista] = useState(['Parcial', 'Final', 'Cursado Completo']); // planes del aula
+  const [refVoucherActivo, setRefVoucherActivo] = useState(false);  // ofrecer voucher (ej. CRAFT) como premio de referidos
+  const [refVoucherTexto, setRefVoucherTexto] = useState('');       // texto editable del voucher
   const [seleccion, setSeleccion] = useState([]);       // ids de novedades seleccionadas
   const toast = useToast();
+  const DEFAULT_VOUCHER = 'un voucher en CRAFT, válido por un desayuno o merienda a elección';
 
   const TIPOS = {
     info:    { label: 'Información', color: 'var(--accent)',  bg: 'rgba(108,99,255,0.12)', icon: 'ℹ️' },
@@ -11273,10 +11276,25 @@ function AdminNovedades({ aulaActiva }) {
     // La lista de planes a ocultar va en su propia consulta: si la columna no existe todavía
     // (SQL sin correr), solo falla esto y la promo sigue funcionando para todos.
     try { const { data: a2 } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', aulaActiva).single(); setRefPlanesOcultos(Array.isArray(a2?.referidos_planes_ocultos) ? a2.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
+    try { const { data: a3 } = await supabase.from('aulas').select('referidos_voucher_activo, referidos_voucher_texto').eq('id', aulaActiva).single(); setRefVoucherActivo(!!a3?.referidos_voucher_activo); setRefVoucherTexto(a3?.referidos_voucher_texto || ''); } catch { setRefVoucherActivo(false); setRefVoucherTexto(''); }
     setLoading(false);
   };
 
   useEffect(() => { setLoading(true); load(); }, [aulaActiva]);
+
+  const toggleVoucher = async () => {
+    const nuevo = !refVoucherActivo;
+    setRefVoucherActivo(nuevo);
+    let texto = refVoucherTexto;
+    if (nuevo && !texto.trim()) { texto = DEFAULT_VOUCHER; setRefVoucherTexto(texto); }  // prellenar al activar
+    const { error } = await supabase.from('aulas').update({ referidos_voucher_activo: nuevo, referidos_voucher_texto: texto.trim() || null }).eq('id', aulaActiva);
+    if (error) { setRefVoucherActivo(!nuevo); return toast('Para usar esto agregá las columnas "referidos_voucher_activo" y "referidos_voucher_texto" en la tabla aulas (correr el SQL indicado).', 'error'); }
+    toast(nuevo ? '🍽️ Voucher activado como premio de referidos' : 'Voucher desactivado', 'success');
+  };
+  const guardarVoucherTexto = async () => {
+    const { error } = await supabase.from('aulas').update({ referidos_voucher_texto: refVoucherTexto.trim() || null }).eq('id', aulaActiva);
+    if (error) return toast('Para usar esto agregá las columnas de voucher en la tabla aulas (correr el SQL indicado).', 'error');
+  };
 
   const togglePlanOculto = async (plan) => {
     const previo = refPlanesOcultos;
@@ -11395,6 +11413,21 @@ function AdminNovedades({ aulaActiva }) {
         </div>
       )}
 
+      {refActivo && (
+        <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16,padding:'10px 14px',background:'rgba(67,233,123,0.06)',border:'1px solid var(--border)',borderRadius:10,fontSize:'0.82rem'}}>
+          <label style={{display:'inline-flex',alignItems:'center',gap:6,cursor:'pointer',whiteSpace:'nowrap'}}>
+            <input type="checkbox" checked={refVoucherActivo} onChange={toggleVoucher} style={{width:'auto',margin:0,cursor:'pointer'}} />
+            🍽️ <b>Ofrecer voucher</b> como premio
+          </label>
+          {refVoucherActivo && (
+            <input type="text" value={refVoucherTexto} onChange={e => setRefVoucherTexto(e.target.value)} onBlur={guardarVoucherTexto}
+              placeholder={DEFAULT_VOUCHER}
+              style={{flex:1,minWidth:280,padding:'6px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.82rem'}} />
+          )}
+          <span style={{color:'var(--text2)',fontStyle:'italic',whiteSpace:'nowrap'}}>Para ofrecer SOLO el voucher, poné "$ por amigo" en 0.</span>
+        </div>
+      )}
+
       <CaminoExamen aulaId={aulaActiva} esAdmin={true} />
 
       {novedades.length === 0 && <Empty icon="📢" text="No hay novedades publicadas aún" />}
@@ -11502,6 +11535,8 @@ function AlumnoMuro({ alumno }) {
   const [refMonto, setRefMonto] = useState(0);          // monto fijo por amigo referido
   const [refPlanesOcultos, setRefPlanesOcultos] = useState([]); // planes a los que el admin ocultó la promo
   const [miPlan, setMiPlan] = useState(null);           // plan del pago más reciente del alumno
+  const [refVoucherActivo, setRefVoucherActivo] = useState(false); // el admin ofrece voucher como premio
+  const [refVoucherTexto, setRefVoucherTexto] = useState('');      // texto del voucher
   const toast = useToast();
 
   const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
@@ -11537,6 +11572,7 @@ function AlumnoMuro({ alumno }) {
     // Planes a los que el admin decidió NO mostrar la promo (consulta aparte: si la columna
     // no existe todavía, solo falla esto y la promo se sigue mostrando a todos).
     try { const { data: ap } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', miAula).single(); setRefPlanesOcultos(Array.isArray(ap?.referidos_planes_ocultos) ? ap.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
+    try { const { data: av } = await supabase.from('aulas').select('referidos_voucher_activo, referidos_voucher_texto').eq('id', miAula).single(); setRefVoucherActivo(!!av?.referidos_voucher_activo); setRefVoucherTexto(av?.referidos_voucher_texto || ''); } catch { setRefVoucherActivo(false); setRefVoucherTexto(''); }
     // Plan del alumno = plan de su pago más reciente en esta aula (para decidir si ve la promo).
     if (alumno?.id) {
       try {
@@ -11631,7 +11667,13 @@ function AlumnoMuro({ alumno }) {
       <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--success)',background:'rgba(67,233,123,0.06)'}}>
         <div style={{fontWeight:700,marginBottom:6}}>🎁 Invitá a un amigo y ganás</div>
         <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>
-          Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás <b>{refMonto > 0 ? `$ ${refMonto.toLocaleString('es-AR')}` : 'un descuento'} de descuento</b> en tu próxima cuota{refMonto > 0 ? <> por cada amigo</> : ''}. Vale por hasta <b>2 amigos</b>{refMonto > 0 ? <> (hasta $ {(refMonto * 2).toLocaleString('es-AR')})</> : ''}.
+          {(() => {
+            const premios = [];
+            if (refMonto > 0) premios.push(`$ ${refMonto.toLocaleString('es-AR')} de descuento en tu próxima cuota`);
+            if (refVoucherActivo && refVoucherTexto.trim()) premios.push(refVoucherTexto.trim());
+            const txt = premios.length ? premios.join(' + ') : 'un descuento';
+            return <>Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás <b>{txt}</b> por cada amigo. Vale por hasta <b>2 amigos</b>{refMonto > 0 ? <> (hasta $ {(refMonto * 2).toLocaleString('es-AR')} de descuento)</> : ''}.</>;
+          })()}
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           <input readOnly value={miLink} onFocus={e => e.target.select()} style={{flex:1,minWidth:200,fontSize:'0.8rem'}} />
