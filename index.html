@@ -11672,7 +11672,8 @@ function AlumnoMuro({ alumno }) {
             if (refMonto > 0) premios.push(`$ ${refMonto.toLocaleString('es-AR')} de descuento en tu próxima cuota`);
             if (refVoucherActivo && refVoucherTexto.trim()) premios.push(refVoucherTexto.trim());
             const txt = premios.length ? premios.join(' + ') : 'un descuento';
-            return <>Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás <b>{txt}</b> por cada amigo. Vale por hasta <b>2 amigos</b>{refMonto > 0 ? <> (hasta $ {(refMonto * 2).toLocaleString('es-AR')} de descuento)</> : ''}.</>;
+            const money = refMonto > 0;
+            return <>Compartí tu link. Cuando tu amigo se inscribe por él y hace su primer pago, te ganás <b>{txt}</b>{money ? ' por cada amigo' : ''}.{money ? <> Vale por hasta <b>2 amigos</b> (hasta $ {(refMonto * 2).toLocaleString('es-AR')} de descuento).</> : ''}</>;
           })()}
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
