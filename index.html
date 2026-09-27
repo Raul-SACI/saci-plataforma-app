@@ -1036,6 +1036,46 @@ function PantallaBloqueoPago({ onLogout }) {
   );
 }
 
+// Pantalla bloqueante para que el alumno firme el contrato del aula actual (re-firma por parcial).
+// No pide fotos (ya están en la ficha); solo leer y aceptar. Registra la firma por (alumno, aula).
+function PantallaFirmaContrato({ texto, alumno, onFirmar, onLogout }) {
+  const [acepta, setAcepta] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const firmar = async () => {
+    if (!acepta || !alumno?.id || !alumno?.aula_id) return;
+    setSaving(true);
+    const { error } = await supabase.from('firmas_contrato').upsert(
+      { alumno_id: alumno.id, aula_id: alumno.aula_id, texto: texto || '', fecha: new Date().toISOString() },
+      { onConflict: 'alumno_id,aula_id' }
+    );
+    setSaving(false);
+    if (error) return toast('No se pudo registrar la firma: ' + error.message, 'error');
+    toast('¡Contrato firmado! Ya podés ingresar ✅', 'success');
+    onFirmar();
+  };
+  return (
+    <div className="login-page"><div className="login-card" style={{maxWidth:640}}>
+      <div style={{padding:'22px 22px'}}>
+        <div style={{textAlign:'center',marginBottom:14}}>
+          <div style={{fontSize:'2.6rem',marginBottom:6}}>✍️</div>
+          <div style={{fontWeight:700,fontSize:'1.15rem'}}>Firmá el contrato para continuar</div>
+          <div style={{color:'var(--text2)',fontSize:'0.86rem',marginTop:6}}>Para acceder a esta aula necesitás leer y aceptar el contrato. No hace falta volver a subir fotos.</div>
+        </div>
+        <div style={{maxHeight:320,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:14,fontSize:'0.76rem',lineHeight:1.55,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)',marginBottom:14}}>{texto}</div>
+        <label style={{display:'flex',alignItems:'flex-start',gap:10,cursor:'pointer',marginBottom:16,fontSize:'0.9rem'}}>
+          <input type="checkbox" checked={acepta} onChange={e => setAcepta(e.target.checked)} style={{width:'auto',marginTop:3}} />
+          <span>Leí y <b>acepto</b> el contrato. Al firmar, declaro mi conformidad con mi nombre, DNI y la fecha de hoy.</span>
+        </label>
+        <div style={{display:'flex',gap:10}}>
+          <button className="btn btn-ghost" style={{flex:1,justifyContent:'center'}} onClick={onLogout} disabled={saving}>Cerrar sesión</button>
+          <button className="btn btn-primary" style={{flex:2,justifyContent:'center'}} onClick={firmar} disabled={!acepta || saving}>{saving ? '⏳ Firmando...' : '✍️ Firmar y entrar'}</button>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
 // Pantalla que ve el alumno que se registró pero todavía no fue aprobado (o fue rechazado).
 function PantallaEspera({ alumno, onLogout }) {
   const estado = alumno?.estado;
@@ -6241,7 +6281,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [delInfo, setDelInfo] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' });
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' });
   const toast = useToast();
 
   const load = async () => {
@@ -6274,28 +6314,29 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       fecha_fin: form.fecha_fin || null,
       fecha_examen: form.fecha_examen || null,
       aviso: (form.aviso || '').trim() || null,
+      contrato: (form.contrato || '').trim() || null,
     };
     const guardar = (pl) => editing
       ? supabase.from('aulas').update(pl).eq('id', editing)
       : supabase.from('aulas').insert({ ...pl, estado: 'activa' });
     let { error } = await guardar(payload);
-    // Si la columna "aviso" todavía no existe (SQL sin correr), reintenta sin ella.
-    if (error && /aviso/i.test(error.message || '')) {
-      const { aviso, ...sinAviso } = payload;
-      ({ error } = await guardar(sinAviso));
-      if (!error) toast('Guardado, pero para el aviso agregá la columna "aviso" en la tabla aulas (correr el SQL indicado).', 'info');
+    // Si las columnas "aviso"/"contrato" todavía no existen (SQL sin correr), reintenta sin ellas.
+    if (error && /aviso|contrato/i.test(error.message || '')) {
+      const { aviso, contrato, ...sinOpcionales } = payload;
+      ({ error } = await guardar(sinOpcionales));
+      if (!error) toast('Guardado, pero para el aviso/contrato agregá esas columnas en la tabla aulas (correr el SQL indicado).', 'info');
     }
     setSaving(false);
     if (error) return toast('Error: ' + error.message, 'error');
     toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
     setModal(false); setEditing(null);
-    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' });
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' });
     load();
   };
 
-  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '' }); setEditing(null); setModal(true); };
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' }); setEditing(null); setModal(true); };
   const openEdit = a => {
-    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '' });
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '', contrato: a.contrato || '' });
     setEditing(a.id); setModal(true);
   };
 
@@ -6432,6 +6473,14 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                 <label>📢 Aviso para los alumnos (opcional)</label>
                 <textarea value={form.aviso} onChange={e=>setForm(p=>({...p,aviso:e.target.value}))} rows={3} placeholder="Ej: El acceso a esta aula se termina el día Domingo 27/09 a las 23:59 hs." />
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Si lo cargás, les aparece un cartel a los alumnos de ESTA aula cada vez que entran. Dejalo vacío para no mostrar nada.</div>
+              </div>
+              <div className="form-group">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+                  <label style={{margin:0}}>✍️ Contrato / T&C de esta aula (opcional)</label>
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm(p => ({ ...p, contrato: TYC_TEXTO }))}>📄 Cargar texto por defecto</button>
+                </div>
+                <textarea value={form.contrato} onChange={e=>setForm(p=>({...p,contrato:e.target.value}))} rows={8} placeholder="Pegá o escribí acá el contrato de esta aula, con sus precios y fechas. Dejalo vacío para usar el contrato por defecto de la app." />
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Los alumnos de esta aula deberán <b>firmar este contrato</b> para entrar (sin volver a subir fotos). Si lo dejás vacío, se usa el contrato por defecto. Tocá "Cargar texto por defecto" para partir del actual y editarlo.</div>
               </div>
             </div>
             <div className="modal-footer">
@@ -11808,6 +11857,7 @@ function App() {
   const [previewBusca, setPreviewBusca] = useState('');
   const [masOpen, setMasOpen] = useState(false);   // menú "Más" de la barra inferior (celular)
   const [avisoAula, setAvisoAula] = useState(null);  // aviso del aula del alumno (cartel al entrar)
+  const [contratoPend, setContratoPend] = useState(undefined);  // undefined=chequeando, null=firmado, {texto}=debe firmar
   // Aula en la que el admin está trabajando. Se guarda como preferencia local (no es dato de negocio).
   const [aulaActiva, setAulaActivaState] = useState(() => localStorage.getItem('saci_aula_activa') || null);
   const [aulasLista, setAulasLista] = useState([]);
@@ -11853,6 +11903,25 @@ function App() {
     if (al?.aula_id) { try { sessionStorage.setItem(`aviso_visto_${al.aula_id}`, '1'); } catch (_) {} }
     setAvisoAula(null);
   };
+
+  // ¿El alumno ya firmó el contrato de su aula actual? Si no, hay que pedirle la firma (bloqueante).
+  useEffect(() => {
+    const al = auth?.alumno;
+    if (!auth || auth.isAdmin || !al?.aula_id) { setContratoPend(null); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.from('firmas_contrato')
+          .select('aula_id').eq('alumno_id', al.id).eq('aula_id', al.aula_id).limit(1);
+        if (error) throw error;                                  // tabla sin crear → no bloquear
+        if (data && data.length) { if (!cancel) setContratoPend(null); return; }  // ya firmó esta aula
+        let texto = TYC_TEXTO;
+        try { const { data: aula } = await supabase.from('aulas').select('contrato').eq('id', al.aula_id).single(); if (aula?.contrato && aula.contrato.trim()) texto = aula.contrato; } catch (_) {}
+        if (!cancel) setContratoPend({ texto });
+      } catch (_) { if (!cancel) setContratoPend(null); }         // ante cualquier error, no bloquear
+    })();
+    return () => { cancel = true; };
+  }, [auth]);
 
   // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos del aula activa.
   const abrirPreview = async () => {
@@ -11936,6 +12005,12 @@ function App() {
   // Alumno con un pago vencido sin regularizar: no entra hasta hablar con el docente.
   if (!auth.isAdmin && auth.pagoVencido)
     return <PantallaBloqueoPago onLogout={handleLogout} />;
+
+  // Alumno que todavía no firmó el contrato de su aula actual: debe firmarlo para entrar.
+  if (!auth.isAdmin && contratoPend === undefined)
+    return <Loading />;
+  if (!auth.isAdmin && contratoPend)
+    return <PantallaFirmaContrato texto={contratoPend.texto} alumno={auth.alumno} onFirmar={() => setContratoPend(null)} onLogout={handleLogout} />;
 
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
   const enPreview = !!(auth.isAdmin && preview);
