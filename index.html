@@ -564,15 +564,19 @@ async function registrarAulaHistorial(alumnoIds, aulaId) {
   } catch {}
 }
 
-// Genera y descarga el PDF del contrato de T&C firmado por el alumno.
-function descargarContratoAlumno(alumno) {
+// Genera y descarga el PDF del contrato firmado por el alumno.
+// opts (opcional) permite generar el contrato de un parcial puntual:
+//   { texto, fecha, aulaNombre } → usa ese texto/fecha y agrega el nombre del aula.
+// Sin opts, usa el contrato de la inscripción (alumno.tyc_texto / tyc_fecha).
+function descargarContratoAlumno(alumno, opts = {}) {
   const JsPDF = window.jspdf && window.jspdf.jsPDF;
   if (!JsPDF) { alert('No se pudo cargar el generador de PDF. Revisá tu conexión e intentá de nuevo.'); return; }
   const doc = new JsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const margin = 48; let y = margin;
-  const fecha = alumno.tyc_fecha ? new Date(alumno.tyc_fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
+  const fuenteFecha = opts.fecha || alumno.tyc_fecha;
+  const fecha = fuenteFecha ? new Date(fuenteFecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '';
   doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(108, 99, 255);
   doc.text('SACi', margin, y);
   doc.setTextColor(40, 40, 40); doc.setFontSize(13);
@@ -582,11 +586,12 @@ function descargarContratoAlumno(alumno) {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(70, 70, 70);
   doc.text(`Alumno/a: ${alumno.nombre || ''}`, margin, y); y += 15;
   doc.text(`DNI: ${alumno.dni || ''}`, margin, y); y += 15;
+  if (opts.aulaNombre) { doc.text(`Aula / parcial: ${opts.aulaNombre}`, margin, y); y += 15; }
   doc.text(`Fecha de aceptación: ${fecha}`, margin, y); y += 15;
-  if (alumno.tyc_version) { doc.text(`Versión del documento: ${alumno.tyc_version}`, margin, y); y += 15; }
+  if (!opts.texto && alumno.tyc_version) { doc.text(`Versión del documento: ${alumno.tyc_version}`, margin, y); y += 15; }
   y += 12;
   doc.setFontSize(9.3); doc.setTextColor(25, 25, 25);
-  const texto = alumno.tyc_texto || TYC_TEXTO;
+  const texto = opts.texto || alumno.tyc_texto || TYC_TEXTO;
   const lines = doc.splitTextToSize(texto, W - margin * 2);
   const lh = 12.5;
   lines.forEach(line => {
@@ -598,7 +603,8 @@ function descargarContratoAlumno(alumno) {
   doc.setDrawColor(200); doc.line(margin, y, W - margin, y); y += 16;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(40, 40, 40);
   doc.text(`Firmado digitalmente por ${alumno.nombre || ''} — DNI ${alumno.dni || ''} — el ${fecha}.`, margin, y);
-  doc.save(`Contrato-${(alumno.nombre || 'alumno').replace(/[^\w]+/g, '_')}.pdf`);
+  const sufijo = opts.aulaNombre ? '-' + opts.aulaNombre.replace(/[^\w]+/g, '_') : '';
+  doc.save(`Contrato-${(alumno.nombre || 'alumno').replace(/[^\w]+/g, '_')}${sufijo}.pdf`);
 }
 
 // Exporta a PDF (vía impresión del navegador) el contenido de una herramienta
@@ -6706,6 +6712,9 @@ function AdminAlumnos({ aulaActiva }) {
   const [editing, setEditing] = useState(null);
   const [seleccion, setSeleccion] = useState([]);   // ids de alumnos seleccionados
   const [aulasLista, setAulasLista] = useState([]);  // aulas para reasignar alumnos
+  const [contratosModal, setContratosModal] = useState(null);  // alumno cuyos contratos firmados se están viendo
+  const [contratosData, setContratosData] = useState([]);      // firmas del alumno (una por aula)
+  const [contratosLoading, setContratosLoading] = useState(false);
   const toast = useToast();
   const fileRef = useRef();
 
@@ -6807,6 +6816,20 @@ function AdminAlumnos({ aulaActiva }) {
     if (!confirm('¿Eliminar alumno?')) return;
     await supabase.from('alumnos').delete().eq('id', id);
     toast('Alumno eliminado', 'info'); load();
+  };
+
+  // Ver los contratos firmados por un alumno (uno por aula/parcial), para descargarlos.
+  const verContratos = async (al) => {
+    setContratosModal(al); setContratosLoading(true); setContratosData([]);
+    try {
+      const { data, error } = await supabase.from('firmas_contrato')
+        .select('*, aulas(nombre)').eq('alumno_id', al.id).order('fecha', { ascending: false });
+      if (error) throw error;
+      setContratosData(data || []);
+    } catch (e) {
+      toast('Para ver los contratos firmados agregá la tabla "firmas_contrato" (correr el SQL indicado).', 'error');
+      setContratosModal(null);
+    } finally { setContratosLoading(false); }
   };
 
   const desactivarTodos = async () => {
@@ -7088,6 +7111,7 @@ function AdminAlumnos({ aulaActiva }) {
                   <td>
                     <div style={{display:'flex',gap:6}}>
                       <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>✏️ Editar</button>
+                      <button className="btn btn-ghost btn-sm" title="Contratos firmados" onClick={() => verContratos(a)}>📄</button>
                       <button className="btn btn-ghost btn-sm" title="Cambiar contraseña" onClick={() => { setPwModal(a); setNewPw(''); setShowPw(false); }}>🔑</button>
                       <button className="btn btn-danger btn-sm" onClick={() => remove(a.id)}>🗑️</button>
                     </div>
@@ -7168,6 +7192,31 @@ function AdminAlumnos({ aulaActiva }) {
             <button className="btn btn-ghost" onClick={() => setPwModal(null)} disabled={saving}>Cancelar</button>
             <button className="btn btn-primary" onClick={changePassword} disabled={saving}>{saving ? '⏳ Cambiando...' : '🔑 Actualizar contraseña'}</button>
           </div>
+        </Modal>
+      )}
+
+      {contratosModal && (
+        <Modal title={`📄 Contratos firmados — ${contratosModal.nombre}`} onClose={() => { setContratosModal(null); setContratosData([]); }}>
+          {contratosLoading ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+          ) : contratosData.length === 0 ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>
+              <div style={{fontSize:'2rem',marginBottom:8}}>📄</div>
+              <div>Este alumno todavía no tiene contratos firmados registrados.</div>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {contratosData.map(f => (
+                <div key={f.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'10px 14px',border:'1px solid var(--border)',borderRadius:10,background:'var(--surface2)'}}>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:'0.9rem'}}>{f.aulas?.nombre || '(aula)'}</div>
+                    <div style={{fontSize:'0.78rem',color:'var(--text2)'}}>Firmado el {f.fecha ? new Date(f.fecha).toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—'}</div>
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={() => descargarContratoAlumno(contratosModal, { texto: f.texto, fecha: f.fecha, aulaNombre: f.aulas?.nombre })}>⬇️ Descargar PDF</button>
+                </div>
+              ))}
+            </div>
+          )}
         </Modal>
       )}
     </div>
