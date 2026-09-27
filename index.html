@@ -552,6 +552,10 @@ DÉCIMA: JURISDICCIÓN. DOMICILIOS. Para todos los efectos judiciales y extrajud
 
 DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotografías (selfie y DNI) que aporto son verídicos y de mi titularidad, y presto mi consentimiento para que el docente los conserve al solo efecto de verificar mi identidad e inscripción. En prueba de conformidad, al presionar "Acepto", firmo digitalmente este documento con mi nombre, DNI y la fecha de hoy.`;
 
+// Consentimiento corto de la INSCRIPCIÓN (solo datos/identidad). El contrato del parcial
+// (con precio) se firma después, al ser aprobado y acceder al aula.
+const CONSENT_INSCRIPCION = `Declaro ser mayor de edad, que los datos y las fotografías (selfie y DNI) que aporto son verídicos y de mi titularidad, y presto mi consentimiento para que el docente los conserve al solo efecto de verificar mi identidad e inscripción. Entiendo que, una vez que el docente apruebe mi inscripción, podré acceder al aula y allí firmar el contrato correspondiente al parcial.`;
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Registra en el historial (tabla alumno_aulas) que estos alumnos pasaron por un aula.
@@ -1184,7 +1188,7 @@ function RegistroAlumno({ onListo, onCancel, refId }) {
         tyc_aceptado: true, tyc_fecha: new Date().toISOString(), tyc_version: TYC_VERSION,
       };
       // Se intenta guardar con dispositivos + referido; si esas columnas aún no existen, se reintenta sin ellas.
-      let ins = await supabase.from('alumnos').insert({ ...baseRow, dispositivos, referido_por: refId || null, tyc_texto: TYC_TEXTO }).select('*').single();
+      let ins = await supabase.from('alumnos').insert({ ...baseRow, dispositivos, referido_por: refId || null, tyc_texto: CONSENT_INSCRIPCION }).select('*').single();
       if (ins.error) ins = await supabase.from('alumnos').insert(baseRow).select('*').single();
       if (ins.error) throw new Error(ins.error.message);
       const row = ins.data;
@@ -1307,15 +1311,13 @@ function RegistroAlumno({ onListo, onCancel, refId }) {
 
       {paso === 3 && (
         <>
-          <div style={{maxHeight:300,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,padding:12,fontSize:'0.74rem',lineHeight:1.5,color:'var(--text)',whiteSpace:'pre-wrap',background:'var(--surface)'}}>{TYC_TEXTO}</div>
+          <div style={{border:'1px solid var(--border)',borderRadius:8,padding:14,fontSize:'0.82rem',lineHeight:1.55,color:'var(--text)',background:'var(--surface)'}}>{CONSENT_INSCRIPCION}</div>
+          <div style={{marginTop:12,fontSize:'0.8rem',color:'var(--text2)',background:'rgba(108,99,255,0.08)',border:'1px solid rgba(108,99,255,0.25)',borderRadius:8,padding:'10px 12px'}}>
+            📝 <b>Importante:</b> esto es solo el consentimiento de tus datos. El <b>contrato del parcial</b> (con el precio) lo vas a firmar <b>una vez que el docente apruebe tu inscripción</b> y accedas al aula.
+          </div>
           <label style={{display:'flex',alignItems:'flex-start',gap:8,marginTop:12,cursor:'pointer',fontSize:'0.82rem'}}>
-            <input type="checkbox" checked={acepta} onChange={e => {
-              if (e.target.checked) {
-                const ok = confirm('¿Seguro/a que leíste detenidamente los términos y condiciones, en especial las SANCIONES por divulgar o grabar el contenido de las clases (cláusulas Octava y Novena)?');
-                setAcepta(ok);
-              } else { setAcepta(false); }
-            }} style={{width:'auto',marginTop:3}} />
-            <span>Declaro ser mayor de edad y <b>acepto los términos y condiciones</b> (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
+            <input type="checkbox" checked={acepta} onChange={e => setAcepta(e.target.checked)} style={{width:'auto',marginTop:3}} />
+            <span>Leí y <b>acepto</b> lo anterior (firmo digitalmente con mi nombre, DNI y la fecha de hoy).</span>
           </label>
           <div style={{display:'flex',gap:8,marginTop:16}}>
             <button type="button" className="btn btn-ghost" style={{flex:1,justifyContent:'center'}} onClick={() => setPaso(2)} disabled={saving}>← Atrás</button>
