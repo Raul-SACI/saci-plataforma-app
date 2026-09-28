@@ -6748,6 +6748,11 @@ function AdminAlumnos({ aulaActiva }) {
   const [contratosData, setContratosData] = useState([]);      // firmas del alumno (una por aula)
   const [contratosLoading, setContratosLoading] = useState(false);
   const [firmasSet, setFirmasSet] = useState(null);            // set de alumno_id que firmaron el contrato del aula actual (null = no disponible)
+  const [moverModal, setMoverModal] = useState(null);          // { aulaId, aulaNombre } destino elegido para mover
+  const [moverTraerPlan, setMoverTraerPlan] = useState(true);  // traer el plan de cada alumno al aula destino
+  const [moverPlanDestino, setMoverPlanDestino] = useState(''); // plan del aula destino para los que NO son Cursado Completo
+  const [moverPlanesDestino, setMoverPlanesDestino] = useState([]); // planes disponibles en el aula destino
+  const [moverSaving, setMoverSaving] = useState(false);
   const toast = useToast();
   const fileRef = useRef();
 
@@ -6911,20 +6916,55 @@ function AdminAlumnos({ aulaActiva }) {
     finally { setSaving(false); }
   };
 
-  const moverSeleccionadosAula = async aulaId => {
+  // Abre el modal de mover: elige aula destino y carga sus planes (para poder traer el plan de cada alumno).
+  const abrirMover = async (aulaId) => {
     if (!seleccion.length || !aulaId) return;
     const aula = aulasLista.find(a => a.id === aulaId);
-    if (!confirm(`¿Mover ${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} al aula "${aula?.nombre || ''}"? Van a ver el contenido de esa aula.`)) return;
-    setSaving(true);
+    setMoverModal({ aulaId, aulaNombre: aula?.nombre || '' });
+    setMoverTraerPlan(true); setMoverPlanDestino(''); setMoverPlanesDestino([]);
+    try {
+      const { data: a } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
+      const base = ['Parcial', 'Final', 'Cursado Completo'];
+      const planes = [...base, ...Object.keys(a?.precios || {}).filter(k => !base.includes(k))];
+      setMoverPlanesDestino(planes);
+      // Preseleccionar un plan "de parcial" del destino (ej. "Segundo Parcial"), si no el primero que no sea Cursado Completo.
+      const pref = planes.find(p => /parcial/i.test(p) && !/cursado/i.test(p)) || planes.find(p => !/cursado completo/i.test(p)) || '';
+      setMoverPlanDestino(pref);
+    } catch { setMoverPlanesDestino([]); }
+  };
+
+  // Confirma el movimiento: cambia el aula y (opcional) crea el plan de cada alumno en el aula destino.
+  // Cursado Completo → se detecta solo y pasa SIN deuda; el resto usa el plan elegido (debiendo).
+  const confirmarMover = async () => {
+    if (!moverModal) return;
+    const { aulaId, aulaNombre } = moverModal;
+    setMoverSaving(true);
     try {
       const { error } = await supabase.from('alumnos').update({ aula_id: aulaId }).in('id', seleccion);
       if (error) throw new Error(error.message);
       await registrarAulaHistorial(seleccion, aulaId);
-      toast(`${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} movido${seleccion.length !== 1 ? 's' : ''} a "${aula?.nombre || ''}" 🏫`, 'success');
-      setSeleccion([]);
-      load();
+      let creados = 0;
+      if (moverTraerPlan) {
+        const hoy = new Date().toISOString().slice(0, 10);
+        const { data: exist } = await supabase.from('pagos').select('alumno_id').eq('aula_id', aulaId).in('alumno_id', seleccion);
+        const yaTienen = new Set((exist || []).map(e => e.alumno_id));
+        const filas = [];
+        seleccion.forEach(id => {
+          if (yaTienen.has(id)) return;         // ya tiene pago/plan en el aula destino → no duplicar
+          const plan = planMap[id];
+          if (!plan) return;                    // sin plan en el aula de origen → no se crea nada
+          const esCC = /cursado completo/i.test(plan);
+          const planDest = esCC ? 'Cursado Completo' : moverPlanDestino;
+          if (!planDest) return;
+          filas.push({ alumno_id: id, plan: planDest, monto: 0, fecha_pago: hoy, aula_id: aulaId,
+            notas: esCC ? 'Plan traído (Cursado Completo, ya abonado)' : 'Plan traído del parcial anterior' });
+        });
+        if (filas.length) { const { error: eP } = await supabase.from('pagos').insert(filas); if (!eP) creados = filas.length; }
+      }
+      toast(`${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''} movido${seleccion.length !== 1 ? 's' : ''} a "${aulaNombre}" 🏫${creados ? ` · ${creados} con plan asignado` : ''}`, 'success');
+      setMoverModal(null); setSeleccion([]); load();
     } catch (err) { toast(err.message, 'error'); }
-    finally { setSaving(false); }
+    finally { setMoverSaving(false); }
   };
 
   const importExcel = e => {
@@ -7112,7 +7152,7 @@ function AdminAlumnos({ aulaActiva }) {
           <strong>{seleccion.length} seleccionado{seleccion.length !== 1 ? 's' : ''}</strong>
           <button className="btn btn-primary btn-sm" onClick={() => cambiarEstadoSeleccionados('activo')} disabled={saving}>✅ Activar seleccionados</button>
           <button className="btn btn-danger btn-sm" onClick={() => cambiarEstadoSeleccionados('inactivo')} disabled={saving}>🔒 Poner inactivos</button>
-          <select value="" onChange={e => { if (e.target.value) moverSeleccionadosAula(e.target.value); e.target.value=''; }} disabled={saving}
+          <select value="" onChange={e => { if (e.target.value) abrirMover(e.target.value); e.target.value=''; }} disabled={saving}
             title="Mover los alumnos seleccionados a otra aula" style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.82rem'}}>
             <option value="">🏫 Mover a aula…</option>
             {aulasLista.filter(a => a.id !== aulaActiva).map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
@@ -7221,6 +7261,32 @@ function AdminAlumnos({ aulaActiva }) {
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
             <button className="btn btn-ghost" onClick={() => setModal(false)} disabled={saving}>Cancelar</button>
             <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? '⏳ Guardando...' : '💾 Guardar'}</button>
+          </div>
+        </Modal>
+      )}
+
+      {moverModal && (
+        <Modal title={`🏫 Mover ${seleccion.length} alumno${seleccion.length !== 1 ? 's' : ''}`} onClose={() => setMoverModal(null)}>
+          <div style={{color:'var(--text2)',fontSize:'0.86rem',marginBottom:14}}>
+            Se moverán al aula <strong style={{color:'var(--text)'}}>{moverModal.aulaNombre}</strong>. Van a ver el contenido y la planificación de esa aula.
+          </div>
+          <label style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',fontSize:'0.88rem',marginBottom:12}}>
+            <input type="checkbox" checked={moverTraerPlan} onChange={e => setMoverTraerPlan(e.target.checked)} style={{width:'auto',marginTop:3}} />
+            <span>Traer el <b>plan</b> de cada alumno al aula destino (los de <b>Cursado Completo</b> pasan sin deuda; el resto queda debiendo el plan elegido).</span>
+          </label>
+          {moverTraerPlan && (
+            <div className="form-group">
+              <label>Plan para los que NO son Cursado Completo</label>
+              <select value={moverPlanDestino} onChange={e => setMoverPlanDestino(e.target.value)}>
+                <option value="">-- No asignar plan a esos --</option>
+                {moverPlanesDestino.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Se crea un registro en $0 con ese plan, para que figuren <b>debiendo</b> según el precio que tengas cargado en el aula destino. Cursado Completo se detecta solo y pasa sin deuda. No duplica si el alumno ya tiene un pago en el aula destino.</div>
+            </div>
+          )}
+          <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
+            <button className="btn btn-ghost" onClick={() => setMoverModal(null)} disabled={moverSaving}>Cancelar</button>
+            <button className="btn btn-primary" onClick={confirmarMover} disabled={moverSaving}>{moverSaving ? '⏳ Moviendo...' : '🏫 Mover'}</button>
           </div>
         </Modal>
       )}
