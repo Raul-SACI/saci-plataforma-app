@@ -568,6 +568,36 @@ async function registrarAulaHistorial(alumnoIds, aulaId) {
   } catch {}
 }
 
+// Copia temas + ítems seleccionados desde otra aula al aula destino, reutilizando el
+// mismo archivo/video (no re-sube nada). temaTabla: 'temas_videos'|'temas_materiales';
+// itemTabla: 'videos'|'materiales'. Reusa temas del destino que tengan el mismo nombre.
+async function traerAAula({ aulaDestino, temaTabla, itemTabla, itemsOrigen, itemIds, temasOrigen, temasDestino, itemOverride }) {
+  const seleccionados = (itemsOrigen || []).filter(it => itemIds.has(it.id));
+  if (!seleccionados.length) return { error: 'No hay nada seleccionado' };
+  const mapTema = {};   // tema_id del origen -> tema_id en destino
+  const temaIdsNecesarios = [...new Set(seleccionados.map(it => it.tema_id).filter(Boolean))];
+  for (const oldId of temaIdsNecesarios) {
+    const tOrig = (temasOrigen || []).find(t => t.id === oldId);
+    if (!tOrig) continue;
+    const nom = (tOrig.nombre || '').trim().toLowerCase();
+    const yaExiste = (temasDestino || []).find(t => (t.nombre || '').trim().toLowerCase() === nom && nom);
+    if (yaExiste) { mapTema[oldId] = yaExiste.id; continue; }
+    const { data: nuevoT, error: eT } = await supabase.from(temaTabla)
+      .insert({ nombre: tOrig.nombre, descripcion: tOrig.descripcion || null, color: tOrig.color || null, orden: tOrig.orden || 0, aula_id: aulaDestino })
+      .select('id').single();
+    if (eT) return { error: eT.message };
+    mapTema[oldId] = nuevoT.id;
+  }
+  const filas = seleccionados.map(it => {
+    const { id, created_at, ...rest } = it;
+    const base = { ...rest, aula_id: aulaDestino, tema_id: it.tema_id ? (mapTema[it.tema_id] || null) : null };
+    return itemOverride ? { ...base, ...itemOverride(it) } : base;
+  });
+  const { error: eI } = await supabase.from(itemTabla).insert(filas);
+  if (eI) return { error: eI.message };
+  return { ok: seleccionados.length };
+}
+
 // Genera y descarga el PDF del contrato firmado por el alumno.
 // opts (opcional) permite generar el contrato de un parcial puntual:
 //   { texto, fecha, aulaNombre } → usa ese texto/fecha y agrega el nombre del aula.
@@ -8038,6 +8068,45 @@ function AdminVideos({ aulaActiva }) {
   const [dragOverTema, setDragOverTema] = useState(null);
   const fileRef = useRef();
   const toast = useToast();
+  // "Traer de otra aula" (copiar videos + temas de otra aula a esta)
+  const [traerModal, setTraerModal] = useState(false);
+  const [traerAulas, setTraerAulas] = useState([]);
+  const [traerAula, setTraerAula] = useState('');
+  const [traerTemasOrigen, setTraerTemasOrigen] = useState([]);
+  const [traerItems, setTraerItems] = useState([]);
+  const [traerSel, setTraerSel] = useState(new Set());
+  const [traerLoading, setTraerLoading] = useState(false);
+  const [traerSaving, setTraerSaving] = useState(false);
+  const abrirTraer = async () => {
+    setTraerModal(true); setTraerAula(''); setTraerTemasOrigen([]); setTraerItems([]); setTraerSel(new Set());
+    const { data } = await supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false });
+    setTraerAulas((data || []).filter(a => a.id !== aulaActiva));
+  };
+  const cargarAulaOrigen = async (id) => {
+    setTraerAula(id); setTraerSel(new Set());
+    if (!id) { setTraerTemasOrigen([]); setTraerItems([]); return; }
+    setTraerLoading(true);
+    const [{ data: tData }, { data: vData }] = await Promise.all([
+      supabase.from('temas_videos').select('*').eq('aula_id', id).order('orden'),
+      supabase.from('videos').select('*').eq('aula_id', id).order('orden'),
+    ]);
+    setTraerTemasOrigen(tData || []); setTraerItems(vData || []); setTraerLoading(false);
+  };
+  const toggleTraer = (id) => setTraerSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleTraerTodos = () => setTraerSel(s => s.size === traerItems.length ? new Set() : new Set(traerItems.map(v => v.id)));
+  const confirmarTraer = async () => {
+    if (!traerSel.size) return toast('Elegí al menos un video', 'error');
+    setTraerSaving(true);
+    const r = await traerAAula({
+      aulaDestino: aulaActiva, temaTabla: 'temas_videos', itemTabla: 'videos',
+      itemsOrigen: traerItems, itemIds: traerSel, temasOrigen: traerTemasOrigen, temasDestino: temas,
+      itemOverride: () => ({ para_todos: true, publicar_en: null, vence_en: null }),
+    });
+    setTraerSaving(false);
+    if (r.error) return toast('Error al traer: ' + r.error, 'error');
+    toast(`${r.ok} video(s) traído(s) ✅`, 'success');
+    setTraerModal(false); load();
+  };
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
@@ -8267,6 +8336,7 @@ function AdminVideos({ aulaActiva }) {
           <div className="page-subtitle">{temas.length} temas · {videos.length} videos</div>
         </div>
         <div style={{display:'flex',gap:10}}>
+          <button className="btn btn-ghost" onClick={abrirTraer} title="Copiar videos y temas de otra aula a esta">⬇️ Traer de otra aula</button>
           <button className="btn btn-ghost" onClick={() => { setTemaForm({nombre:'',descripcion:'',color:'#6c63ff',orden:temas.length}); setEditingTema(null); setTemaModal(true); }}>📂 Nuevo tema</button>
           <button className="btn btn-primary" onClick={() => { setForm({titulo:'',descripcion:'',bunny_id:'',bunny_library:BUNNY_LIBRARY,url_externa:'',orden:videos.length,tema_id:'',max_vistas:'',publicar_en:'',vence_en:'',precio_extension:'',para_todos:true,alumnos_ids:[]}); setBunnyLibSel(BUNNY_LIBRARY); loadBunny(BUNNY_LIBRARY); setEditing(null); setSelectedFile(null); setTab('bunny'); setModal(true); }}>➕ Agregar video</button>
         </div>
@@ -8507,6 +8577,51 @@ function AdminVideos({ aulaActiva }) {
         </Modal>
       )}
 
+      {traerModal && (
+        <Modal title="⬇️ Traer videos de otra aula" onClose={() => setTraerModal(false)}>
+          <div className="form-group">
+            <label>Aula de origen</label>
+            <select value={traerAula} onChange={e => cargarAulaOrigen(e.target.value)}>
+              <option value="">-- Elegí el aula de donde copiar --</option>
+              {traerAulas.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+            </select>
+          </div>
+          {traerLoading ? (
+            <div style={{textAlign:'center',padding:'20px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+          ) : traerAula && (
+            traerItems.length === 0 ? (
+              <div style={{textAlign:'center',padding:'20px 0',color:'var(--text2)'}}>Esa aula no tiene videos.</div>
+            ) : (
+              <>
+                <label style={{display:'flex',alignItems:'center',gap:8,margin:'4px 0 10px',cursor:'pointer',fontSize:'0.84rem',fontWeight:600}}>
+                  <input type="checkbox" checked={traerSel.size === traerItems.length && traerItems.length > 0} onChange={toggleTraerTodos} style={{width:'auto'}} />
+                  Seleccionar todos ({traerItems.length})
+                </label>
+                <div style={{maxHeight:320,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+                  {traerItems.map(v => {
+                    const t = traerTemasOrigen.find(x => x.id === v.tema_id);
+                    return (
+                      <label key={v.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--border)',borderRadius:8,cursor:'pointer',background: traerSel.has(v.id) ? 'rgba(108,99,255,0.10)' : 'var(--surface)'}}>
+                        <input type="checkbox" checked={traerSel.has(v.id)} onChange={() => toggleTraer(v.id)} style={{width:'auto'}} />
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:'0.86rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{v.titulo}</div>
+                          <div style={{fontSize:'0.72rem',color:'var(--text2)'}}>{t ? `📂 ${t.nombre}` : 'Sin tema'}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',margin:'10px 0'}}>Se copian al aula actual reutilizando el mismo video (no se re-sube). Las fechas de vencimiento/publicación quedan vacías y se traen para "todos los alumnos".</div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button className="btn btn-ghost" onClick={() => setTraerModal(false)} disabled={traerSaving}>Cancelar</button>
+                  <button className="btn btn-primary" onClick={confirmarTraer} disabled={traerSaving || !traerSel.size}>{traerSaving ? '⏳ Trayendo...' : `⬇️ Traer ${traerSel.size || ''} seleccionado${traerSel.size !== 1 ? 's' : ''}`}</button>
+                </div>
+              </>
+            )
+          )}
+        </Modal>
+      )}
+
       {modal && (
         <Modal title={editing ? '✏️ Editar video' : '➕ Agregar video'} onClose={() => setModal(false)}>
           <div className="form-group"><label>Título</label><input value={form.titulo} onChange={e => setForm(p => ({ ...p, titulo: e.target.value }))} placeholder="Nombre del video" /></div>
@@ -8690,6 +8805,45 @@ function AdminMateriales({ aulaActiva }) {
   const [resumenPicker, setResumenPicker] = useState(null);   // { tema, subKey, label } — elegir videos resumen
   const fileRef = useRef();
   const toast = useToast();
+  // "Traer de otra aula" (copiar materiales + temas de otra aula a esta)
+  const [traerModal, setTraerModal] = useState(false);
+  const [traerAulas, setTraerAulas] = useState([]);
+  const [traerAula, setTraerAula] = useState('');
+  const [traerTemasOrigen, setTraerTemasOrigen] = useState([]);
+  const [traerItems, setTraerItems] = useState([]);
+  const [traerSel, setTraerSel] = useState(new Set());
+  const [traerLoading, setTraerLoading] = useState(false);
+  const [traerSaving, setTraerSaving] = useState(false);
+  const abrirTraer = async () => {
+    setTraerModal(true); setTraerAula(''); setTraerTemasOrigen([]); setTraerItems([]); setTraerSel(new Set());
+    const { data } = await supabase.from('aulas').select('id, nombre, estado').order('created_at', { ascending: false });
+    setTraerAulas((data || []).filter(a => a.id !== aulaActiva));
+  };
+  const cargarAulaOrigen = async (id) => {
+    setTraerAula(id); setTraerSel(new Set());
+    if (!id) { setTraerTemasOrigen([]); setTraerItems([]); return; }
+    setTraerLoading(true);
+    const [{ data: tData }, { data: mData }] = await Promise.all([
+      supabase.from('temas_materiales').select('*').eq('aula_id', id).order('orden', { ascending: true }),
+      supabase.from('materiales').select('*').eq('aula_id', id).order('orden', { ascending: true }),
+    ]);
+    setTraerTemasOrigen(tData || []); setTraerItems(mData || []); setTraerLoading(false);
+  };
+  const toggleTraer = (id) => setTraerSel(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleTraerTodos = () => setTraerSel(s => s.size === traerItems.length ? new Set() : new Set(traerItems.map(m => m.id)));
+  const confirmarTraer = async () => {
+    if (!traerSel.size) return toast('Elegí al menos un material', 'error');
+    setTraerSaving(true);
+    const r = await traerAAula({
+      aulaDestino: aulaActiva, temaTabla: 'temas_materiales', itemTabla: 'materiales',
+      itemsOrigen: traerItems, itemIds: traerSel, temasOrigen: traerTemasOrigen, temasDestino: temas,
+      itemOverride: () => ({ publicar_en: null }),
+    });
+    setTraerSaving(false);
+    if (r.error) return toast('Error al traer: ' + r.error, 'error');
+    toast(`${r.ok} material(es) traído(s) ✅`, 'success');
+    setTraerModal(false); load();
+  };
 
   const load = async () => {
     if (!aulaActiva) { setLoading(false); return; }
@@ -8916,6 +9070,7 @@ function AdminMateriales({ aulaActiva }) {
           <div className="page-subtitle">{temas.length} temas · {mats.length} materiales</div>
         </div>
         <div style={{display:'flex',gap:10}}>
+          <button className="btn btn-ghost" onClick={abrirTraer} title="Copiar materiales y temas de otra aula a esta">⬇️ Traer de otra aula</button>
           <button className="btn btn-ghost" onClick={() => { setTemaForm({nombre:'',descripcion:'',color:'#6c63ff',orden:temas.length}); setEditingTema(null); setTemaModal(true); }}>📂 Nuevo tema</button>
           <button className="btn btn-primary" onClick={() => { setForm({unidad:'',descripcion:'',url:'',tipo:'pdf',permite_descarga:true,semana:'',tema_id:''}); setEditing(null); setSelectedFile(null); setSelectedFiles([]); setModal(true); }}>➕ Nuevo material</button>
         </div>
@@ -9193,6 +9348,51 @@ function AdminMateriales({ aulaActiva }) {
                 </div>
               )}
             </>
+          )}
+        </Modal>
+      )}
+
+      {traerModal && (
+        <Modal title="⬇️ Traer materiales de otra aula" onClose={() => setTraerModal(false)}>
+          <div className="form-group">
+            <label>Aula de origen</label>
+            <select value={traerAula} onChange={e => cargarAulaOrigen(e.target.value)}>
+              <option value="">-- Elegí el aula de donde copiar --</option>
+              {traerAulas.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
+            </select>
+          </div>
+          {traerLoading ? (
+            <div style={{textAlign:'center',padding:'20px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+          ) : traerAula && (
+            traerItems.length === 0 ? (
+              <div style={{textAlign:'center',padding:'20px 0',color:'var(--text2)'}}>Esa aula no tiene materiales.</div>
+            ) : (
+              <>
+                <label style={{display:'flex',alignItems:'center',gap:8,margin:'4px 0 10px',cursor:'pointer',fontSize:'0.84rem',fontWeight:600}}>
+                  <input type="checkbox" checked={traerSel.size === traerItems.length && traerItems.length > 0} onChange={toggleTraerTodos} style={{width:'auto'}} />
+                  Seleccionar todos ({traerItems.length})
+                </label>
+                <div style={{maxHeight:320,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+                  {traerItems.map(m => {
+                    const t = traerTemasOrigen.find(x => x.id === m.tema_id);
+                    return (
+                      <label key={m.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--border)',borderRadius:8,cursor:'pointer',background: traerSel.has(m.id) ? 'rgba(108,99,255,0.10)' : 'var(--surface)'}}>
+                        <input type="checkbox" checked={traerSel.has(m.id)} onChange={() => toggleTraer(m.id)} style={{width:'auto'}} />
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:'0.86rem',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.unidad || m.titulo}</div>
+                          <div style={{fontSize:'0.72rem',color:'var(--text2)'}}>{(t ? `📂 ${t.nombre}` : 'Sin tema')}{m.subtema ? ` · ${m.subtema}` : ''} · {(m.tipo||'').toUpperCase()}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',margin:'10px 0'}}>Se copian al aula actual reutilizando el mismo archivo (no se re-sube). La fecha de publicación queda vacía.</div>
+                <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                  <button className="btn btn-ghost" onClick={() => setTraerModal(false)} disabled={traerSaving}>Cancelar</button>
+                  <button className="btn btn-primary" onClick={confirmarTraer} disabled={traerSaving || !traerSel.size}>{traerSaving ? '⏳ Trayendo...' : `⬇️ Traer ${traerSel.size || ''} seleccionado${traerSel.size !== 1 ? 's' : ''}`}</button>
+                </div>
+              </>
+            )
           )}
         </Modal>
       )}
