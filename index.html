@@ -6717,6 +6717,7 @@ function AdminAlumnos({ aulaActiva }) {
   const [contratosModal, setContratosModal] = useState(null);  // alumno cuyos contratos firmados se están viendo
   const [contratosData, setContratosData] = useState([]);      // firmas del alumno (una por aula)
   const [contratosLoading, setContratosLoading] = useState(false);
+  const [firmasSet, setFirmasSet] = useState(null);            // set de alumno_id que firmaron el contrato del aula actual (null = no disponible)
   const toast = useToast();
   const fileRef = useRef();
 
@@ -6743,6 +6744,15 @@ function AdminAlumnos({ aulaActiva }) {
     });
     setPagosMap(mapa);
     setPlanMap(planes);
+    // Firmas del contrato de ESTA aula: set de alumno_id que ya firmaron.
+    // null = no disponible (la tabla firmas_contrato todavía no existe / SQL sin correr).
+    let firmados = null;
+    try {
+      const { data: fs, error } = await supabase.from('firmas_contrato').select('alumno_id').eq('aula_id', aulaActiva);
+      if (error) throw error;
+      firmados = new Set((fs || []).map(f => f.alumno_id));
+    } catch { firmados = null; }
+    setFirmasSet(firmados);
     setSeleccion([]);
     setLoading(false);
   };
@@ -7090,7 +7100,7 @@ function AdminAlumnos({ aulaActiva }) {
               <th style={{cursor:'pointer',userSelect:'none'}} onClick={() => setOrden(o => o === 'az' ? 'za' : 'az')} title="Ordenar por nombre">
                 Nombre {orden === 'az' ? '▲' : '▼'}
               </th>
-              <th>Email</th><th>DNI</th><th>Plan</th><th>Estado</th><th>Total pagado</th><th>Acciones</th>
+              <th>Email</th><th>DNI</th><th>Plan</th><th>Estado</th><th>Contrato</th><th>Total pagado</th><th>Acciones</th>
             </tr></thead>
             <tbody>
               {filtered.map(a => (
@@ -7105,6 +7115,13 @@ function AdminAlumnos({ aulaActiva }) {
                     ? <span className={`chip ${planColorAlu(planMap[a.id])}`}>{planMap[a.id]}</span>
                     : <span style={{color:'var(--text2)'}}>—</span>}</td>
                   <td><span className={`chip ${a.estado === 'activo' ? 'chip-green' : 'chip-red'}`}>{a.estado}</span></td>
+                  <td>
+                    {firmasSet == null
+                      ? <span style={{color:'var(--text2)'}} title="Necesita la tabla firmas_contrato (correr el SQL)">—</span>
+                      : firmasSet.has(a.id)
+                        ? <span className="chip chip-green">✅ Firmado</span>
+                        : <span className="chip chip-yellow">⏳ Pendiente</span>}
+                  </td>
                   <td>
                     {pagosMap[a.id]
                       ? <strong style={{color:'var(--success)'}}>{fmtPesos(pagosMap[a.id])}</strong>
