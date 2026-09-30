@@ -8187,6 +8187,15 @@ function AdminVideos({ aulaActiva }) {
   const [dragOverTema, setDragOverTema] = useState(null);
   const fileRef = useRef();
   const toast = useToast();
+  // Chips con la config del video (vencimiento, precio de extensión, límite de vistas).
+  const infoVideoChips = (v) => {
+    const chips = [];
+    if (v.vence_en) chips.push(<span key="v" className="chip chip-red" style={{fontSize:'0.66rem'}}>⌛ Vence {new Date(v.vence_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'})} {new Date(v.vence_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>);
+    if (v.precio_extension != null && Number(v.precio_extension) > 0) chips.push(<span key="p" className="chip chip-green" style={{fontSize:'0.66rem'}}>💳 Extensión $ {Number(v.precio_extension).toLocaleString('es-AR')}</span>);
+    if (v.max_vistas != null) chips.push(<span key="m" className="chip chip-blue" style={{fontSize:'0.66rem'}}>👁️ {v.max_vistas} vista{v.max_vistas !== 1 ? 's' : ''}</span>);
+    if (!chips.length) return null;
+    return <div style={{marginTop:5,display:'flex',gap:6,flexWrap:'wrap'}}>{chips}</div>;
+  };
   // "Traer de otra aula" (copiar videos + temas de otra aula a esta)
   const [traerModal, setTraerModal] = useState(false);
   const [traerAulas, setTraerAulas] = useState([]);
@@ -8516,7 +8525,7 @@ function AdminVideos({ aulaActiva }) {
                           {tVids.map(v => (
                             <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                               <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
-                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}</td>
+                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                               <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
                               <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                             </tr>
@@ -8568,7 +8577,7 @@ function AdminVideos({ aulaActiva }) {
                 {videos.map(v => (
                   <tr key={v.id}>
                     <td style={{fontFamily:'Space Mono',color:'var(--text2)'}}>{v.orden}</td>
-                    <td><strong>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
+                    <td><strong>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                     <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===v.tema_id)?.nombre||'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)?<span className="chip chip-blue">Bunny</span>:v.url_externa?<span className="chip chip-green">URL</span>:'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:44,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
