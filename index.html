@@ -6736,6 +6736,8 @@ function AdminAlumnos({ aulaActiva }) {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [filtroPlan, setFiltroPlan] = useState('');   // '' = todos
+  const [filtroEstado, setFiltroEstado] = useState('');    // '' | 'activo' | 'inactivo'
+  const [filtroContrato, setFiltroContrato] = useState(''); // '' | 'firmado' | 'pendiente'
   const [modal, setModal] = useState(false);
   const [pwModal, setPwModal] = useState(null);
   const [newPw, setNewPw] = useState('');
@@ -7104,6 +7106,8 @@ function AdminAlumnos({ aulaActiva }) {
   const filtered = alumnos
     .filter(a => `${a.nombre} ${a.email}`.toLowerCase().includes(search.toLowerCase()))
     .filter(a => !filtroPlan || (filtroPlan === '__sin__' ? !planMap[a.id] : planMap[a.id] === filtroPlan))
+    .filter(a => !filtroEstado || a.estado === filtroEstado)
+    .filter(a => !filtroContrato || firmasSet == null || (filtroContrato === 'firmado' ? firmasSet.has(a.id) : !firmasSet.has(a.id)))
     .sort((a, b) => {
       const cmp = (a.nombre || '').localeCompare(b.nombre || '', 'es', { sensitivity: 'base' });
       return orden === 'az' ? cmp : -cmp;
@@ -7162,12 +7166,29 @@ function AdminAlumnos({ aulaActiva }) {
           <span className="search-icon">🔍</span>
           <input placeholder="Buscar por nombre o email..." value={search} onChange={e => setSearch(e.target.value)} />
         </div>
-        <select value={filtroPlan} onChange={e => setFiltroPlan(e.target.value)} style={{minWidth:170}} title="Filtrar por plan">
+        <select value={filtroPlan} onChange={e => setFiltroPlan(e.target.value)} style={{minWidth:160}} title="Filtrar por plan">
           <option value="">Todos los planes</option>
-          {PLANES_ALU.map(pl => <option key={pl} value={pl}>{pl}</option>)}
+          {planesAula.map(pl => <option key={pl} value={pl}>{pl}</option>)}
           <option value="__sin__">Sin plan / sin pago</option>
         </select>
-        {filtroPlan && <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{filtered.length} alumno{filtered.length!==1?'s':''}</span>}
+        <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)} style={{minWidth:140}} title="Filtrar por estado">
+          <option value="">Todos los estados</option>
+          <option value="activo">Activos</option>
+          <option value="inactivo">Inactivos</option>
+        </select>
+        {firmasSet != null && (
+          <select value={filtroContrato} onChange={e => setFiltroContrato(e.target.value)} style={{minWidth:150}} title="Filtrar por contrato firmado">
+            <option value="">Contrato: todos</option>
+            <option value="firmado">✅ Firmado</option>
+            <option value="pendiente">⏳ Pendiente</option>
+          </select>
+        )}
+        {(filtroPlan || filtroEstado || filtroContrato) && (
+          <>
+            <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>{filtered.length} alumno{filtered.length!==1?'s':''}</span>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setFiltroPlan(''); setFiltroEstado(''); setFiltroContrato(''); }}>✕ Limpiar filtros</button>
+          </>
+        )}
       </div>
       {seleccion.length > 0 && (
         <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:16,padding:'10px 14px',background:'var(--card)',border:'1px solid var(--border)',borderRadius:10}}>
