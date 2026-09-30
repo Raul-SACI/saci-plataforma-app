@@ -6753,6 +6753,7 @@ function AdminAlumnos({ aulaActiva }) {
   const [moverPlanDestino, setMoverPlanDestino] = useState(''); // plan del aula destino para los que NO son Cursado Completo
   const [moverPlanesDestino, setMoverPlanesDestino] = useState([]); // planes disponibles en el aula destino
   const [moverSaving, setMoverSaving] = useState(false);
+  const [planesAula, setPlanesAula] = useState(['Parcial', 'Final', 'Cursado Completo']); // planes del aula (para editar el plan del alumno)
   const toast = useToast();
   const fileRef = useRef();
 
@@ -6779,6 +6780,15 @@ function AdminAlumnos({ aulaActiva }) {
     });
     setPagosMap(mapa);
     setPlanMap(planes);
+    // Planes del aula (para editar el plan del alumno): estándar + personalizados + los que estén en uso.
+    const baseP = ['Parcial', 'Final', 'Cursado Completo'];
+    let planesA = baseP;
+    try {
+      const { data: ar } = await supabase.from('aulas').select('precios').eq('id', aulaActiva).single();
+      planesA = [...baseP, ...Object.keys(ar?.precios || {}).filter(k => !baseP.includes(k))];
+    } catch {}
+    planesA = [...new Set([...planesA, ...Object.values(planes).filter(Boolean)])];
+    setPlanesAula(planesA);
     // Firmas del contrato de ESTA aula: set de alumno_id que ya firmaron.
     // null = no disponible (la tabla firmas_contrato todavía no existe / SQL sin correr).
     let firmados = null;
@@ -6816,6 +6826,18 @@ function AdminAlumnos({ aulaActiva }) {
         const { error } = await supabase.from('alumnos').update(updatePayload).eq('id', editing);
         if (error) throw new Error(error.message);
         if (form.aula_id) registrarAulaHistorial([editing], form.aula_id);
+        // Plan del alumno (en el aula actual): se guarda en sus pagos de esta aula.
+        const planNuevo = (form.plan || '').trim();
+        const planViejo = planMap[editing] || '';
+        if (planNuevo && planNuevo !== planViejo) {
+          const { data: pgs } = await supabase.from('pagos').select('id, aula_id').eq('alumno_id', editing);
+          const deEstaAula = (pgs || []).filter(p => p.aula_id == null || p.aula_id === aulaActiva);
+          if (deEstaAula.length) {
+            await supabase.from('pagos').update({ plan: planNuevo }).in('id', deEstaAula.map(p => p.id));
+          } else {
+            await supabase.from('pagos').insert({ alumno_id: editing, plan: planNuevo, monto: 0, fecha_pago: new Date().toISOString().slice(0, 10), aula_id: aulaActiva, notas: 'Plan asignado manualmente' });
+          }
+        }
         toast('Alumno actualizado ✏️', 'success');
       } else {
         const emailNorm = form.email.trim().toLowerCase();
@@ -7072,7 +7094,7 @@ function AdminAlumnos({ aulaActiva }) {
     XLSX.writeFile(wb, 'plantilla_alumnos.xlsx');
   };
 
-  const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '', aula_id: a.aula_id || aulaActiva }); setEditing(a.id); setModal(true); };
+  const openEdit = a => { setForm({ nombre: a.nombre, email: a.email, telefono: a.telefono || '', estado: a.estado, password: '', aula_id: a.aula_id || aulaActiva, plan: planMap[a.id] || '' }); setEditing(a.id); setModal(true); };
 
   const fmtPesos = n => '$' + (n || 0).toLocaleString('es-AR');
 
@@ -7256,6 +7278,16 @@ function AdminAlumnos({ aulaActiva }) {
                 {aulasLista.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>)}
               </select>
               <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Cambiá el aula para mover al alumno a otro curso. Va a ver el contenido y la planificación del aula elegida.</div>
+            </div>
+          )}
+          {editing && (
+            <div className="form-group">
+              <label>💳 Plan</label>
+              <select value={form.plan || ''} onChange={e => setForm(p => ({ ...p, plan: e.target.value }))}>
+                <option value="">-- Sin cambios --</option>
+                {[...new Set([...planesAula, ...(form.plan ? [form.plan] : [])])].map(pl => <option key={pl} value={pl}>{pl}</option>)}
+              </select>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Cambia el plan del alumno en esta aula (se actualiza en sus pagos). Si no tiene pagos, se crea uno en $0 con ese plan. La deuda se recalcula según el precio del plan.</div>
             </div>
           )}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
