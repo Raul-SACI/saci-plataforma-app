@@ -580,9 +580,9 @@ function situacionDeNota(nota) {
   if (nota === 'no_rindio_just') return { chip: 'No rendí (justificado)',     sit: 'Ausente justificado. Puede rendir para promocionar.',                    grupo: 'ausente',     color: 'chip-yellow' };
   const n = parseInt(nota, 10);
   if (isNaN(n)) return null;
-  if (n <= 3) return { chip: `${n} · Desaprobado`, sit: 'Desaprobado. Puede recuperar para regularizar.', grupo: 'desaprobado', color: 'chip-red' };
-  if (n <= 5) return { chip: `${n} · Aprobado`,    sit: 'Aprobado. Puede recuperar para promocionar.',    grupo: 'aprobado',    color: 'chip-green' };
-  return        { chip: `${n} · Aprobado`,    sit: 'Aprobado y en camino para promoción.',           grupo: 'aprobado',    color: 'chip-green' };
+  if (n <= 3) return { chip: `${n} · Desaprobado`,                 sit: 'Desaprobado. Puede recuperar para regularizar.', grupo: 'desaprobado', color: 'chip-red' };
+  if (n <= 5) return { chip: `${n} · Aprobado (puede recuperar)`,  sit: 'Aprobado. Puede recuperar para promocionar.',    grupo: 'aprobado',    color: 'chip-green' };
+  return        { chip: `${n} · Aprobado: en camino a promoción`, sit: 'Aprobado y en camino para promoción.',           grupo: 'aprobado',    color: 'chip-green' };
 }
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
