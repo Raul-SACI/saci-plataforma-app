@@ -556,15 +556,34 @@ DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotog
 // (con precio) se firma después, al ser aprobado y acceder al aula.
 const CONSENT_INSCRIPCION = `Declaro ser mayor de edad, que los datos y las fotografías (selfie y DNI) que aporto son verídicos y de mi titularidad, y presto mi consentimiento para que el docente los conserve al solo efecto de verificar mi identidad e inscripción. Entiendo que, una vez que el docente apruebe mi inscripción, podré acceder al aula y allí firmar el contrato correspondiente al parcial.`;
 
-// Resultados posibles del parcial (los carga el alumno; el docente ve el tablero).
-const RESULTADOS_PARCIAL = [
-  { key: '0a3',        opt: '0 a 3 — Desaprobado (puedo recuperar para regularizar)',               chip: '0 a 3 · Desaprobado',        sit: 'Desaprobado. Puede recuperar para regularizar.',                          grupo: 'desaprobado', color: 'chip-red' },
-  { key: 'aus_injust', opt: 'Ausente injustificado — Desaprobado (puedo recuperar para regularizar)', chip: 'Ausente injust. · Desaprob.', sit: 'Ausente injustificado (desaprobado). Puede recuperar para regularizar.',  grupo: 'ausente',     color: 'chip-red' },
-  { key: 'aus_just',   opt: 'Ausente justificado (puedo rendir para promocionar)',                   chip: 'Ausente justificado',        sit: 'Ausente justificado. Puede rendir para promocionar.',                     grupo: 'ausente',     color: 'chip-yellow' },
-  { key: '4a5',        opt: '4 a 5 — Aprobado (puedo recuperar para promocionar)',                   chip: '4 a 5 · Aprobado',           sit: 'Aprobado. Puede recuperar para promocionar.',                             grupo: 'aprobado',    color: 'chip-green' },
-  { key: '6mas',       opt: '6 o más — Aprobado y en camino para promoción',                         chip: '6 o más · Aprobado',         sit: 'Aprobado y en camino para promoción.',                                    grupo: 'aprobado',    color: 'chip-green' },
+// Parciales/instancias que el alumno puede cargar.
+const PARCIALES = [
+  { key: 'primer',  label: 'Primer Parcial' },
+  { key: 'segundo', label: 'Segundo Parcial' },
+  { key: 'tercer',  label: 'Tercer Parcial' },
+  { key: 'final',   label: 'Examen Final' },
 ];
-const resultadoInfo = (key) => RESULTADOS_PARCIAL.find(r => r.key === key) || null;
+const parcialLabel = (k) => (PARCIALES.find(p => p.key === k) || {}).label || k;
+
+// Notas puntuales que el alumno puede elegir.
+const NOTAS_PARCIAL = [
+  { key: 'no_rindio',      label: 'No rendí' },
+  { key: 'no_rindio_just', label: 'No rendí pero justifiqué' },
+  ...['0','1','2','3','4','5','6','7','8','9','10'].map(n => ({ key: n, label: n })),
+];
+const notaLabel = (k) => (NOTAS_PARCIAL.find(n => n.key === k) || {}).label || k;
+
+// A partir de la nota, se deduce automáticamente la situación (una de las 5 opciones).
+function situacionDeNota(nota) {
+  if (nota == null || nota === '') return null;
+  if (nota === 'no_rindio')      return { chip: 'No rendí · Desaprobado',     sit: 'Ausente injustificado (desaprobado). Puede recuperar para regularizar.', grupo: 'ausente',     color: 'chip-red' };
+  if (nota === 'no_rindio_just') return { chip: 'No rendí (justificado)',     sit: 'Ausente justificado. Puede rendir para promocionar.',                    grupo: 'ausente',     color: 'chip-yellow' };
+  const n = parseInt(nota, 10);
+  if (isNaN(n)) return null;
+  if (n <= 3) return { chip: `${n} · Desaprobado`, sit: 'Desaprobado. Puede recuperar para regularizar.', grupo: 'desaprobado', color: 'chip-red' };
+  if (n <= 5) return { chip: `${n} · Aprobado`,    sit: 'Aprobado. Puede recuperar para promocionar.',    grupo: 'aprobado',    color: 'chip-green' };
+  return        { chip: `${n} · Aprobado`,    sit: 'Aprobado y en camino para promoción.',           grupo: 'aprobado',    color: 'chip-green' };
+}
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -9696,27 +9715,32 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
   const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
   const [resModal, setResModal] = useState(false);      // tablero de resultados del parcial
-  const [resMap, setResMap] = useState({});             // { alumno_id: resultado }
+  const [resMap, setResMap] = useState({});             // { alumno_id: nota } del parcial elegido
   const [resLoadingAdmin, setResLoadingAdmin] = useState(false);
+  const [resParcialSel, setResParcialSel] = useState('primer'); // parcial que mira el docente
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
 
-  const abrirResultados = async () => {
-    setResModal(true); setResLoadingAdmin(true);
+  // Carga las notas de TODOS los alumnos para un parcial (los alumnos pueden haberlo
+  // rendido estando en otra aula, así que no se filtra por aula).
+  const cargarResultadosParcial = async (parcial) => {
+    setResLoadingAdmin(true);
     try {
-      const { data, error } = await supabase.from('resultados_parcial').select('alumno_id, resultado').eq('aula_id', aulaActiva);
+      const { data, error } = await supabase.from('resultados_parcial').select('alumno_id, nota').eq('parcial', parcial);
       if (error) throw error;
-      const m = {}; (data || []).forEach(r => { m[r.alumno_id] = r.resultado; });
+      const m = {}; (data || []).forEach(r => { m[r.alumno_id] = r.nota; });
       setResMap(m);
     } catch { toast('Para ver resultados agregá la tabla "resultados_parcial" (correr el SQL indicado).', 'error'); setResMap({}); setResModal(false); }
     finally { setResLoadingAdmin(false); }
   };
-  // El docente corrige/carga el resultado de un alumno.
-  const setResultadoAlumno = async (alumnoId, key) => {
-    setResMap(m => { const n = { ...m }; if (key) n[alumnoId] = key; else delete n[alumnoId]; return n; });
+  const abrirResultados = async () => { setResModal(true); await cargarResultadosParcial(resParcialSel); };
+  const cambiarParcial = async (parcial) => { setResParcialSel(parcial); await cargarResultadosParcial(parcial); };
+  // El docente corrige/carga la nota de un alumno para el parcial elegido.
+  const setResultadoAlumno = async (alumnoId, nota) => {
+    setResMap(m => { const n = { ...m }; if (nota) n[alumnoId] = nota; else delete n[alumnoId]; return n; });
     try {
-      if (key) await supabase.from('resultados_parcial').upsert({ alumno_id: alumnoId, aula_id: aulaActiva, resultado: key, updated_at: new Date().toISOString() }, { onConflict: 'alumno_id,aula_id' });
-      else await supabase.from('resultados_parcial').delete().eq('alumno_id', alumnoId).eq('aula_id', aulaActiva);
+      if (nota) await supabase.from('resultados_parcial').upsert({ alumno_id: alumnoId, aula_id: aulaActiva, parcial: resParcialSel, nota, updated_at: new Date().toISOString() }, { onConflict: 'alumno_id,parcial' });
+      else await supabase.from('resultados_parcial').delete().eq('alumno_id', alumnoId).eq('parcial', resParcialSel);
     } catch (e) { toast('No se pudo guardar: ' + e.message, 'error'); }
   };
 
@@ -10268,13 +10292,19 @@ function AdminEvaluaciones({ aulaActiva }) {
       {/* Tablero de resultados del parcial */}
       {resModal && (
         <Modal title="📊 Resultados del parcial" onClose={() => setResModal(false)}>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,flexWrap:'wrap'}}>
+            <span style={{fontSize:'0.84rem',fontWeight:600}}>Parcial:</span>
+            <select value={resParcialSel} onChange={e => cambiarParcial(e.target.value)} style={{minWidth:160}}>
+              {PARCIALES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+            </select>
+          </div>
           {resLoadingAdmin ? (
             <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
           ) : (() => {
             const total = listaAlumnos.length;
             const grp = { aprobado: 0, desaprobado: 0, ausente: 0 };
             let cargados = 0;
-            listaAlumnos.forEach(a => { const i = resultadoInfo(resMap[a.id]); if (i) { cargados++; grp[i.grupo]++; } });
+            listaAlumnos.forEach(a => { const i = situacionDeNota(resMap[a.id]); if (i) { cargados++; grp[i.grupo]++; } });
             const sinCargar = total - cargados;
             const pct = n => total ? Math.round(n * 100 / total) : 0;
             const tile = (label, n, color) => (
@@ -10289,7 +10319,7 @@ function AdminEvaluaciones({ aulaActiva }) {
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10,marginBottom:12}}>
                   {tile('✅ Aprobados', grp.aprobado, 'var(--success)')}
                   {tile('❌ Desaprobados', grp.desaprobado, 'var(--danger)')}
-                  {tile('🚪 Ausentes (no rindió)', grp.ausente, 'var(--warning)')}
+                  {tile('🚪 Ausentes', grp.ausente, 'var(--warning)')}
                   {tile('⏳ Sin cargar', sinCargar, 'var(--text2)')}
                 </div>
                 <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>Total: <b style={{color:'var(--text)'}}>{total}</b> alumnos · Cargaron su nota: <b style={{color:'var(--text)'}}>{cargados}</b>. Podés corregir el de cualquiera abajo.</div>
@@ -10298,7 +10328,7 @@ function AdminEvaluaciones({ aulaActiva }) {
                 ) : (
                   <div style={{maxHeight:360,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
                     {[...listaAlumnos].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).map(a => {
-                      const info = resultadoInfo(resMap[a.id]);
+                      const info = situacionDeNota(resMap[a.id]);
                       return (
                         <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--border)',borderRadius:8,flexWrap:'wrap'}}>
                           <div style={{flex:1,minWidth:140}}>
@@ -10307,7 +10337,7 @@ function AdminEvaluaciones({ aulaActiva }) {
                           </div>
                           <select value={resMap[a.id] || ''} onChange={e => setResultadoAlumno(a.id, e.target.value)} style={{minWidth:180,fontSize:'0.8rem'}}>
                             <option value="">-- Sin cargar --</option>
-                            {RESULTADOS_PARCIAL.map(r => <option key={r.key} value={r.key}>{r.opt}</option>)}
+                            {NOTAS_PARCIAL.map(n => <option key={n.key} value={n.key}>{n.label}</option>)}
                           </select>
                         </div>
                       );
@@ -12083,22 +12113,23 @@ function AlumnoMuro({ alumno }) {
   const [miPlan, setMiPlan] = useState(null);           // plan del pago más reciente del alumno
   const [refVoucherActivo, setRefVoucherActivo] = useState(false); // el admin ofrece voucher como premio
   const [refVoucherTexto, setRefVoucherTexto] = useState('');      // texto del voucher
-  const [miResultado, setMiResultado] = useState('');   // resultado del parcial que cargó el alumno
-  const [resSel, setResSel] = useState('');             // selección en el desplegable
-  const [resEditando, setResEditando] = useState(false);
+  const [misResultados, setMisResultados] = useState({}); // { parcial: nota } que ya cargó el alumno
+  const [resParcial, setResParcial] = useState('');       // parcial seleccionado en el formulario
+  const [resNota, setResNota] = useState('');             // nota seleccionada en el formulario
   const [resGuardando, setResGuardando] = useState(false);
   const toast = useToast();
 
   const guardarResultado = async () => {
-    if (!resSel || !alumno?.id || !alumno?.aula_id) return;
+    if (!resParcial || !resNota || !alumno?.id) return;
     setResGuardando(true);
     const { error } = await supabase.from('resultados_parcial').upsert(
-      { alumno_id: alumno.id, aula_id: alumno.aula_id, resultado: resSel, updated_at: new Date().toISOString() },
-      { onConflict: 'alumno_id,aula_id' }
+      { alumno_id: alumno.id, aula_id: alumno.aula_id || null, parcial: resParcial, nota: resNota, updated_at: new Date().toISOString() },
+      { onConflict: 'alumno_id,parcial' }
     );
     setResGuardando(false);
     if (error) return toast(/resultados_parcial|relation|column/i.test(error.message || '') ? 'Falta correr la migración resultados_parcial.sql' : error.message, 'error');
-    setMiResultado(resSel); setResEditando(false);
+    setMisResultados(prev => ({ ...prev, [resParcial]: resNota }));
+    setResParcial(''); setResNota('');
     toast('¡Nota cargada! Gracias 🙌', 'success');
   };
 
@@ -12136,9 +12167,13 @@ function AlumnoMuro({ alumno }) {
     // no existe todavía, solo falla esto y la promo se sigue mostrando a todos).
     try { const { data: ap } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', miAula).single(); setRefPlanesOcultos(Array.isArray(ap?.referidos_planes_ocultos) ? ap.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
     try { const { data: av } = await supabase.from('aulas').select('referidos_voucher_activo, referidos_voucher_texto').eq('id', miAula).single(); setRefVoucherActivo(!!av?.referidos_voucher_activo); setRefVoucherTexto(av?.referidos_voucher_texto || ''); } catch { setRefVoucherActivo(false); setRefVoucherTexto(''); }
-    // Resultado del parcial que ya cargó el alumno (si corrió la migración).
+    // Notas de parcial que ya cargó el alumno (una por parcial; si corrió la migración).
     if (alumno?.id) {
-      try { const { data: r } = await supabase.from('resultados_parcial').select('resultado').eq('alumno_id', alumno.id).eq('aula_id', miAula).maybeSingle(); setMiResultado(r?.resultado || ''); setResSel(r?.resultado || ''); } catch { setMiResultado(''); }
+      try {
+        const { data: rs } = await supabase.from('resultados_parcial').select('parcial, nota').eq('alumno_id', alumno.id);
+        const m = {}; (rs || []).forEach(r => { if (r.parcial) m[r.parcial] = r.nota; });
+        setMisResultados(m);
+      } catch { setMisResultados({}); }
     }
     // Plan del alumno = plan de su pago más reciente en esta aula (para decidir si ve la promo).
     if (alumno?.id) {
@@ -12229,31 +12264,43 @@ function AlumnoMuro({ alumno }) {
 
       <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
 
-      {/* Carga de la nota del parcial (autogestión del alumno) */}
-      {alumno?.aula_id && (() => {
-        const info = resultadoInfo(miResultado);
-        const mostrarForm = !info || resEditando;
+      {/* Carga de la nota del parcial (autogestión del alumno), una por parcial */}
+      {alumno?.id && (() => {
+        const cargadas = PARCIALES.filter(p => misResultados[p.key] != null && misResultados[p.key] !== '');
         return (
           <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--accent)',background:'rgba(108,99,255,0.06)'}}>
-            <div style={{fontWeight:700,marginBottom:6}}>📝 Tu nota del parcial</div>
-            {!mostrarForm ? (
-              <>
-                <div style={{fontSize:'0.88rem'}}>Cargaste: <span className={`chip ${info.color}`} style={{marginLeft:4}}>{info.chip}</span></div>
-                <div style={{fontSize:'0.82rem',color:'var(--text2)',marginTop:6}}>{info.sit}</div>
-                <button className="btn btn-ghost btn-sm" style={{marginTop:10}} onClick={() => { setResSel(miResultado); setResEditando(true); }}>✏️ Cambiar</button>
-              </>
-            ) : (
-              <>
-                <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:10}}>Cuando tengas la nota de tu parcial, cargala acá así el docente conoce tu situación.</div>
-                <select value={resSel} onChange={e => setResSel(e.target.value)} style={{marginBottom:10}}>
-                  <option value="">-- Elegí tu resultado --</option>
-                  {RESULTADOS_PARCIAL.map(r => <option key={r.key} value={r.key}>{r.opt}</option>)}
-                </select>
-                <div style={{display:'flex',gap:8}}>
-                  <button className="btn btn-primary btn-sm" disabled={!resSel || resGuardando} onClick={guardarResultado}>{resGuardando ? '⏳ Guardando...' : '💾 Guardar mi nota'}</button>
-                  {info && <button className="btn btn-ghost btn-sm" onClick={() => setResEditando(false)} disabled={resGuardando}>Cancelar</button>}
-                </div>
-              </>
+            <div style={{fontWeight:700,marginBottom:6}}>📝 Tus notas</div>
+            <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12}}>Cuando tengas la nota de un parcial, elegí cuál es y cargá tu nota. El docente verá automáticamente tu situación.</div>
+
+            {cargadas.length > 0 && (
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14}}>
+                {cargadas.map(p => {
+                  const info = situacionDeNota(misResultados[p.key]);
+                  return (
+                    <div key={p.key} style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',borderBottom:'1px solid var(--border)',paddingBottom:8}}>
+                      <span style={{fontWeight:600,minWidth:120}}>{p.label}</span>
+                      {info && <span className={`chip ${info.color}`}>{info.chip}</span>}
+                      <span style={{fontSize:'0.8rem',color:'var(--text2)'}}>{info ? info.sit : ''}</span>
+                      <button className="btn btn-ghost btn-sm" style={{marginLeft:'auto'}} onClick={() => { setResParcial(p.key); setResNota(misResultados[p.key]); }}>✏️ Cambiar</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              <select value={resParcial} onChange={e => setResParcial(e.target.value)} style={{minWidth:150}}>
+                <option value="">-- Parcial --</option>
+                {PARCIALES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+              <select value={resNota} onChange={e => setResNota(e.target.value)} style={{minWidth:180}}>
+                <option value="">-- Tu nota --</option>
+                {NOTAS_PARCIAL.map(n => <option key={n.key} value={n.key}>{n.label}</option>)}
+              </select>
+              <button className="btn btn-primary btn-sm" disabled={!resParcial || !resNota || resGuardando} onClick={guardarResultado}>{resGuardando ? '⏳ Guardando...' : '💾 Guardar'}</button>
+            </div>
+            {resNota && situacionDeNota(resNota) && (
+              <div style={{fontSize:'0.8rem',color:'var(--text2)',marginTop:8}}>Situación: <b>{situacionDeNota(resNota).sit}</b></div>
             )}
           </div>
         );
