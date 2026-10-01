@@ -556,6 +556,16 @@ DECLARACIÓN DEL LOCATARIO: Declaro ser mayor de edad, que los datos y las fotog
 // (con precio) se firma después, al ser aprobado y acceder al aula.
 const CONSENT_INSCRIPCION = `Declaro ser mayor de edad, que los datos y las fotografías (selfie y DNI) que aporto son verídicos y de mi titularidad, y presto mi consentimiento para que el docente los conserve al solo efecto de verificar mi identidad e inscripción. Entiendo que, una vez que el docente apruebe mi inscripción, podré acceder al aula y allí firmar el contrato correspondiente al parcial.`;
 
+// Resultados posibles del parcial (los carga el alumno; el docente ve el tablero).
+const RESULTADOS_PARCIAL = [
+  { key: '0a3',        opt: '0 a 3 — Desaprobado (puedo recuperar para regularizar)',               chip: '0 a 3 · Desaprobado',        sit: 'Desaprobado. Puede recuperar para regularizar.',                          grupo: 'desaprobado', color: 'chip-red' },
+  { key: 'aus_injust', opt: 'Ausente injustificado — Desaprobado (puedo recuperar para regularizar)', chip: 'Ausente injust. · Desaprob.', sit: 'Ausente injustificado (desaprobado). Puede recuperar para regularizar.',  grupo: 'ausente',     color: 'chip-red' },
+  { key: 'aus_just',   opt: 'Ausente justificado (puedo rendir para promocionar)',                   chip: 'Ausente justificado',        sit: 'Ausente justificado. Puede rendir para promocionar.',                     grupo: 'ausente',     color: 'chip-yellow' },
+  { key: '4a5',        opt: '4 a 5 — Aprobado (puedo recuperar para promocionar)',                   chip: '4 a 5 · Aprobado',           sit: 'Aprobado. Puede recuperar para promocionar.',                             grupo: 'aprobado',    color: 'chip-green' },
+  { key: '6mas',       opt: '6 o más — Aprobado y en camino para promoción',                         chip: '6 o más · Aprobado',         sit: 'Aprobado y en camino para promoción.',                                    grupo: 'aprobado',    color: 'chip-green' },
+];
+const resultadoInfo = (key) => RESULTADOS_PARCIAL.find(r => r.key === key) || null;
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Registra en el historial (tabla alumno_aulas) que estos alumnos pasaron por un aula.
@@ -9685,8 +9695,30 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoPicker, setBancoPicker] = useState(false);// elegir del banco para la evaluación
   const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
   const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
+  const [resModal, setResModal] = useState(false);      // tablero de resultados del parcial
+  const [resMap, setResMap] = useState({});             // { alumno_id: resultado }
+  const [resLoadingAdmin, setResLoadingAdmin] = useState(false);
   const toast = useToast();
   const today = new Date().toISOString().split('T')[0];
+
+  const abrirResultados = async () => {
+    setResModal(true); setResLoadingAdmin(true);
+    try {
+      const { data, error } = await supabase.from('resultados_parcial').select('alumno_id, resultado').eq('aula_id', aulaActiva);
+      if (error) throw error;
+      const m = {}; (data || []).forEach(r => { m[r.alumno_id] = r.resultado; });
+      setResMap(m);
+    } catch { toast('Para ver resultados agregá la tabla "resultados_parcial" (correr el SQL indicado).', 'error'); setResMap({}); setResModal(false); }
+    finally { setResLoadingAdmin(false); }
+  };
+  // El docente corrige/carga el resultado de un alumno.
+  const setResultadoAlumno = async (alumnoId, key) => {
+    setResMap(m => { const n = { ...m }; if (key) n[alumnoId] = key; else delete n[alumnoId]; return n; });
+    try {
+      if (key) await supabase.from('resultados_parcial').upsert({ alumno_id: alumnoId, aula_id: aulaActiva, resultado: key, updated_at: new Date().toISOString() }, { onConflict: 'alumno_id,aula_id' });
+      else await supabase.from('resultados_parcial').delete().eq('alumno_id', alumnoId).eq('aula_id', aulaActiva);
+    } catch (e) { toast('No se pudo guardar: ' + e.message, 'error'); }
+  };
 
   // Lee tipo/preguntas/destinatarios de forma resiliente por si las migraciones todavía no se corrieron.
   const loadBanco = () => {
@@ -9966,6 +9998,7 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div className="page-subtitle">{evals.filter(e=>e.visible!==false).length} activas · {evals.filter(e=>isVencida(e)).length} vencidas</div>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={abrirResultados}>📊 Resultados del parcial</button>
           <button className="btn btn-ghost" onClick={() => setBancoModal(true)}>🏦 Banco de preguntas{banco.length ? ` (${banco.length})` : ''}</button>
           <button className="btn btn-primary" onClick={() => { setForm(emptyForm); setEditing(null); setModal(true); }}>➕ Nueva evaluación</button>
         </div>
@@ -10229,6 +10262,61 @@ function AdminEvaluaciones({ aulaActiva }) {
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
             <button className="btn btn-ghost" onClick={()=>setResultados(null)}>Cerrar</button>
           </div>
+        </Modal>
+      )}
+
+      {/* Tablero de resultados del parcial */}
+      {resModal && (
+        <Modal title="📊 Resultados del parcial" onClose={() => setResModal(false)}>
+          {resLoadingAdmin ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+          ) : (() => {
+            const total = listaAlumnos.length;
+            const grp = { aprobado: 0, desaprobado: 0, ausente: 0 };
+            let cargados = 0;
+            listaAlumnos.forEach(a => { const i = resultadoInfo(resMap[a.id]); if (i) { cargados++; grp[i.grupo]++; } });
+            const sinCargar = total - cargados;
+            const pct = n => total ? Math.round(n * 100 / total) : 0;
+            const tile = (label, n, color) => (
+              <div style={{background:'var(--surface2)',borderRadius:12,padding:'12px 14px',textAlign:'center'}}>
+                <div style={{fontFamily:'Space Mono',fontWeight:700,fontSize:'1.5rem',color}}>{n}</div>
+                <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:2}}>{label}</div>
+                <div style={{fontSize:'0.72rem',color,fontWeight:700}}>{pct(n)}%</div>
+              </div>
+            );
+            return (
+              <>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10,marginBottom:12}}>
+                  {tile('✅ Aprobados', grp.aprobado, 'var(--success)')}
+                  {tile('❌ Desaprobados', grp.desaprobado, 'var(--danger)')}
+                  {tile('🚪 Ausentes (no rindió)', grp.ausente, 'var(--warning)')}
+                  {tile('⏳ Sin cargar', sinCargar, 'var(--text2)')}
+                </div>
+                <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>Total: <b style={{color:'var(--text)'}}>{total}</b> alumnos · Cargaron su nota: <b style={{color:'var(--text)'}}>{cargados}</b>. Podés corregir el de cualquiera abajo.</div>
+                {total === 0 ? (
+                  <div style={{textAlign:'center',padding:'20px 0',color:'var(--text2)'}}>No hay alumnos en esta aula.</div>
+                ) : (
+                  <div style={{maxHeight:360,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+                    {[...listaAlumnos].sort((a,b)=>(a.nombre||'').localeCompare(b.nombre||'')).map(a => {
+                      const info = resultadoInfo(resMap[a.id]);
+                      return (
+                        <div key={a.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',border:'1px solid var(--border)',borderRadius:8,flexWrap:'wrap'}}>
+                          <div style={{flex:1,minWidth:140}}>
+                            <div style={{fontSize:'0.86rem',fontWeight:600}}>{a.nombre}</div>
+                            {info ? <span className={`chip ${info.color}`} style={{fontSize:'0.66rem'}}>{info.chip}</span> : <span style={{fontSize:'0.72rem',color:'var(--text2)',fontStyle:'italic'}}>sin cargar</span>}
+                          </div>
+                          <select value={resMap[a.id] || ''} onChange={e => setResultadoAlumno(a.id, e.target.value)} style={{minWidth:180,fontSize:'0.8rem'}}>
+                            <option value="">-- Sin cargar --</option>
+                            {RESULTADOS_PARCIAL.map(r => <option key={r.key} value={r.key}>{r.opt}</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </Modal>
       )}
 
@@ -11995,7 +12083,24 @@ function AlumnoMuro({ alumno }) {
   const [miPlan, setMiPlan] = useState(null);           // plan del pago más reciente del alumno
   const [refVoucherActivo, setRefVoucherActivo] = useState(false); // el admin ofrece voucher como premio
   const [refVoucherTexto, setRefVoucherTexto] = useState('');      // texto del voucher
+  const [miResultado, setMiResultado] = useState('');   // resultado del parcial que cargó el alumno
+  const [resSel, setResSel] = useState('');             // selección en el desplegable
+  const [resEditando, setResEditando] = useState(false);
+  const [resGuardando, setResGuardando] = useState(false);
   const toast = useToast();
+
+  const guardarResultado = async () => {
+    if (!resSel || !alumno?.id || !alumno?.aula_id) return;
+    setResGuardando(true);
+    const { error } = await supabase.from('resultados_parcial').upsert(
+      { alumno_id: alumno.id, aula_id: alumno.aula_id, resultado: resSel, updated_at: new Date().toISOString() },
+      { onConflict: 'alumno_id,aula_id' }
+    );
+    setResGuardando(false);
+    if (error) return toast(/resultados_parcial|relation|column/i.test(error.message || '') ? 'Falta correr la migración resultados_parcial.sql' : error.message, 'error');
+    setMiResultado(resSel); setResEditando(false);
+    toast('¡Nota cargada! Gracias 🙌', 'success');
+  };
 
   const miLink = `${window.location.origin}?ref=${alumno?.id || ''}`;
   const copiarLink = async () => {
@@ -12031,6 +12136,10 @@ function AlumnoMuro({ alumno }) {
     // no existe todavía, solo falla esto y la promo se sigue mostrando a todos).
     try { const { data: ap } = await supabase.from('aulas').select('referidos_planes_ocultos').eq('id', miAula).single(); setRefPlanesOcultos(Array.isArray(ap?.referidos_planes_ocultos) ? ap.referidos_planes_ocultos.map(String) : []); } catch { setRefPlanesOcultos([]); }
     try { const { data: av } = await supabase.from('aulas').select('referidos_voucher_activo, referidos_voucher_texto').eq('id', miAula).single(); setRefVoucherActivo(!!av?.referidos_voucher_activo); setRefVoucherTexto(av?.referidos_voucher_texto || ''); } catch { setRefVoucherActivo(false); setRefVoucherTexto(''); }
+    // Resultado del parcial que ya cargó el alumno (si corrió la migración).
+    if (alumno?.id) {
+      try { const { data: r } = await supabase.from('resultados_parcial').select('resultado').eq('alumno_id', alumno.id).eq('aula_id', miAula).maybeSingle(); setMiResultado(r?.resultado || ''); setResSel(r?.resultado || ''); } catch { setMiResultado(''); }
+    }
     // Plan del alumno = plan de su pago más reciente en esta aula (para decidir si ve la promo).
     if (alumno?.id) {
       try {
@@ -12119,6 +12228,36 @@ function AlumnoMuro({ alumno }) {
       </div>
 
       <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
+
+      {/* Carga de la nota del parcial (autogestión del alumno) */}
+      {alumno?.aula_id && (() => {
+        const info = resultadoInfo(miResultado);
+        const mostrarForm = !info || resEditando;
+        return (
+          <div className="card" style={{padding:'16px 20px',marginBottom:20,borderColor:'var(--accent)',background:'rgba(108,99,255,0.06)'}}>
+            <div style={{fontWeight:700,marginBottom:6}}>📝 Tu nota del parcial</div>
+            {!mostrarForm ? (
+              <>
+                <div style={{fontSize:'0.88rem'}}>Cargaste: <span className={`chip ${info.color}`} style={{marginLeft:4}}>{info.chip}</span></div>
+                <div style={{fontSize:'0.82rem',color:'var(--text2)',marginTop:6}}>{info.sit}</div>
+                <button className="btn btn-ghost btn-sm" style={{marginTop:10}} onClick={() => { setResSel(miResultado); setResEditando(true); }}>✏️ Cambiar</button>
+              </>
+            ) : (
+              <>
+                <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:10}}>Cuando tengas la nota de tu parcial, cargala acá así el docente conoce tu situación.</div>
+                <select value={resSel} onChange={e => setResSel(e.target.value)} style={{marginBottom:10}}>
+                  <option value="">-- Elegí tu resultado --</option>
+                  {RESULTADOS_PARCIAL.map(r => <option key={r.key} value={r.key}>{r.opt}</option>)}
+                </select>
+                <div style={{display:'flex',gap:8}}>
+                  <button className="btn btn-primary btn-sm" disabled={!resSel || resGuardando} onClick={guardarResultado}>{resGuardando ? '⏳ Guardando...' : '💾 Guardar mi nota'}</button>
+                  {info && <button className="btn btn-ghost btn-sm" onClick={() => setResEditando(false)} disabled={resGuardando}>Cancelar</button>}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Invitá a un amigo (solo si el admin habilitó la promo en esta aula y el plan del alumno no está excluido) */}
       {refActivo && !(miPlan && refPlanesOcultos.includes(miPlan)) && (
