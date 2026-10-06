@@ -677,6 +677,14 @@ function descargarContratoAlumno(alumno, opts = {}) {
 function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, personalView = {}, planAlumno = {} }) {
   const JsPDF = window.jspdf && window.jspdf.jsPDF;
   if (!JsPDF) { alert('No se pudo cargar el generador de PDF. Revisá tu conexión e intentá de nuevo.'); return; }
+  // Carga el logo primero para usarlo de marca de agua; si no se puede, se exporta igual sin él.
+  const logo = new Image();
+  logo.crossOrigin = 'anonymous';
+  logo.onload = () => construir(logo);
+  logo.onerror = () => construir(null);
+  logo.src = location.origin + '/logo-membrete.png';
+
+  function construir(logoImg) {
   // Las fuentes estándar de jsPDF soportan Latin-1 (á, é, ñ, etc.) pero no emojis.
   const limpiar = s => (s || '').replace(/[^\x00-\xFF]/g, '').replace(/\s+/g, ' ').trim();
 
@@ -689,6 +697,21 @@ function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, person
   const diasFull = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 
   const fmtFecha = d => `${año}-${String(mes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  // Marca de agua: el logo grande, centrado y tenue, al fondo de la hoja.
+  const drawWatermark = () => {
+    if (!logoImg) return;
+    try {
+      const iw = logoImg.naturalWidth || 1, ih = logoImg.naturalHeight || 1;
+      const target = H * 0.62;
+      let w = target, h = target;
+      if (iw >= ih) h = target * ih / iw; else w = target * iw / ih;
+      const x = (W - w) / 2, yy = (H - h) / 2;
+      doc.setGState(new doc.GState({ opacity: 0.07 }));
+      doc.addImage(logoImg, 'PNG', x, yy, w, h);
+      doc.setGState(new doc.GState({ opacity: 1 }));
+    } catch (e) { /* si la versión de jsPDF no soporta GState, se omite la marca */ }
+  };
 
   // Celdas del mes agrupadas en semanas de 7.
   const cells = [];
@@ -721,6 +744,7 @@ function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, person
   };
 
   const drawHeader = () => {
+    drawWatermark(); // primero la marca de agua, para que el resto quede encima
     doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(108, 99, 255);
     doc.text('SACi', margin, margin + 4);
     doc.setTextColor(40, 40, 40); doc.setFontSize(13);
@@ -746,8 +770,11 @@ function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, person
     if (y + cellH > H - margin) { doc.addPage(); y = drawHeader(); }
     week.forEach((d, i) => {
       const x = margin + i * colW;
-      doc.setDrawColor(220); doc.setFillColor(d ? 255 : 247, d ? 255 : 247, d ? 255 : 250);
-      doc.rect(x, y, colW, cellH, 'FD');
+      // Sin relleno en los días con contenido para que se vea la marca de agua detrás;
+      // los días vacíos llevan un gris muy suave.
+      doc.setDrawColor(220);
+      if (d) { doc.rect(x, y, colW, cellH, 'S'); }
+      else { doc.setFillColor(247, 247, 250); doc.rect(x, y, colW, cellH, 'FD'); }
       if (!d) return;
       const fecha = fmtFecha(d);
       const col = planDocente[fecha]?.color;
@@ -770,6 +797,7 @@ function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, person
   });
 
   doc.save(`Planificacion-${PLAN_MESES[mes]}-${año}${nombre ? '-' + limpiar(nombre).replace(/[^\w]+/g, '_') : ''}.pdf`);
+  }
 }
 
 // Exporta a PDF (vía impresión del navegador) el contenido de una herramienta
