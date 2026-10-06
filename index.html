@@ -670,6 +670,108 @@ function descargarContratoAlumno(alumno, opts = {}) {
   doc.save(`Contrato-${(alumno.nombre || 'alumno').replace(/[^\w]+/g, '_')}${sufijo}.pdf`);
 }
 
+// Exporta a PDF (A4 horizontal) el calendario mensual de planificación, con todo
+// el texto completo de cada día. Sirve tanto para el alumno (su cronograma, con lo
+// que ya cumplió) como para el docente (el cronograma base del aula).
+// personalView = { 'YYYY-MM-DD': [{ icon, label, texto, ok }] } ; planAlumno aporta notas.
+function descargarPlanificacionPDF({ nombre, mes, año, planDocente = {}, personalView = {}, planAlumno = {} }) {
+  const JsPDF = window.jspdf && window.jspdf.jsPDF;
+  if (!JsPDF) { alert('No se pudo cargar el generador de PDF. Revisá tu conexión e intentá de nuevo.'); return; }
+  // Las fuentes estándar de jsPDF soportan Latin-1 (á, é, ñ, etc.) pero no emojis.
+  const limpiar = s => (s || '').replace(/[^\x00-\xFF]/g, '').replace(/\s+/g, ' ').trim();
+
+  const doc = new JsPDF({ unit: 'pt', format: 'a4', orientation: 'landscape' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const margin = 26;
+  const colW = (W - margin * 2) / 7;
+  const pad = 5;
+  const diasFull = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+  const fmtFecha = d => `${año}-${String(mes + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+
+  // Celdas del mes agrupadas en semanas de 7.
+  const cells = [];
+  for (let i = 0; i < planPrimerDia(mes, año); i++) cells.push(null);
+  for (let d = 1; d <= planDiasEnMes(mes, año); d++) cells.push(d);
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  // Prepara las líneas de texto (ya envueltas) de cada día.
+  const LH = 8.5, FS = 6.6;
+  const lineasDe = (d) => {
+    if (!d) return [];
+    const fecha = fmtFecha(d);
+    const out = [];
+    const horario = planDocente[fecha]?.horario_especial;
+    if (horario) out.push({ txt: 'Horario: ' + limpiar(horario), color: [255, 107, 53], bold: true });
+    (personalView[fecha] || []).forEach(it => {
+      const base = `${limpiar(it.label)}: ${limpiar(it.texto)}`;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(FS);
+      doc.splitTextToSize(base + (it.ok ? '  (hecho)' : ''), colW - pad * 2).forEach((ln, i) =>
+        out.push({ txt: ln, color: it.ok ? [34, 160, 80] : [45, 45, 55], strike: it.ok, firstOfItem: i === 0 }));
+    });
+    (planAlumno[fecha]?.notas || []).filter(n => n.texto).forEach(n => {
+      doc.setFont('helvetica', 'italic'); doc.setFontSize(FS);
+      doc.splitTextToSize('Nota: ' + limpiar(n.texto), colW - pad * 2).forEach(ln =>
+        out.push({ txt: ln, color: [150, 120, 20], italic: true }));
+    });
+    return out;
+  };
+
+  const drawHeader = () => {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(108, 99, 255);
+    doc.text('SACi', margin, margin + 4);
+    doc.setTextColor(40, 40, 40); doc.setFontSize(13);
+    doc.text(`Planificación — ${PLAN_MESES[mes]} ${año}`, margin + 54, margin + 4);
+    if (nombre) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(90, 90, 90);
+      doc.text(`Alumno/a: ${limpiar(nombre)}`, W - margin, margin + 2, { align: 'right' });
+    }
+    // Encabezado de días de la semana.
+    const top = margin + 18;
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(120, 120, 130);
+    diasFull.forEach((dn, i) => doc.text(dn, margin + i * colW + pad, top + 11));
+    doc.setDrawColor(210); doc.line(margin, top + 15, W - margin, top + 15);
+    return top + 18; // y donde empieza la primera semana
+  };
+
+  let y = drawHeader();
+
+  weeks.forEach(week => {
+    // Altura de la semana = la celda más alta.
+    const linesByCol = week.map(d => lineasDe(d));
+    const cellH = Math.max(46, ...linesByCol.map(ls => 16 + ls.length * LH + 6));
+    if (y + cellH > H - margin) { doc.addPage(); y = drawHeader(); }
+    week.forEach((d, i) => {
+      const x = margin + i * colW;
+      doc.setDrawColor(220); doc.setFillColor(d ? 255 : 247, d ? 255 : 247, d ? 255 : 250);
+      doc.rect(x, y, colW, cellH, 'FD');
+      if (!d) return;
+      const fecha = fmtFecha(d);
+      const col = planDocente[fecha]?.color;
+      if (col) { // franja de color del día
+        const r = parseInt(col.slice(1, 3), 16), g = parseInt(col.slice(3, 5), 16), b = parseInt(col.slice(5, 7), 16);
+        doc.setFillColor(r, g, b); doc.rect(x, y, colW, 3, 'F');
+      }
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(60, 60, 70);
+      doc.text(String(d), x + pad, y + 12);
+      let ly = y + 22;
+      linesByCol[i].forEach(l => {
+        doc.setFont('helvetica', l.bold ? 'bold' : l.italic ? 'italic' : 'normal'); doc.setFontSize(FS);
+        doc.setTextColor(l.color[0], l.color[1], l.color[2]);
+        doc.text(l.txt, x + pad, ly);
+        if (l.strike) { const w = doc.getTextWidth(l.txt); doc.setDrawColor(l.color[0], l.color[1], l.color[2]); doc.line(x + pad, ly - 2, x + pad + w, ly - 2); }
+        ly += LH;
+      });
+    });
+    y += cellH + 4;
+  });
+
+  doc.save(`Planificacion-${PLAN_MESES[mes]}-${año}${nombre ? '-' + limpiar(nombre).replace(/[^\w]+/g, '_') : ''}.pdf`);
+}
+
 // Exporta a PDF (vía impresión del navegador) el contenido de una herramienta
 // de la Sala de Juegos, con el logo de la app como marca de agua en toda la hoja A4.
 // Detecta el ancho real del dibujo: si no entra en vertical usa horizontal, y
@@ -1797,8 +1899,13 @@ function AdminPlanificacion({ aulaActiva }) {
   if (!aulaActiva) return <SinAula />;
   return (
     <div className="page-content fade-in">
-      <div className="page-header">
+      <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:10}}>
         <div><div className="page-title">📅 Planificación</div><div className="page-subtitle">Cronograma mensual del curso</div></div>
+        <button className="btn btn-ghost btn-sm" onClick={() => {
+          const pv = {};
+          Object.entries(planDocente).forEach(([f, dd]) => { PLAN_CAMPOS.forEach(c => { if (dd[c.key]) (pv[f] = pv[f] || []).push({ icon: c.icon, label: c.label, texto: dd[c.key], ok: false }); }); });
+          descargarPlanificacionPDF({ mes, año, planDocente, personalView: pv });
+        }}>⬇️ Descargar PDF</button>
       </div>
       <CaminoExamen aulaId={aulaActiva} esAdmin={true} />
       <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
@@ -1831,16 +1938,16 @@ function AdminPlanificacion({ aulaActiva }) {
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':'var(--text)',marginBottom:6}}>{d}</div>
                     {plan?.horario_especial && (
-                      <div title={`Horario especial: ${plan.horario_especial}`} style={{display:'flex',alignItems:'center',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'1px 5px',fontSize:'0.56rem',fontWeight:700,marginBottom:5,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                      <div title={`Horario especial: ${plan.horario_especial}`} style={{display:'flex',alignItems:'flex-start',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'2px 5px',fontSize:'0.58rem',fontWeight:700,marginBottom:5,whiteSpace:'normal',wordBreak:'break-word',lineHeight:1.2}}>
                         ⏰ {plan.horario_especial}
                       </div>
                     )}
                     {hasContent ? (
                       <div style={{display:'flex',flexDirection:'column',gap:2}}>
                         {PLAN_CAMPOS.map(c => plan[c.key] ? (
-                          <div key={c.key} style={{display:'flex',alignItems:'center',gap:3}}>
-                            <span style={{fontSize:'0.65rem'}}>{c.icon}</span>
-                            <span style={{fontSize:'0.6rem',color:'var(--text2)',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',maxWidth:'100%'}}>{plan[c.key].slice(0,18)}{plan[c.key].length>18?'…':''}</span>
+                          <div key={c.key} style={{display:'flex',alignItems:'flex-start',gap:3}}>
+                            <span style={{fontSize:'0.65rem',flexShrink:0,marginTop:'1px'}}>{c.icon}</span>
+                            <span style={{fontSize:'0.62rem',lineHeight:1.25,color:'var(--text2)',flex:1,minWidth:0,whiteSpace:'normal',wordBreak:'break-word'}}>{plan[c.key]}</span>
                           </div>
                         ) : null)}
                       </div>
@@ -2035,8 +2142,9 @@ function AlumnoPlanificacion({ alumno }) {
 
   return (
     <div className="page-content fade-in">
-      <div className="page-header">
+      <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:10}}>
         <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes · Tocá un día para ver o reorganizar tareas</div></div>
+        <button className="btn btn-ghost btn-sm" onClick={() => descargarPlanificacionPDF({ nombre: alumno?.nombre, mes, año, planDocente, personalView, planAlumno })}>⬇️ Descargar PDF</button>
       </div>
 
       <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
@@ -2094,17 +2202,17 @@ function AlumnoPlanificacion({ alumno }) {
                   >
                     <div style={{fontWeight:700,fontSize:'0.88rem',color:isToday?'var(--accent)':isPast?'var(--text2)':'var(--text)',marginBottom:5}}>{d}</div>
                     {planDocente[fecha]?.horario_especial && (
-                      <div title={`Horario especial: ${planDocente[fecha].horario_especial}`} style={{display:'flex',alignItems:'center',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'1px 5px',fontSize:'0.56rem',fontWeight:700,marginBottom:5,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis'}}>
+                      <div title={`Horario especial: ${planDocente[fecha].horario_especial}`} style={{display:'flex',alignItems:'flex-start',gap:2,background:'#ff6b35',color:'#fff',borderRadius:6,padding:'2px 5px',fontSize:'0.58rem',fontWeight:700,marginBottom:5,whiteSpace:'normal',wordBreak:'break-word',lineHeight:1.2}}>
                         ⏰ {planDocente[fecha].horario_especial}
                       </div>
                     )}
                     {items.length > 0 && (
-                      <div style={{display:'flex',flexDirection:'column',gap:3,overflow:'hidden'}}>
+                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
                         {items.map((it,idx) => (
-                          <div key={`${it.campo}-${it.fechaOriginal}-${idx}`} style={{display:'flex',alignItems:'center',gap:3,overflow:'hidden',minWidth:0}}>
-                            <span style={{fontSize:'0.62rem',flexShrink:0,filter:it.ok?'none':'grayscale(0.5) opacity(0.6)'}}>{it.ok?'✅':it.icon}</span>
-                            <span style={{fontSize:'0.58rem',color:it.ok?'var(--success)':'var(--text2)',flex:1,minWidth:0,overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',textDecoration:it.ok?'line-through':'none',opacity:it.ok?0.7:1}}>
-                              {it.texto.slice(0,13)}{it.texto.length>13?'…':''}
+                          <div key={`${it.campo}-${it.fechaOriginal}-${idx}`} style={{display:'flex',alignItems:'flex-start',gap:3,minWidth:0}}>
+                            <span style={{fontSize:'0.62rem',flexShrink:0,marginTop:'1px',filter:it.ok?'none':'grayscale(0.5) opacity(0.6)'}}>{it.ok?'✅':it.icon}</span>
+                            <span style={{fontSize:'0.62rem',lineHeight:1.25,color:it.ok?'var(--success)':'var(--text2)',flex:1,minWidth:0,whiteSpace:'normal',wordBreak:'break-word',textDecoration:it.ok?'line-through':'none',opacity:it.ok?0.7:1}}>
+                              {it.texto}
                             </span>
                             {it.reasignada && <span style={{fontSize:'0.55rem',color:'var(--accent)',flexShrink:0}}>↩</span>}
                           </div>
