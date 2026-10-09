@@ -11,6 +11,7 @@ create table public.resultados_parcial (
   aula_id     uuid references public.aulas(id)   on delete set null,  -- referencia (aula donde lo cargó)
   parcial     text not null,   -- 'primer' | 'segundo' | 'tercer' | 'final'
   nota        text,            -- 'no_rindio' | 'no_rindio_just' | '0'..'10'
+  objetivo    text,            -- 'regularizar' | 'promocionar' (qué busca el alumno)
   updated_at  timestamptz default now(),
   created_at  timestamptz default now(),
   unique (alumno_id, parcial)
