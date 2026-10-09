@@ -1275,6 +1275,50 @@ function PantallaFirmaContrato({ texto, alumno, onFirmar, onLogout }) {
   );
 }
 
+// Pantalla bloqueante para que el alumno cargue su nota de un parcial antes de entrar.
+// El docente la activa por aula (aulas.nota_obligatoria = parcial). La situación se deduce sola.
+function PantallaCargarNota({ parcial, alumno, onListo, onLogout }) {
+  const [nota, setNota] = useState('');
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const guardar = async () => {
+    if (!nota || !alumno?.id) return;
+    setSaving(true);
+    const { error } = await supabase.from('resultados_parcial').upsert(
+      { alumno_id: alumno.id, aula_id: alumno.aula_id || null, parcial, nota, updated_at: new Date().toISOString() },
+      { onConflict: 'alumno_id,parcial' }
+    );
+    setSaving(false);
+    if (error) return toast(/resultados_parcial|relation|column/i.test(error.message || '') ? 'Falta correr la migración resultados_parcial.sql' : error.message, 'error');
+    toast('¡Nota cargada! Ya podés ingresar ✅', 'success');
+    onListo();
+  };
+  const info = situacionDeNota(nota);
+  return (
+    <div className="login-page"><div className="login-card" style={{maxWidth:520}}>
+      <div style={{padding:'22px 22px'}}>
+        <div style={{textAlign:'center',marginBottom:16}}>
+          <div style={{fontSize:'2.6rem',marginBottom:6}}>📝</div>
+          <div style={{fontWeight:700,fontSize:'1.15rem'}}>Cargá tu nota para continuar</div>
+          <div style={{color:'var(--text2)',fontSize:'0.86rem',marginTop:6}}>Para acceder necesitás registrar tu nota del <b>{parcialLabel(parcial)}</b>. Es solo un momento.</div>
+        </div>
+        <div className="form-group">
+          <label>Tu nota del {parcialLabel(parcial)}</label>
+          <select value={nota} onChange={e => setNota(e.target.value)}>
+            <option value="">-- Elegí tu nota --</option>
+            {NOTAS_PARCIAL.map(n => <option key={n.key} value={n.key}>{n.label}</option>)}
+          </select>
+        </div>
+        {info && <div style={{fontSize:'0.82rem',color:'var(--text2)',margin:'4px 0 14px'}}>Situación: <b style={{color:'var(--text)'}}>{info.sit}</b></div>}
+        <div style={{display:'flex',gap:10,marginTop:8}}>
+          <button className="btn btn-ghost" style={{flex:1,justifyContent:'center'}} onClick={onLogout} disabled={saving}>Cerrar sesión</button>
+          <button className="btn btn-primary" style={{flex:2,justifyContent:'center'}} onClick={guardar} disabled={!nota || saving}>{saving ? '⏳ Guardando...' : '💾 Guardar y entrar'}</button>
+        </div>
+      </div>
+    </div></div>
+  );
+}
+
 // Pantalla que ve el alumno que se registró pero todavía no fue aprobado (o fue rechazado).
 function PantallaEspera({ alumno, onLogout }) {
   const estado = alumno?.estado;
@@ -6484,7 +6528,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [delInfo, setDelInfo] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' });
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' });
   const toast = useToast();
 
   const load = async () => {
@@ -6518,28 +6562,29 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       fecha_examen: form.fecha_examen || null,
       aviso: (form.aviso || '').trim() || null,
       contrato: (form.contrato || '').trim() || null,
+      nota_obligatoria: form.nota_obligatoria || null,
     };
     const guardar = (pl) => editing
       ? supabase.from('aulas').update(pl).eq('id', editing)
       : supabase.from('aulas').insert({ ...pl, estado: 'activa' });
     let { error } = await guardar(payload);
-    // Si las columnas "aviso"/"contrato" todavía no existen (SQL sin correr), reintenta sin ellas.
-    if (error && /aviso|contrato/i.test(error.message || '')) {
-      const { aviso, contrato, ...sinOpcionales } = payload;
+    // Si las columnas "aviso"/"contrato"/"nota_obligatoria" todavía no existen (SQL sin correr), reintenta sin ellas.
+    if (error && /aviso|contrato|nota_obligatoria/i.test(error.message || '')) {
+      const { aviso, contrato, nota_obligatoria, ...sinOpcionales } = payload;
       ({ error } = await guardar(sinOpcionales));
-      if (!error) toast('Guardado, pero para el aviso/contrato agregá esas columnas en la tabla aulas (correr el SQL indicado).', 'info');
+      if (!error) toast('Guardado, pero para el aviso/contrato/nota obligatoria agregá esas columnas en la tabla aulas (correr el SQL indicado).', 'info');
     }
     setSaving(false);
     if (error) return toast('Error: ' + error.message, 'error');
     toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
     setModal(false); setEditing(null);
-    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' });
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' });
     load();
   };
 
-  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '' }); setEditing(null); setModal(true); };
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' }); setEditing(null); setModal(true); };
   const openEdit = a => {
-    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '', contrato: a.contrato || '' });
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '', contrato: a.contrato || '', nota_obligatoria: a.nota_obligatoria || '' });
     setEditing(a.id); setModal(true);
   };
 
@@ -6684,6 +6729,14 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                 </div>
                 <textarea value={form.contrato} onChange={e=>setForm(p=>({...p,contrato:e.target.value}))} rows={8} placeholder="Pegá o escribí acá el contrato de esta aula, con sus precios y fechas. Dejalo vacío para usar el contrato por defecto de la app." />
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Los alumnos de esta aula deberán <b>firmar este contrato</b> para entrar (sin volver a subir fotos). Si lo dejás vacío, se usa el contrato por defecto. Tocá "Cargar texto por defecto" para partir del actual y editarlo.</div>
+              </div>
+              <div className="form-group">
+                <label>📝 Pedir la nota de forma obligatoria (opcional)</label>
+                <select value={form.nota_obligatoria} onChange={e=>setForm(p=>({...p,nota_obligatoria:e.target.value}))}>
+                  <option value="">No pedir nota (desactivado)</option>
+                  {PARCIALES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Si elegís un parcial, los alumnos de esta aula <b>no podrán entrar</b> hasta cargar su nota de ese parcial (una pantalla bloqueante al iniciar sesión). El que ya la cargó, entra directo. Cuando termines de recolectar las notas, volvé a ponerlo en "No pedir nota".</div>
               </div>
             </div>
             <div className="modal-footer">
@@ -12576,6 +12629,7 @@ function App() {
   const [masOpen, setMasOpen] = useState(false);   // menú "Más" de la barra inferior (celular)
   const [avisoAula, setAvisoAula] = useState(null);  // aviso del aula del alumno (cartel al entrar)
   const [contratoPend, setContratoPend] = useState(undefined);  // undefined=chequeando, null=firmado, {texto}=debe firmar
+  const [notaPend, setNotaPend] = useState(undefined);          // undefined=chequeando, null=ok, {parcial}=debe cargar nota
   // Aula en la que el admin está trabajando. Se guarda como preferencia local (no es dato de negocio).
   const [aulaActiva, setAulaActivaState] = useState(() => localStorage.getItem('saci_aula_activa') || null);
   const [aulasLista, setAulasLista] = useState([]);
@@ -12637,6 +12691,24 @@ function App() {
         try { const { data: aula } = await supabase.from('aulas').select('contrato').eq('id', al.aula_id).single(); if (aula?.contrato && aula.contrato.trim()) texto = aula.contrato; } catch (_) {}
         if (!cancel) setContratoPend({ texto });
       } catch (_) { if (!cancel) setContratoPend(null); }         // ante cualquier error, no bloquear
+    })();
+    return () => { cancel = true; };
+  }, [auth]);
+
+  // ¿El aula del alumno exige cargar la nota de un parcial? Si sí y todavía no la cargó, es bloqueante.
+  useEffect(() => {
+    const al = auth?.alumno;
+    if (!auth || auth.isAdmin || !al?.aula_id) { setNotaPend(null); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const { data: aula, error } = await supabase.from('aulas').select('nota_obligatoria').eq('id', al.aula_id).single();
+        if (error) throw error;                                   // columna sin crear → no bloquear
+        const parcial = aula?.nota_obligatoria;
+        if (!parcial) { if (!cancel) setNotaPend(null); return; } // no exigido en esta aula
+        const { data: r } = await supabase.from('resultados_parcial').select('nota').eq('alumno_id', al.id).eq('parcial', parcial).maybeSingle();
+        if (!cancel) setNotaPend(r && r.nota != null && r.nota !== '' ? null : { parcial });
+      } catch (_) { if (!cancel) setNotaPend(null); }             // ante cualquier error, no bloquear
     })();
     return () => { cancel = true; };
   }, [auth]);
@@ -12729,6 +12801,12 @@ function App() {
     return <Loading />;
   if (!auth.isAdmin && contratoPend)
     return <PantallaFirmaContrato texto={contratoPend.texto} alumno={auth.alumno} onFirmar={() => setContratoPend(null)} onLogout={handleLogout} />;
+
+  // Alumno de un aula que exige la nota de un parcial y todavía no la cargó: pantalla bloqueante.
+  if (!auth.isAdmin && notaPend === undefined)
+    return <Loading />;
+  if (!auth.isAdmin && notaPend)
+    return <PantallaCargarNota parcial={notaPend.parcial} alumno={auth.alumno} onListo={() => setNotaPend(null)} onLogout={handleLogout} />;
 
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
   const enPreview = !!(auth.isAdmin && preview);
