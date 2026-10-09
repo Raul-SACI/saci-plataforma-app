@@ -1288,11 +1288,12 @@ function PantallaFirmaContrato({ texto, alumno, onFirmar, onLogout }) {
 
 // Pantalla bloqueante para que el alumno cargue su nota de un parcial antes de entrar.
 // El docente la activa por aula (aulas.nota_obligatoria = parcial). La situación se deduce sola.
-function PantallaCargarNota({ parcial, alumno, onListo, onLogout }) {
-  const [nota, setNota] = useState('');
+function PantallaCargarNota({ parcial, notaInicial, alumno, onListo, onLogout }) {
+  const [nota, setNota] = useState(notaInicial || '');
   const [objetivo, setObjetivo] = useState('');
   const [saving, setSaving] = useState(false);
   const toast = useToast();
+  const soloObjetivo = !!notaInicial;   // ya tenía la nota cargada; solo falta elegir el objetivo
   const info = situacionDeNota(nota);
   const objOpc = objetivosDeNota(nota);                 // opciones de objetivo según la nota
   const objEfectivo = objOpc.length === 1 ? objOpc[0] : objetivo;  // si hay una sola, va sola
@@ -1314,8 +1315,10 @@ function PantallaCargarNota({ parcial, alumno, onListo, onLogout }) {
       <div style={{padding:'22px 22px'}}>
         <div style={{textAlign:'center',marginBottom:16}}>
           <div style={{fontSize:'2.6rem',marginBottom:6}}>📝</div>
-          <div style={{fontWeight:700,fontSize:'1.15rem'}}>Cargá tu nota para continuar</div>
-          <div style={{color:'var(--text2)',fontSize:'0.86rem',marginTop:6}}>Para acceder necesitás registrar tu nota del <b>{parcialLabel(parcial)}</b>. Es solo un momento.</div>
+          <div style={{fontWeight:700,fontSize:'1.15rem'}}>{soloObjetivo ? 'Completá tu objetivo para continuar' : 'Cargá tu nota para continuar'}</div>
+          <div style={{color:'var(--text2)',fontSize:'0.86rem',marginTop:6}}>{soloObjetivo
+            ? <>Ya cargaste tu nota del <b>{parcialLabel(parcial)}</b>. Solo falta que elijas si vas a <b>regularizar</b> o <b>ir por la promoción</b>.</>
+            : <>Para acceder necesitás registrar tu nota del <b>{parcialLabel(parcial)}</b>. Es solo un momento.</>}</div>
         </div>
         <div className="form-group">
           <label>Tu nota del {parcialLabel(parcial)}</label>
@@ -12758,8 +12761,16 @@ function App() {
         if (error) throw error;                                   // columna sin crear → no bloquear
         const parcial = aula?.nota_obligatoria;
         if (!parcial) { if (!cancel) setNotaPend(null); return; } // no exigido en esta aula
-        const { data: r } = await supabase.from('resultados_parcial').select('nota').eq('alumno_id', al.id).eq('parcial', parcial).maybeSingle();
-        if (!cancel) setNotaPend(r && r.nota != null && r.nota !== '' ? null : { parcial });
+        // Trae nota y objetivo; si la columna objetivo no existe aún, reintenta sin ella.
+        let r = await supabase.from('resultados_parcial').select('nota, objetivo').eq('alumno_id', al.id).eq('parcial', parcial).maybeSingle();
+        const hayObjCol = !r.error;
+        if (r.error) r = await supabase.from('resultados_parcial').select('nota').eq('alumno_id', al.id).eq('parcial', parcial).maybeSingle();
+        const row = r.data;
+        const notaCargada = row && row.nota != null && row.nota !== '';
+        if (!notaCargada) { if (!cancel) setNotaPend({ parcial }); return; }  // falta cargar la nota
+        // Cargó la nota pero le falta elegir el objetivo (y la nota permite elegir): se vuelve a pedir.
+        const faltaObjetivo = hayObjCol && objetivosDeNota(row.nota).length > 1 && (row.objetivo == null || row.objetivo === '');
+        if (!cancel) setNotaPend(faltaObjetivo ? { parcial, nota: row.nota } : null);
       } catch (_) { if (!cancel) setNotaPend(null); }             // ante cualquier error, no bloquear
     })();
     return () => { cancel = true; };
@@ -12858,7 +12869,7 @@ function App() {
   if (!auth.isAdmin && notaPend === undefined)
     return <Loading />;
   if (!auth.isAdmin && notaPend)
-    return <PantallaCargarNota parcial={notaPend.parcial} alumno={auth.alumno} onListo={() => setNotaPend(null)} onLogout={handleLogout} />;
+    return <PantallaCargarNota parcial={notaPend.parcial} notaInicial={notaPend.nota} alumno={auth.alumno} onListo={() => setNotaPend(null)} onLogout={handleLogout} />;
 
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
   const enPreview = !!(auth.isAdmin && preview);
