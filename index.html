@@ -10540,8 +10540,16 @@ function AdminEvaluaciones({ aulaActiva }) {
           ) : (() => {
             const total = listaAlumnos.length;
             const grp = { aprobado: 0, desaprobado: 0, ausente: 0 };
-            let cargados = 0;
-            listaAlumnos.forEach(a => { const i = situacionDeNota(resMap[a.id], resObjMap[a.id]); if (i) { cargados++; grp[i.grupo]++; } });
+            let cargados = 0, promo = 0, regu = 0;
+            listaAlumnos.forEach(a => {
+              const i = situacionDeNota(resMap[a.id], resObjMap[a.id]);
+              if (i) {
+                cargados++; grp[i.grupo]++;
+                const o = resObjMap[a.id];
+                if (o === 'promocionar') promo++; else if (o === 'regularizar') regu++;
+              }
+            });
+            const sinObjetivo = cargados - promo - regu;
             const sinCargar = total - cargados;
             const pct = n => total ? Math.round(n * 100 / total) : 0;
             const tile = (label, n, color) => (
@@ -10558,6 +10566,12 @@ function AdminEvaluaciones({ aulaActiva }) {
                   {tile('❌ Desaprobados', grp.desaprobado, 'var(--danger)')}
                   {tile('🚪 Ausentes', grp.ausente, 'var(--warning)')}
                   {tile('⏳ Sin cargar', sinCargar, 'var(--text2)')}
+                </div>
+                <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text2)',margin:'2px 0 8px'}}>Objetivo que eligieron</div>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10,marginBottom:12}}>
+                  {tile('🎯 Para promoción', promo, 'var(--accent)')}
+                  {tile('📘 Para regularizar', regu, '#a78bfa')}
+                  {tile('➖ Sin objetivo', sinObjetivo, 'var(--text2)')}
                 </div>
                 <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>Total: <b style={{color:'var(--text)'}}>{total}</b> alumnos · Cargaron su nota: <b style={{color:'var(--text)'}}>{cargados}</b>. Podés corregir el de cualquiera abajo.</div>
                 {total === 0 ? (
