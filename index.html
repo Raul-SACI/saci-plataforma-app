@@ -612,6 +612,17 @@ const objetivoLabel = (k) => OBJETIVOS[k] || k;
 
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// Fecha de HOY en horario de Argentina (UTC-3), siempre, sin importar la zona del dispositivo.
+// Devuelve 'YYYY-MM-DD'. Se usa para bloqueos por vencimiento, cuentas regresivas y fechas por defecto.
+function hoyISOArg() {
+  try {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }); // en-CA => 2026-10-11
+  } catch (_) {
+    const h = new Date();
+    return `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, '0')}-${String(h.getDate()).padStart(2, '0')}`;
+  }
+}
+
 // Registra en el historial (tabla alumno_aulas) que estos alumnos pasaron por un aula.
 // Sirve para saber el total histórico de alumnos por aula aunque después se los mueva.
 async function registrarAulaHistorial(alumnoIds, aulaId) {
@@ -998,8 +1009,7 @@ function resumenPagoDe(ps, precios) {
 async function generarRecordatorioPagoAlumno(alumnoId, aulaId) {
   try {
     if (!alumnoId || !aulaId) return;
-    const h = new Date();
-    const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+    const hoyISO = hoyISOArg();
     const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
     const { data: psAll } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
     const ps = (psAll || []).filter(p => p.aula_id == null || p.aula_id === aulaId);   // solo pagos de esta aula
@@ -1034,8 +1044,7 @@ async function generarRecordatorioPagoAlumno(alumnoId, aulaId) {
 async function tienePagoVencido(alumnoId, aulaId) {
   try {
     if (!alumnoId || !aulaId) return false;
-    const h = new Date();
-    const hoyISO = `${h.getFullYear()}-${String(h.getMonth()+1).padStart(2,'0')}-${String(h.getDate()).padStart(2,'0')}`;
+    const hoyISO = hoyISOArg();
     const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
     const { data: psAll } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
     // Solo cuentan los pagos de ESTA aula (o legacy sin aula_id). Evita que un pago viejo de otra aula lo bloquee.
@@ -1901,8 +1910,7 @@ function CaminoExamen({ aulaId, esAdmin }) {
     );
   }
 
-  const d = new Date(); const z = n => String(n).padStart(2, '0');
-  const hoy = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`;
+  const hoy = hoyISOArg();
   const clasesHasta = info.clases.filter(f => f <= fechaExamen);
   const M = clasesHasta.length;
   const N = clasesHasta.filter(f => f <= hoy).length;
@@ -1982,7 +1990,7 @@ function AdminPlanificacion({ aulaActiva }) {
   useEffect(() => { load(); }, [mes, año, aulaActiva]);
 
   const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const todayStr = hoyISOArg();
   const navMes = dir => { let m=mes+dir,y=año; if(m<0){m=11;y--;} if(m>11){m=0;y++;} setMes(m);setAño(y); };
 
   const openDay = fecha => {
@@ -2161,7 +2169,7 @@ function AlumnoPlanificacion({ alumno }) {
   useEffect(() => { load(); }, [mes, año]);
 
   const fmtFecha = d => `${año}-${String(mes+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const todayStr = hoyISOArg();
   const navMes = dir => { let m=mes+dir,y=año; if(m<0){m=11;y--;} if(m>11){m=0;y++;} setMes(m);setAño(y); };
   const diasMes = Array.from({length: planDiasEnMes(mes,año)}, (_,i) => i+1);
 
@@ -6109,7 +6117,7 @@ function AdminExtensiones({ aulaActiva }) {
   const [evalForm, setEvalForm] = useState({ evaluacion_id: '', alumnos_ids: [], modo: '24hs', fecha: '' });
   const [savingEval, setSavingEval] = useState(false);
   const toast = useToast();
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyISOArg();
 
   // Emitir la Factura C de una extensión (misma función de ARCA que en Pagos).
   // fecha = fecha de emisión (YYYY-MM-DD); permite facturar con fecha anterior.
@@ -7099,7 +7107,7 @@ function AdminAlumnos({ aulaActiva }) {
           if (deEstaAula.length) {
             await supabase.from('pagos').update({ plan: planNuevo }).in('id', deEstaAula.map(p => p.id));
           } else {
-            await supabase.from('pagos').insert({ alumno_id: editing, plan: planNuevo, monto: 0, fecha_pago: new Date().toISOString().slice(0, 10), aula_id: aulaActiva, notas: 'Plan asignado manualmente' });
+            await supabase.from('pagos').insert({ alumno_id: editing, plan: planNuevo, monto: 0, fecha_pago: hoyISOArg(), aula_id: aulaActiva, notas: 'Plan asignado manualmente' });
           }
         }
         toast('Alumno actualizado ✏️', 'success');
@@ -7231,7 +7239,7 @@ function AdminAlumnos({ aulaActiva }) {
       await registrarAulaHistorial(seleccion, aulaId);
       let creados = 0;
       if (moverTraerPlan) {
-        const hoy = new Date().toISOString().slice(0, 10);
+        const hoy = hoyISOArg();
         const { data: exist } = await supabase.from('pagos').select('alumno_id').eq('aula_id', aulaId).in('alumno_id', seleccion);
         const yaTienen = new Set((exist || []).map(e => e.alumno_id));
         const filas = [];
@@ -7655,7 +7663,7 @@ function AdminAlumnos({ aulaActiva }) {
 }
 // ─── ADMIN PAGOS ──────────────────────────────────────────────────────
 function AdminPagos({ aulaActiva }) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = hoyISOArg();
   const PLANES_DEFAULT = ['Parcial', 'Final', 'Cursado Completo'];
   const emptyForm = { alumno_id: '', plan: 'Cursado Completo', monto: '', fecha_pago: today, proximo_pago: '', notas: '' };
 
@@ -7677,7 +7685,7 @@ function AdminPagos({ aulaActiva }) {
   const [facturandoId, setFacturandoId] = useState(null);
   const [facturaVer, setFacturaVer] = useState(null);
   const [factConfirm, setFactConfirm] = useState(null); // { pago, fecha } confirmar fecha de emisión
-  const hoyISO = new Date().toISOString().slice(0, 10);
+  const hoyISO = hoyISOArg();
   const [refCount, setRefCount] = useState({});       // { referrerId: cant referidos que ya pagaron }
   const [aplicarDesc, setAplicarDesc] = useState(false); // aplicar descuento por referidos al pago que se registra
   const [aulasList, setAulasList] = useState([]);      // aulas para asignar/reasignar el aula de un pago
@@ -9953,7 +9961,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [resLoadingAdmin, setResLoadingAdmin] = useState(false);
   const [resParcialSel, setResParcialSel] = useState('primer'); // parcial que mira el docente
   const toast = useToast();
-  const today = new Date().toISOString().split('T')[0];
+  const today = hoyISOArg();
 
   // Carga las notas de TODOS los alumnos para un parcial (los alumnos pueden haberlo
   // rendido estando en otra aula, así que no se filtra por aula).
@@ -11668,7 +11676,7 @@ function AlumnoEvaluaciones({ alumno }) {
   const toast = useToast();
   const watermarkName = alumno?.nombre || 'SACi';
   const watermarkEmail = alumno?.email || '';
-  const today = new Date().toISOString().split('T')[0];
+  const today = hoyISOArg();
 
   const cargar = async () => {
     const miAula = alumno?.aula_id;
@@ -11955,7 +11963,7 @@ function AlumnoPagos({ alumno }) {
   const [pagos, setPagos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [facturaVer, setFacturaVer] = useState(null);
-  const today = new Date().toISOString().split('T')[0];
+  const today = hoyISOArg();
 
   useEffect(() => {
     if (!alumno?.id) { setLoading(false); return; }
