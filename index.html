@@ -10551,6 +10551,8 @@ function AdminEvaluaciones({ aulaActiva }) {
             });
             const sinObjetivo = cargados - promo - regu;
             const sinCargar = total - cargados;
+            const rindieron = cargados - grp.ausente;   // los que efectivamente rindieron (sin ausentes)
+            const pctAprobRindieron = rindieron ? Math.round(grp.aprobado * 100 / rindieron) : 0;
             const pct = n => total ? Math.round(n * 100 / total) : 0;
             const tile = (label, n, color) => (
               <div style={{background:'var(--surface2)',borderRadius:12,padding:'12px 14px',textAlign:'center'}}>
@@ -10566,6 +10568,11 @@ function AdminEvaluaciones({ aulaActiva }) {
                   {tile('❌ Desaprobados', grp.desaprobado, 'var(--danger)')}
                   {tile('🚪 Ausentes', grp.ausente, 'var(--warning)')}
                   {tile('⏳ Sin cargar', sinCargar, 'var(--text2)')}
+                </div>
+                <div style={{background:'rgba(67,233,123,0.10)',border:'1px solid var(--success)',borderRadius:12,padding:'10px 14px',marginBottom:12,textAlign:'center'}}>
+                  <span style={{fontSize:'0.82rem',color:'var(--text2)'}}>✅ Aprobados sobre los que rindieron (sin ausentes): </span>
+                  <b style={{color:'var(--success)',fontSize:'1.1rem'}}>{pctAprobRindieron}%</b>
+                  <span style={{fontSize:'0.82rem',color:'var(--text2)'}}> ({grp.aprobado} de {rindieron})</span>
                 </div>
                 <div style={{fontSize:'0.72rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--text2)',margin:'2px 0 8px'}}>Objetivo que eligieron</div>
                 <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(110px,1fr))',gap:10,marginBottom:12}}>
