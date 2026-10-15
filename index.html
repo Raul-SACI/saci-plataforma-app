@@ -610,6 +610,28 @@ function objetivosDeNota(nota) {
 }
 const objetivoLabel = (k) => OBJETIVOS[k] || k;
 
+// Partes de una evaluación: Teórica y Práctica. Cada pregunta lleva su "parte".
+const PARTES = [
+  { key: 'teorica',  label: 'Parte Teórica',  icon: '📖' },
+  { key: 'practica', label: 'Parte Práctica', icon: '✏️' },
+];
+const parteDe = (q) => (q && q.parte === 'practica') ? 'practica' : 'teorica';   // por defecto, teórica
+const parteLabel = (k) => (k === 'practica' ? 'Parte Práctica' : 'Parte Teórica');
+// Calcula aciertos/total por parte a partir de las preguntas (con su parte) y las respuestas del alumno.
+function statsPorParte(preguntas, respuestas) {
+  const r = { teorica: { ok: 0, total: 0 }, practica: { ok: 0, total: 0 } };
+  (preguntas || []).forEach((q, i) => {
+    const p = parteDe(q);
+    r[p].total++;
+    const elegidas = (respuestas && respuestas[i]) || [];
+    const corr = q.correctas || [];
+    if (elegidas.length === corr.length && elegidas.every(x => corr.includes(x))) r[p].ok++;
+  });
+  r.teorica.nota = r.teorica.total ? Math.round((r.teorica.ok / r.teorica.total) * 10 * 10) / 10 : null;
+  r.practica.nota = r.practica.total ? Math.round((r.practica.ok / r.practica.total) * 10 * 10) / 10 : null;
+  return r;
+}
+
 const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 // Fecha de HOY en horario de Argentina (UTC-3), siempre, sin importar la zona del dispositivo.
@@ -9955,6 +9977,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoPicker, setBancoPicker] = useState(false);// elegir del banco para la evaluación
   const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
   const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
+  const [parteDestino, setParteDestino] = useState('teorica'); // a qué parte se agregan las del banco/Excel
   const [resModal, setResModal] = useState(false);      // tablero de resultados del parcial
   const [resMap, setResMap] = useState({});             // { alumno_id: nota } del parcial elegido
   const [resObjMap, setResObjMap] = useState({});       // { alumno_id: objetivo } del parcial elegido
@@ -10042,6 +10065,7 @@ function AdminEvaluaciones({ aulaActiva }) {
       return toast('El link de Google Forms es requerido', 'error');
     }
     // Normaliza: saca opciones vacías y reajusta los índices de correctas.
+    // Ordena teóricas primero y prácticas después (así quedan agrupadas por parte).
     const preguntasLimpias = esQuiz ? form.preguntas.map(p => {
       const pares = (p.opciones || []).map((o, idx) => ({ o, idx })).filter(x => x.o && x.o.trim());
       const mapa = {}; pares.forEach((x, nuevo) => { mapa[x.idx] = nuevo; });
@@ -10049,8 +10073,9 @@ function AdminEvaluaciones({ aulaActiva }) {
         texto: p.texto.trim(),
         opciones: pares.map(x => x.o.trim()),
         correctas: (p.correctas || []).filter(c => c in mapa).map(c => mapa[c]),
+        parte: parteDe(p),
       };
-    }) : [];
+    }).sort((a, b) => (a.parte === 'practica' ? 1 : 0) - (b.parte === 'practica' ? 1 : 0)) : [];
     const payload = {
       titulo: form.titulo,
       descripcion: form.descripcion || null,
@@ -10104,7 +10129,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   const openEdit = ev => {
-    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])] })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [], premio: (ev.premio && typeof ev.premio === 'object') ? { titulo: ev.premio.titulo || '', url: ev.premio.url || '', permite_descarga: ev.premio.permite_descarga !== false } : { titulo: '', url: '', permite_descarga: true }, precio_extension: ev.precio_extension != null ? String(ev.precio_extension) : '' });
+    setForm({ titulo: ev.titulo, descripcion: ev.descripcion || '', link_google: ev.link_google || '', fecha_limite: aInputLocal(ev.fecha_limite), tema: ev.tema || '', visible: ev.visible !== false, publicar_en: aInputLocal(ev.publicar_en), tipo: ev.tipo || (ev.link_google ? 'link' : 'quiz'), preguntas: Array.isArray(ev.preguntas) ? ev.preguntas.map(p => ({ texto: p.texto || '', opciones: [...(p.opciones || [])], correctas: [...(p.correctas || [])], parte: parteDe(p) })) : [], para_todos: ev.para_todos !== false, alumnos_ids: Array.isArray(ev.alumnos_ids) ? ev.alumnos_ids : [], premio: (ev.premio && typeof ev.premio === 'object') ? { titulo: ev.premio.titulo || '', url: ev.premio.url || '', permite_descarga: ev.premio.permite_descarga !== false } : { titulo: '', url: '', permite_descarga: true }, precio_extension: ev.precio_extension != null ? String(ev.precio_extension) : '' });
     setEditing(ev.id); setModal(true);
   };
 
@@ -10114,8 +10139,9 @@ function AdminEvaluaciones({ aulaActiva }) {
   };
 
   // ── Constructor de preguntas ────────────────────────────────────────────
-  const nuevaPregunta = () => setForm(p => ({ ...p, preguntas: [...p.preguntas, { texto: '', opciones: ['', ''], correctas: [] }] }));
+  const nuevaPregunta = (parte = 'teorica') => setForm(p => ({ ...p, preguntas: [...p.preguntas, { texto: '', opciones: ['', ''], correctas: [], parte }] }));
   const quitarPregunta = i => setForm(p => ({ ...p, preguntas: p.preguntas.filter((_, idx) => idx !== i) }));
+  const setPregParte = (i, parte) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, parte } : q) }));
   const setPregTexto = (i, v) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, texto: v } : q) }));
   const nuevaOpcion = i => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, opciones: [...q.opciones, ''] } : q) }));
   const setOpcion = (i, j, v) => setForm(p => ({ ...p, preguntas: p.preguntas.map((q, idx) => idx === i ? { ...q, opciones: q.opciones.map((o, oj) => oj === j ? v : o) } : q) }));
@@ -10133,6 +10159,37 @@ function AdminEvaluaciones({ aulaActiva }) {
 
   // ── Importar / plantilla de Excel ───────────────────────────────────────
   const LETRAS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+
+  // Tarjeta editable de una pregunta. i = índice real en form.preguntas; nLocal = número dentro de su parte.
+  const renderPregCard = (q, i, nLocal) => (
+    <div key={i} className="card" style={{marginBottom:10,padding:12,background:'var(--surface2)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:8,flexWrap:'wrap'}}>
+        <span style={{fontWeight:700,fontSize:'0.85rem'}}>Pregunta {nLocal}</span>
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <select value={parteDe(q)} onChange={e=>setPregParte(i, e.target.value)} title="Mover a otra parte" style={{fontSize:'0.72rem',padding:'3px 6px'}}>
+            {PARTES.map(pt => <option key={pt.key} value={pt.key}>{pt.icon} {pt.label}</option>)}
+          </select>
+          <button type="button" className="btn btn-danger btn-sm" onClick={()=>quitarPregunta(i)}>🗑️</button>
+        </div>
+      </div>
+      <textarea placeholder="Escribí el enunciado de la pregunta" value={q.texto} onChange={e=>setPregTexto(i,e.target.value)} style={{minHeight:50,marginBottom:8}} />
+      {q.opciones.map((op, j) => {
+        const esCorrecta = (q.correctas||[]).includes(j);
+        return (
+          <div key={j} style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:6}}>
+            <button type="button" onClick={()=>toggleCorrecta(i,j)} title={esCorrecta?'Correcta':'Marcar como correcta'} style={{flexShrink:0,width:28,height:28,marginTop:2,borderRadius:6,border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{esCorrecta?'✓':''}</button>
+            <textarea ref={el=>{ if(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; } }} placeholder={`Opción ${LETRAS[j]||j+1}`} value={op} rows={1} onChange={e=>{ setOpcion(i,j,e.target.value); e.target.style.height='auto'; e.target.style.height=(e.target.scrollHeight+2)+'px'; }} style={{flex:1,resize:'vertical',overflow:'hidden',lineHeight:1.4,minHeight:32}} />
+            {q.opciones.length > 2 && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>quitarOpcion(i,j)} style={{flexShrink:0,marginTop:2}}>✕</button>}
+          </div>
+        );
+      })}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:6}}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={()=>nuevaOpcion(i)}>➕ Opción</button>
+        <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>{(q.correctas||[]).length>1?'Varias correctas (el alumno marca todas)':(q.correctas||[]).length===1?'Una correcta':'⚠️ Marcá la correcta'}</span>
+      </div>
+    </div>
+  );
+
   const descargarPlantillaQuiz = () => {
     const ws = XLSX.utils.aoa_to_sheet([
       ['Pregunta', 'Opción A', 'Opción B', 'Opción C', 'Opción D', 'Opción E', 'Correctas'],
@@ -10165,7 +10222,7 @@ function AdminEvaluaciones({ aulaActiva }) {
         const corrRaw = String(r['Correctas'] ?? r['correctas'] ?? r['Correcta'] ?? '').trim().toUpperCase();
         const correctas = corrRaw.split(/[,;\s]+/).filter(Boolean).map(x => LETRAS.indexOf(x)).filter(x => x >= 0 && x < opciones.length);
         if (!correctas.length) { errores.push(`Fila ${i+2}: sin respuesta correcta válida (usá letras: A, B, C...)`); return; }
-        nuevas.push({ texto, opciones, correctas: [...new Set(correctas)].sort((a, b) => a - b) });
+        nuevas.push({ texto, opciones, correctas: [...new Set(correctas)].sort((a, b) => a - b), parte: parteDestino });
       });
       if (!nuevas.length) return toast('No se importó ninguna pregunta. Revisá el formato.' + (errores.length ? ' ' + errores[0] : ''), 'error');
       setForm(p => ({ ...p, tipo: 'quiz', preguntas: [...p.preguntas, ...nuevas] }));
@@ -10232,7 +10289,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   // Agrega las preguntas elegidas del banco a la evaluación que se está armando.
   const agregarDelBanco = () => {
     const elegidas = banco.filter(b => bancoSel.includes(b.id)).map(b => ({
-      texto: b.texto || '', opciones: [...(b.opciones || [])], correctas: [...(b.correctas || [])],
+      texto: b.texto || '', opciones: [...(b.opciones || [])], correctas: [...(b.correctas || [])], parte: parteDestino,
     }));
     if (!elegidas.length) return toast('Elegí al menos una pregunta', 'error');
     setForm(p => ({ ...p, tipo: 'quiz', preguntas: [...p.preguntas, ...elegidas] }));
@@ -10356,7 +10413,11 @@ function AdminEvaluaciones({ aulaActiva }) {
             <div className="form-group">
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8,marginBottom:8}}>
                 <label style={{margin:0}}>Preguntas ({form.preguntas.length})</label>
-                <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+                <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+                  <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>Agregar a:</span>
+                  <select value={parteDestino} onChange={e=>setParteDestino(e.target.value)} style={{fontSize:'0.72rem',padding:'3px 6px'}}>
+                    {PARTES.map(pt => <option key={pt.key} value={pt.key}>{pt.icon} {pt.label}</option>)}
+                  </select>
                   <button type="button" className="btn btn-primary btn-sm" onClick={() => { setBancoSel([]); setBancoBusca(''); setBancoPicker(true); }}>🏦 Elegir del banco</button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={descargarPlantillaQuiz}>⬇️ Plantilla Excel</button>
                   <label className="btn btn-ghost btn-sm" style={{margin:0,cursor:'pointer'}}>
@@ -10365,32 +10426,19 @@ function AdminEvaluaciones({ aulaActiva }) {
                   </label>
                 </div>
               </div>
-              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>Exportá tus preguntas a Excel con la plantilla (columna <strong>Correctas</strong> = letras de las opciones correctas, ej: <strong>A</strong> o <strong>A,C</strong>) e importalas acá. También podés cargarlas a mano. Marcá con ✓ la/s opción/es correcta/s.</div>
+              <div style={{fontSize:'0.75rem',color:'var(--text2)',marginBottom:10}}>La evaluación se divide en <strong>Parte Teórica</strong> y <strong>Parte Práctica</strong>. Elegí "Agregar a:" para decidir a qué parte van las que sumes del banco o por Excel; cada pregunta también podés moverla con el selector de su tarjeta. Marcá con ✓ la/s opción/es correcta/s.</div>
 
-              {form.preguntas.map((q, i) => (
-                <div key={i} className="card" style={{marginBottom:10,padding:12,background:'var(--surface2)'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:8,marginBottom:8}}>
-                    <span style={{fontWeight:700,fontSize:'0.85rem'}}>Pregunta {i+1}</span>
-                    <button type="button" className="btn btn-danger btn-sm" onClick={()=>quitarPregunta(i)}>🗑️</button>
+              {PARTES.map(pt => {
+                const items = form.preguntas.map((q, i) => ({ q, i })).filter(x => parteDe(x.q) === pt.key);
+                return (
+                  <div key={pt.key} style={{marginBottom:14,border:'1px solid var(--border)',borderRadius:12,padding:'10px 10px 12px'}}>
+                    <div style={{fontWeight:700,fontSize:'0.9rem',color:'var(--accent)',marginBottom:8}}>{pt.icon} {pt.label} <span style={{color:'var(--text2)',fontWeight:400}}>({items.length})</span></div>
+                    {items.length === 0 && <div style={{fontSize:'0.78rem',color:'var(--text2)',fontStyle:'italic',marginBottom:8}}>Sin preguntas todavía.</div>}
+                    {items.map((x, n) => renderPregCard(x.q, x.i, n + 1))}
+                    <button type="button" className="btn btn-ghost btn-sm" style={{width:'100%'}} onClick={()=>nuevaPregunta(pt.key)}>➕ Agregar pregunta a {pt.label}</button>
                   </div>
-                  <textarea placeholder="Escribí el enunciado de la pregunta" value={q.texto} onChange={e=>setPregTexto(i,e.target.value)} style={{minHeight:50,marginBottom:8}} />
-                  {q.opciones.map((op, j) => {
-                    const esCorrecta = (q.correctas||[]).includes(j);
-                    return (
-                      <div key={j} style={{display:'flex',alignItems:'flex-start',gap:8,marginBottom:6}}>
-                        <button type="button" onClick={()=>toggleCorrecta(i,j)} title={esCorrecta?'Correcta':'Marcar como correcta'} style={{flexShrink:0,width:28,height:28,marginTop:2,borderRadius:6,border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{esCorrecta?'✓':''}</button>
-                        <textarea ref={el=>{ if(el){ el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; } }} placeholder={`Opción ${LETRAS[j]||j+1}`} value={op} rows={1} onChange={e=>{ setOpcion(i,j,e.target.value); e.target.style.height='auto'; e.target.style.height=(e.target.scrollHeight+2)+'px'; }} style={{flex:1,resize:'vertical',overflow:'hidden',lineHeight:1.4,minHeight:32}} />
-                        {q.opciones.length > 2 && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>quitarOpcion(i,j)} style={{flexShrink:0,marginTop:2}}>✕</button>}
-                      </div>
-                    );
-                  })}
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:6}}>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={()=>nuevaOpcion(i)}>➕ Opción</button>
-                    <span style={{fontSize:'0.72rem',color:'var(--text2)'}}>{(q.correctas||[]).length>1?'Varias correctas (el alumno marca todas)':(q.correctas||[]).length===1?'Una correcta':'⚠️ Marcá la correcta'}</span>
-                  </div>
-                </div>
-              ))}
-              <button type="button" className="btn btn-ghost" style={{width:'100%'}} onClick={nuevaPregunta}>➕ Agregar pregunta</button>
+                );
+              })}
             </div>
           )}
 
@@ -10475,19 +10523,40 @@ function AdminEvaluaciones({ aulaActiva }) {
         <Modal title={`📊 Resultados — ${resultados.ev.titulo}`} onClose={() => setResultados(null)}>
           {resultados.filas.length === 0 ? (
             <Empty icon="📊" text="Todavía nadie realizó esta evaluación." />
-          ) : (
+          ) : (() => {
+            const preguntas = resultados.ev.preguntas || [];
+            const partesEval = PARTES.filter(pt => preguntas.some(q => parteDe(q) === pt.key));
+            const prom = resultados.filas.reduce((s,f)=>s+(parseFloat(f.nota)||0),0)/resultados.filas.length;
+            const promParte = pk => {
+              const ns = resultados.filas.map(f => statsPorParte(preguntas, f.respuestas)[pk].nota).filter(n => n != null);
+              return ns.length ? (ns.reduce((a,b)=>a+b,0)/ns.length).toFixed(1) : '—';
+            };
+            return (
             <>
-              <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>{resultados.filas.length} alumno(s) · Promedio: <strong>{(resultados.filas.reduce((s,f)=>s+(parseFloat(f.nota)||0),0)/resultados.filas.length).toFixed(1)}</strong></div>
+              <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:6}}>{resultados.filas.length} alumno(s) · Promedio general: <strong style={{color:'var(--text)'}}>{prom.toFixed(1)}</strong></div>
+              {partesEval.length > 1 && (
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:12}}>
+                  {partesEval.map(pt => (
+                    <span key={pt.key} className="chip" style={{background:'var(--surface2)',color:'var(--text2)',fontSize:'0.76rem'}}>{pt.icon} {pt.label}: promedio <b style={{color:'var(--text)'}}>{promParte(pt.key)}</b></span>
+                  ))}
+                </div>
+              )}
               <div style={{display:'flex',flexDirection:'column',gap:8}}>
                 {resultados.filas.map((f, idx) => {
                   const nota = parseFloat(f.nota) || 0;
                   const abierto = resultados.expandido === f.id;
+                  const st = statsPorParte(preguntas, f.respuestas);
                   return (
                     <div key={f.id} className="card" style={{padding:12,background:'var(--surface2)'}}>
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,cursor:'pointer'}} onClick={()=>setResultados(r=>({...r,expandido:abierto?null:f.id}))}>
                         <div>
                           <div style={{fontWeight:700,fontSize:'0.9rem'}}>{f.nombre}</div>
                           <div style={{fontSize:'0.72rem',color:'var(--text2)'}}>{new Date(f.created_at).toLocaleDateString('es-AR',{day:'2-digit',month:'short',year:'numeric'})} · {f.correctas_cant}/{f.total_cant} correctas</div>
+                          {partesEval.length > 1 && (
+                            <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:3}}>
+                              {partesEval.map(pt => <span key={pt.key} style={{fontSize:'0.68rem',color:'var(--text2)'}}>{pt.icon} {st[pt.key].ok}/{st[pt.key].total}{st[pt.key].nota!=null?` (${st[pt.key].nota.toFixed(1)})`:''}</span>)}
+                            </div>
+                          )}
                         </div>
                         <div style={{display:'flex',alignItems:'center',gap:10}}>
                           <span className="chip" style={{background:nota>=6?'var(--success)':'var(--danger)',color:'#fff',fontWeight:700,fontSize:'0.85rem'}}>{nota.toFixed(1)}</span>
@@ -10496,12 +10565,14 @@ function AdminEvaluaciones({ aulaActiva }) {
                       </div>
                       {abierto && (
                         <div style={{marginTop:10,borderTop:'1px solid var(--border)',paddingTop:10,display:'flex',flexDirection:'column',gap:10}}>
-                          {(resultados.ev.preguntas||[]).map((q, qi) => {
+                          {preguntas.map((q, qi) => {
                             const elegidas = (f.respuestas && f.respuestas[qi]) || [];
                             const correctas = q.correctas || [];
                             const bien = elegidas.length === correctas.length && elegidas.every(x => correctas.includes(x));
+                            const cabParte = partesEval.length > 1 && (qi === 0 || parteDe(preguntas[qi-1]) !== parteDe(q));
                             return (
                               <div key={qi}>
+                                {cabParte && <div style={{fontSize:'0.74rem',fontWeight:700,color:'var(--accent)',margin:'2px 0 6px'}}>{parteDe(q)==='practica'?'✏️ Parte Práctica':'📖 Parte Teórica'}</div>}
                                 <div style={{fontSize:'0.82rem',fontWeight:600,marginBottom:4}}>{qi+1}. {q.texto} {bien?'✅':'❌'}</div>
                                 <div style={{display:'flex',flexDirection:'column',gap:2}}>
                                   {q.opciones.map((op, oi) => {
@@ -10527,7 +10598,8 @@ function AdminEvaluaciones({ aulaActiva }) {
                 })}
               </div>
             </>
-          )}
+            );
+          })()}
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
             <button className="btn btn-ghost" onClick={()=>setResultados(null)}>Cerrar</button>
           </div>
@@ -11861,8 +11933,13 @@ function AlumnoEvaluaciones({ alumno }) {
           <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:14,padding:'8px 12px',background:'var(--surface2)',borderRadius:8}}>⚠️ Tenés <strong>un solo intento</strong>. Respondé todas las preguntas y presioná "Enviar respuestas". Las preguntas con varias opciones correctas piden marcar todas.</div>
           {(tomando.preguntas || []).map((q, qi) => {
             const multiple = (q.correctas || []).length > 1;
+            const preguntasT = tomando.preguntas || [];
+            const hayDosPartes = preguntasT.some(x=>parteDe(x)==='teorica') && preguntasT.some(x=>parteDe(x)==='practica');
+            const cabParte = hayDosPartes && (qi === 0 || parteDe(preguntasT[qi-1]) !== parteDe(q));
             return (
-              <div key={qi} className="card" style={{marginBottom:12,padding:14}}>
+              <React.Fragment key={qi}>
+              {cabParte && <div style={{fontWeight:800,fontSize:'0.95rem',color:'var(--accent)',margin:'6px 2px 8px',paddingBottom:4,borderBottom:'2px solid var(--accent)'}}>{parteDe(q)==='practica'?'✏️ Parte Práctica':'📖 Parte Teórica'}</div>}
+              <div className="card" style={{marginBottom:12,padding:14}}>
                 <div style={{fontWeight:700,fontSize:'0.92rem',marginBottom:4}}>{qi+1}. {q.texto}</div>
                 {multiple && <div style={{fontSize:'0.72rem',color:'var(--accent)',marginBottom:8}}>Marcá todas las correctas</div>}
                 <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:6}}>
@@ -11877,6 +11954,7 @@ function AlumnoEvaluaciones({ alumno }) {
                   })}
                 </div>
               </div>
+              </React.Fragment>
             );
           })}
           <div style={{display:'flex',gap:10,justifyContent:'flex-end',marginTop:8}}>
@@ -11892,6 +11970,17 @@ function AlumnoEvaluaciones({ alumno }) {
             <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>Tu nota</div>
             <div style={{fontSize:'2.4rem',fontWeight:800,color:(parseFloat(resultadoVer.nota)||0)>=6?'var(--success)':'var(--danger)'}}>{(parseFloat(resultadoVer.nota)||0).toFixed(1)}</div>
             <div style={{fontSize:'0.82rem',color:'var(--text2)'}}>{resultadoVer.correctas_cant} de {resultadoVer.total_cant} correctas</div>
+            {(() => {
+              const pregs = resultadoVer.ev.preguntas || [];
+              const partes = PARTES.filter(pt => pregs.some(q => parteDe(q) === pt.key));
+              if (partes.length <= 1) return null;
+              const st = statsPorParte(pregs, resultadoVer.respuestas);
+              return (
+                <div style={{display:'flex',gap:8,flexWrap:'wrap',justifyContent:'center',marginTop:10}}>
+                  {partes.map(pt => <span key={pt.key} className="chip" style={{background:'var(--surface2)',color:'var(--text2)',fontSize:'0.78rem'}}>{pt.icon} {pt.label}: <b style={{color:'var(--text)'}}>{st[pt.key].ok}/{st[pt.key].total}</b>{st[pt.key].nota!=null?` · nota ${st[pt.key].nota.toFixed(1)}`:''}</span>)}
+                </div>
+              );
+            })()}
           </div>
           {resultadoVer.ev.premio && resultadoVer.ev.premio.url && (
             <div className="card" style={{padding:'12px 16px',marginBottom:14,border:'1px solid var(--gold, #c48a00)',background:'rgba(196,138,0,0.08)',display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,flexWrap:'wrap'}}>
@@ -11900,12 +11989,15 @@ function AlumnoEvaluaciones({ alumno }) {
             </div>
           )}
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {(resultadoVer.ev.preguntas || []).map((q, qi) => {
+            {(() => { const pregsR = resultadoVer.ev.preguntas || []; const hayDos = pregsR.some(x=>parteDe(x)==='teorica') && pregsR.some(x=>parteDe(x)==='practica'); return pregsR.map((q, qi) => {
               const elegidas = (resultadoVer.respuestas && resultadoVer.respuestas[qi]) || [];
               const corr = q.correctas || [];
               const bien = elegidas.length === corr.length && elegidas.every(x => corr.includes(x));
+              const cabParte = hayDos && (qi === 0 || parteDe(pregsR[qi-1]) !== parteDe(q));
               return (
-                <div key={qi} className="card" style={{padding:12,background:'var(--surface2)'}}>
+                <React.Fragment key={qi}>
+                {cabParte && <div style={{fontWeight:800,fontSize:'0.9rem',color:'var(--accent)',margin:'4px 2px 2px',paddingBottom:4,borderBottom:'2px solid var(--accent)'}}>{parteDe(q)==='practica'?'✏️ Parte Práctica':'📖 Parte Teórica'}</div>}
+                <div className="card" style={{padding:12,background:'var(--surface2)'}}>
                   <div style={{fontSize:'0.85rem',fontWeight:600,marginBottom:6}}>{qi+1}. {q.texto} {bien?'✅':'❌'}</div>
                   <div style={{display:'flex',flexDirection:'column',gap:3}}>
                     {q.opciones.map((op, oi) => {
@@ -11922,8 +12014,9 @@ function AlumnoEvaluaciones({ alumno }) {
                     })}
                   </div>
                 </div>
+                </React.Fragment>
               );
-            })}
+            }); })()}
           </div>
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}>
             <button className="btn btn-primary" onClick={()=>setResultadoVer(null)}>Cerrar</button>
