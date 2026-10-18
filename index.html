@@ -8674,6 +8674,15 @@ function AdminVideos({ aulaActiva }) {
     ));
   };
 
+  // Oculta/muestra un video a los alumnos sin borrarlo.
+  const toggleOculto = async (v) => {
+    const nuevo = !v.oculto;
+    const { error } = await supabase.from('videos').update({ oculto: nuevo }).eq('id', v.id);
+    if (error) return toast(/oculto|column/i.test(error.message || '') ? 'Para ocultar videos corré la migración videos_materiales_oculto.sql' : error.message, 'error');
+    toast(nuevo ? 'Video oculto para los alumnos 🙈' : 'Video visible de nuevo 👁️', 'success');
+    load();
+  };
+
   const remove = async id => {
     // Aviso reforzado si el video tiene extensiones PAGAS: al borrarlo se pierde ese historial de cobros.
     let aviso = '¿Eliminar video?';
@@ -8817,9 +8826,9 @@ function AdminVideos({ aulaActiva }) {
                           {tVids.map(v => (
                             <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                               <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
-                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
+                              <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                               <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                             </tr>
                           ))}
                         </tbody>
@@ -8846,9 +8855,9 @@ function AdminVideos({ aulaActiva }) {
                       {videos.filter(v=>!v.tema_id).map(v => (
                         <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                           <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
-                          <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
+                          <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                           <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                          <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️ Asignar tema</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                          <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️ Asignar tema</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                         </tr>
                       ))}
                     </tbody>
@@ -8869,11 +8878,11 @@ function AdminVideos({ aulaActiva }) {
                 {videos.map(v => (
                   <tr key={v.id}>
                     <td style={{fontFamily:'Space Mono',color:'var(--text2)'}}>{v.orden}</td>
-                    <td><strong>{v.titulo}</strong>{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
+                    <td><strong>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                     <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===v.tema_id)?.nombre||'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)?<span className="chip chip-blue">Bunny</span>:v.url_externa?<span className="chip chip-green">URL</span>:'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:44,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                    <td><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                    <td><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -9469,6 +9478,15 @@ function AdminMateriales({ aulaActiva }) {
     toast('Material eliminado', 'info'); load();
   };
 
+  // Oculta/muestra un material a los alumnos sin borrarlo.
+  const toggleOculto = async (m) => {
+    const nuevo = !m.oculto;
+    const { error } = await supabase.from('materiales').update({ oculto: nuevo }).eq('id', m.id);
+    if (error) return toast(/oculto|column/i.test(error.message || '') ? 'Para ocultar materiales corré la migración videos_materiales_oculto.sql' : error.message, 'error');
+    toast(nuevo ? 'Material oculto para los alumnos 🙈' : 'Material visible de nuevo 👁️', 'success');
+    load();
+  };
+
   const verStats = async mat => {
     setStatsModal(mat); setStatsLoading(true); setStatsData([]);
     const { data } = await supabase
@@ -9576,7 +9594,7 @@ function AdminMateriales({ aulaActiva }) {
                             return (
                               <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                                 <td style={{padding:'10px 16px'}}><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
-                                <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{m.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{m.descripcion}</span></>}</td>
+                                <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{m.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{m.descripcion}</span></>}</td>
                                 <td style={{padding:'10px 16px'}}>
                                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                                     <div onClick={() => toggleDescarga(m.id,!m.permite_descarga)} style={{width:38,height:20,borderRadius:10,background:m.permite_descarga!==false?'var(--success)':'var(--border)',cursor:'pointer',position:'relative',transition:'background 0.3s',flexShrink:0}}>
@@ -9589,7 +9607,7 @@ function AdminMateriales({ aulaActiva }) {
                                   <div style={{display:'flex',gap:6}}>
                                     <button className="btn btn-ghost btn-sm" onClick={() => window.open(m.url,'_blank')}>👁️ Ver</button>
                                     <button className="btn btn-ghost btn-sm" onClick={() => verStats(m)} title="Visualizaciones">📊</button>
-                                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button>
+                                    <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button><button className="btn btn-ghost btn-sm" title={m.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(m)}>{m.oculto?'🙈':'🚫'}</button>
                                     <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>🗑️</button>
                                   </div>
                                 </td>
@@ -9622,11 +9640,11 @@ function AdminMateriales({ aulaActiva }) {
                         return (
                           <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
                             <td style={{padding:'10px 16px'}}><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
-                            <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
+                            <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                             <td style={{padding:'10px 16px'}}>
                               <div style={{display:'flex',gap:6}}>
                                 <button className="btn btn-ghost btn-sm" onClick={() => verStats(m)}>📊</button>
-                                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button>
+                                <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button><button className="btn btn-ghost btn-sm" title={m.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(m)}>{m.oculto?'🙈':'🚫'}</button>
                                 <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>🗑️</button>
                               </div>
                             </td>
@@ -9653,13 +9671,13 @@ function AdminMateriales({ aulaActiva }) {
                   return (
                     <tr key={m.id}>
                       <td style={{fontSize:'1.3rem'}}>{ti.icon}</td>
-                      <td><strong>{m.unidad||m.titulo}</strong>{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
+                      <td><strong>{m.unidad||m.titulo}</strong>{m.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                       <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===m.tema_id)?.nombre||'—'}</td>
                       <td><span className={`chip ${m.permite_descarga!==false?'chip-green':'chip-red'}`}>{m.permite_descarga!==false?'🔓':'🔒'}</span></td>
                       <td>
                         <div style={{display:'flex',gap:6}}>
                           <button className="btn btn-ghost btn-sm" onClick={() => verStats(m)}>📊</button>
-                          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button><button className="btn btn-ghost btn-sm" title={m.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(m)}>{m.oculto?'🙈':'🚫'}</button>
                           <button className="btn btn-danger btn-sm" onClick={() => remove(m.id)}>🗑️</button>
                         </div>
                       </td>
@@ -10838,6 +10856,7 @@ function AlumnoVideos({ alumno, user }) {
       const now = new Date().toISOString();
       const idsAsignados = new Set((asignData || []).map(a => a.video_id));
       const vFiltered = (vData || [])
+        .filter(v => !v.oculto)
         .filter(v => !v.publicar_en || v.publicar_en <= now)
         .filter(v => v.para_todos !== false || idsAsignados.has(v.id));
 
@@ -11436,8 +11455,8 @@ function AlumnoMateriales({ alumno, user }) {
       supabase.from('videos').select('id, titulo, bunny_id, bunny_video_id, bunny_library, url_externa, max_vistas, vence_en').eq('aula_id', miAula),
     ]).then(async ([{ data: tData }, { data: mData }, { data: vData }]) => {
       const now = new Date().toISOString();
-      const mFiltered = (mData || []).filter(m => !m.publicar_en || m.publicar_en <= now);
-      setTemas(tData || []); setMats(mFiltered); setVideosAula(vData || []); setLoading(false);
+      const mFiltered = (mData || []).filter(m => !m.oculto).filter(m => !m.publicar_en || m.publicar_en <= now);
+      setTemas(tData || []); setMats(mFiltered); setVideosAula((vData || []).filter(v => !v.oculto)); setLoading(false);
       // Temas cerrados por defecto (el alumno abre el que quiera).
       if (mData?.length && alumno?.id) {
         const matIds = (mData || []).filter(m => m.max_vistas != null).map(m => m.id);
