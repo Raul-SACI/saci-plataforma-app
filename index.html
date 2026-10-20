@@ -9995,6 +9995,8 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoPicker, setBancoPicker] = useState(false);// elegir del banco para la evaluación
   const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
   const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
+  const [usadasMap, setUsadasMap] = useState({});       // { textoNormalizado: [títulos de evaluaciones donde ya se usó] }
+  const [ocultarUsadas, setOcultarUsadas] = useState(false); // filtro: esconder las ya usadas en el picker
   const [parteDestino, setParteDestino] = useState('teorica'); // a qué parte se agregan las del banco/Excel
   const [resModal, setResModal] = useState(false);      // tablero de resultados del parcial
   const [resMap, setResMap] = useState({});             // { alumno_id: nota } del parcial elegido
@@ -10304,6 +10306,28 @@ function AdminEvaluaciones({ aulaActiva }) {
     await supabase.from('banco_preguntas').delete().eq('id', id);
     setBanco(b => b.filter(x => x.id !== id));
   };
+  // Normaliza el texto de una pregunta para comparar (minúsculas, espacios colapsados).
+  const normQ = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  // Arma el mapa de preguntas YA USADAS en evaluaciones (de todas las aulas), por texto,
+  // para avisar cuáles no conviene repetir. Excluye la evaluación que se está editando.
+  const cargarUsadas = async () => {
+    try {
+      const { data } = await supabase.from('evaluaciones').select('id, titulo, preguntas');
+      const map = {};
+      (data || []).forEach(ev => {
+        if (editing && ev.id === editing) return;   // no contar la que estoy editando
+        (Array.isArray(ev.preguntas) ? ev.preguntas : []).forEach(p => {
+          const k = normQ(p && p.texto);
+          if (!k) return;
+          (map[k] = map[k] || new Set()).add((ev.titulo || 'Evaluación').trim());
+        });
+      });
+      const out = {}; Object.keys(map).forEach(k => { out[k] = [...map[k]]; });
+      setUsadasMap(out);
+    } catch { setUsadasMap({}); }
+  };
+  const abrirBancoPicker = () => { setBancoSel([]); setBancoBusca(''); setOcultarUsadas(false); setBancoPicker(true); cargarUsadas(); };
+
   // Agrega las preguntas elegidas del banco a la evaluación que se está armando.
   const agregarDelBanco = () => {
     const elegidas = banco.filter(b => bancoSel.includes(b.id)).map(b => ({
@@ -10436,7 +10460,7 @@ function AdminEvaluaciones({ aulaActiva }) {
                   <select value={parteDestino} onChange={e=>setParteDestino(e.target.value)} style={{fontSize:'0.72rem',padding:'3px 6px'}}>
                     {PARTES.map(pt => <option key={pt.key} value={pt.key}>{pt.icon} {pt.label}</option>)}
                   </select>
-                  <button type="button" className="btn btn-primary btn-sm" onClick={() => { setBancoSel([]); setBancoBusca(''); setBancoPicker(true); }}>🏦 Elegir del banco</button>
+                  <button type="button" className="btn btn-primary btn-sm" onClick={abrirBancoPicker}>🏦 Elegir del banco</button>
                   <button type="button" className="btn btn-ghost btn-sm" onClick={descargarPlantillaQuiz}>⬇️ Plantilla Excel</button>
                   <label className="btn btn-ghost btn-sm" style={{margin:0,cursor:'pointer'}}>
                     📤 Importar Excel
@@ -10741,13 +10765,21 @@ function AdminEvaluaciones({ aulaActiva }) {
       {/* Elegir preguntas del banco para la evaluación */}
       {bancoPicker && (() => {
         const filtro = bancoBusca.trim().toLowerCase();
-        const lista = banco.filter(q => !filtro || (q.texto||'').toLowerCase().includes(filtro) || (q.tema||'').toLowerCase().includes(filtro));
+        const usadaDe = (q) => usadasMap[normQ(q.texto)] || null;   // null o lista de títulos
+        const lista = banco
+          .filter(q => !filtro || (q.texto||'').toLowerCase().includes(filtro) || (q.tema||'').toLowerCase().includes(filtro))
+          .filter(q => !ocultarUsadas || !usadaDe(q));
+        const totalUsadas = banco.filter(q => usadaDe(q)).length;
         const grupos = Object.entries(lista.reduce((a,q)=>{ const k=q.tema||'Sin tema'; (a[k]=a[k]||[]).push(q); return a; },{}));
         return (
           <Modal title="🏦 Elegir preguntas del banco" onClose={() => setBancoPicker(false)}>
             {banco.length === 0 ? <Empty icon="🏦" text="El banco está vacío. Cargá preguntas desde 🏦 Banco de preguntas." /> : (
               <>
-                <input placeholder="Buscar por texto o tema…" value={bancoBusca} onChange={e => setBancoBusca(e.target.value)} style={{marginBottom:10}} />
+                <input placeholder="Buscar por texto o tema…" value={bancoBusca} onChange={e => setBancoBusca(e.target.value)} style={{marginBottom:8}} />
+                <label style={{display:'flex',alignItems:'center',gap:8,fontSize:'0.8rem',color:'var(--text2)',marginBottom:8,cursor:'pointer'}}>
+                  <input type="checkbox" checked={ocultarUsadas} onChange={e=>setOcultarUsadas(e.target.checked)} style={{width:'auto',margin:0}} />
+                  Ocultar las que ya usé en otras evaluaciones {totalUsadas>0 && <span className="chip chip-yellow" style={{fontSize:'0.66rem'}}>{totalUsadas} ya usada{totalUsadas>1?'s':''}</span>}
+                </label>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                   <span style={{fontSize:'0.78rem',color:'var(--text2)'}}>Elegidas: {bancoSel.length}</span>
                   <div style={{display:'flex',gap:6}}>
@@ -10761,10 +10793,15 @@ function AdminEvaluaciones({ aulaActiva }) {
                       <div style={{fontWeight:700,fontSize:'0.76rem',color:'var(--accent)',margin:'6px 0 3px'}}>{tema}</div>
                       {qs.map(q => {
                         const sel = bancoSel.includes(q.id);
+                        const usada = usadaDe(q);
                         return (
-                          <label key={q.id} style={{display:'flex',gap:9,alignItems:'flex-start',cursor:'pointer',padding:'6px 8px',borderRadius:8,border:`1px solid ${sel?'var(--accent)':'var(--border)'}`,background:sel?'var(--surface2)':'transparent',marginBottom:4}}>
+                          <label key={q.id} style={{display:'flex',gap:9,alignItems:'flex-start',cursor:'pointer',padding:'6px 8px',borderRadius:8,border:`1px solid ${sel?'var(--accent)':usada?'var(--warning)':'var(--border)'}`,background:sel?'var(--surface2)':usada?'rgba(255,165,2,0.08)':'transparent',marginBottom:4}}>
                             <input type="checkbox" checked={sel} onChange={() => setBancoSel(s => sel ? s.filter(x=>x!==q.id) : [...s, q.id])} style={{width:'auto',marginTop:2,flexShrink:0}} />
-                            <span style={{fontSize:'0.82rem'}}>{q.texto} <span style={{color:'var(--text2)'}}>· {(q.correctas||[]).length>1?'varias correctas':'una correcta'}</span></span>
+                            <span style={{fontSize:'0.82rem'}}>
+                              {usada && <span className="chip chip-yellow" style={{fontSize:'0.64rem',marginRight:6}}>⚠️ Ya usada</span>}
+                              {q.texto} <span style={{color:'var(--text2)'}}>· {(q.correctas||[]).length>1?'varias correctas':'una correcta'}</span>
+                              {usada && <span style={{display:'block',fontSize:'0.68rem',color:'var(--warning)',marginTop:2}}>Ya incluida en: {usada.join(', ')}</span>}
+                            </span>
                           </label>
                         );
                       })}
