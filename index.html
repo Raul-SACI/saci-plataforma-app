@@ -7041,6 +7041,9 @@ function AdminAlumnos({ aulaActiva }) {
   const [contratosModal, setContratosModal] = useState(null);  // alumno cuyos contratos firmados se están viendo
   const [contratosData, setContratosData] = useState([]);      // firmas del alumno (una por aula)
   const [contratosLoading, setContratosLoading] = useState(false);
+  const [videosModal, setVideosModal] = useState(null);        // alumno cuyos videos vistos se están viendo
+  const [videosData, setVideosData] = useState([]);            // [{titulo, veces, ultima}]
+  const [videosLoading, setVideosLoading] = useState(false);
   const [firmasSet, setFirmasSet] = useState(null);            // set de alumno_id que firmaron el contrato del aula actual (null = no disponible)
   const [moverModal, setMoverModal] = useState(null);          // { aulaId, aulaNombre } destino elegido para mover
   const [moverTraerPlan, setMoverTraerPlan] = useState(true);  // traer el plan de cada alumno al aula destino
@@ -7193,6 +7196,35 @@ function AdminAlumnos({ aulaActiva }) {
       toast('Para ver los contratos firmados agregá la tabla "firmas_contrato" (correr el SQL indicado).', 'error');
       setContratosModal(null);
     } finally { setContratosLoading(false); }
+  };
+
+  // Muestra los videos que vio un alumno: cuántas veces cada uno y la última fecha.
+  const verVideosVistos = async (al) => {
+    setVideosModal(al); setVideosLoading(true); setVideosData([]);
+    try {
+      const { data: vis, error } = await supabase.from('visualizaciones')
+        .select('video_id, created_at').eq('alumno_id', al.id);
+      if (error) throw error;
+      const porVideo = {};
+      (vis || []).forEach(v => {
+        const k = v.video_id;
+        if (!porVideo[k]) porVideo[k] = { veces: 0, ultima: null };
+        porVideo[k].veces++;
+        if (!porVideo[k].ultima || (v.created_at && v.created_at > porVideo[k].ultima)) porVideo[k].ultima = v.created_at;
+      });
+      const ids = Object.keys(porVideo);
+      let titulos = {};
+      if (ids.length) {
+        const { data: vids } = await supabase.from('videos').select('id, titulo').in('id', ids);
+        (vids || []).forEach(v => { titulos[v.id] = v.titulo; });
+      }
+      const filas = ids.map(id => ({ titulo: titulos[id] || '(video eliminado)', veces: porVideo[id].veces, ultima: porVideo[id].ultima }))
+        .sort((a, b) => (b.ultima || '').localeCompare(a.ultima || ''));
+      setVideosData(filas);
+    } catch (e) {
+      toast('No se pudieron cargar las visualizaciones: ' + (e.message || ''), 'error');
+      setVideosModal(null);
+    } finally { setVideosLoading(false); }
   };
 
   const desactivarTodos = async () => {
@@ -7535,6 +7567,7 @@ function AdminAlumnos({ aulaActiva }) {
                   <td>
                     <div style={{display:'flex',gap:6}}>
                       <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>✏️ Editar</button>
+                      <button className="btn btn-ghost btn-sm" title="Videos que vio" onClick={() => verVideosVistos(a)}>🎬</button>
                       <button className="btn btn-ghost btn-sm" title="Contratos firmados" onClick={() => verContratos(a)}>📄</button>
                       <button className="btn btn-ghost btn-sm" title="Cambiar contraseña" onClick={() => { setPwModal(a); setNewPw(''); setShowPw(false); }}>🔑</button>
                       <button className="btn btn-danger btn-sm" onClick={() => remove(a.id)}>🗑️</button>
@@ -7676,6 +7709,34 @@ function AdminAlumnos({ aulaActiva }) {
                 </div>
               ))}
             </div>
+          )}
+        </Modal>
+      )}
+
+      {videosModal && (
+        <Modal title={`🎬 Videos que vio — ${videosModal.nombre}`} onClose={() => { setVideosModal(null); setVideosData([]); }}>
+          {videosLoading ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+          ) : videosData.length === 0 ? (
+            <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>
+              <div style={{fontSize:'2rem',marginBottom:8}}>🎬</div>
+              <div>Este alumno todavía no vio ningún video.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:12}}>Vio <b style={{color:'var(--text)'}}>{videosData.length}</b> video(s) distinto(s) · {videosData.reduce((s,v)=>s+v.veces,0)} visualización(es) en total.</div>
+              <div style={{maxHeight:420,overflowY:'auto',display:'flex',flexDirection:'column',gap:8}}>
+                {videosData.map((v, i) => (
+                  <div key={i} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'10px 14px',border:'1px solid var(--border)',borderRadius:10,background:'var(--surface2)'}}>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontWeight:600,fontSize:'0.88rem'}}>{v.titulo}</div>
+                      <div style={{fontSize:'0.76rem',color:'var(--text2)'}}>Última vez: {v.ultima ? new Date(v.ultima).toLocaleString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit',timeZone:'America/Argentina/Buenos_Aires'}) : '—'}</div>
+                    </div>
+                    <span className="chip" style={{background:'rgba(108,99,255,0.14)',color:'var(--accent)',fontWeight:700,flexShrink:0}}>{v.veces} {v.veces===1?'vez':'veces'}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </Modal>
       )}
