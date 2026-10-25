@@ -9326,6 +9326,8 @@ function AdminMateriales({ aulaActiva }) {
   const [vistaTab, setVistaTab] = useState('temas');
   const [dragTema, setDragTema] = useState(null);
   const [dragOverTema, setDragOverTema] = useState(null);
+  const [dragMat, setDragMat] = useState(null);       // { id, sub } material que se arrastra
+  const [dragOverMat, setDragOverMat] = useState(null); // id del material sobre el que se suelta
   const [resumenPicker, setResumenPicker] = useState(null);   // { tema, subKey, label } — elegir videos resumen
   const fileRef = useRef();
   const toast = useToast();
@@ -9543,19 +9545,34 @@ function AdminMateriales({ aulaActiva }) {
     }
   };
 
-  // Reordena un material dentro de su subtema (sube/baja). items = materiales del subtema en orden.
-  const moverMaterial = async (items, index, dir) => {
-    const target = index + dir;
-    if (index < 0 || target < 0 || target >= items.length) return;
-    const arr = items.slice();
-    [arr[index], arr[target]] = [arr[target], arr[index]];
-    // Optimista: reflejo el nuevo orden al instante reasignando orden secuencial al grupo.
+  // Persiste el orden de un subtema: reasigna orden secuencial a cada material del grupo.
+  const aplicarOrdenGrupo = async (arr) => {
     const nuevoOrden = {}; arr.forEach((m, i) => { nuevoOrden[m.id] = i; });
+    // Optimista: se ve al instante.
     setMats(ms => ms.map(m => m.id in nuevoOrden ? { ...m, orden: nuevoOrden[m.id] } : m)
                       .sort((a, b) => (a.orden || 0) - (b.orden || 0)));
     try {
       await Promise.all(arr.map((m, i) => supabase.from('materiales').update({ orden: i }).eq('id', m.id)));
     } catch (e) { toast('No se pudo reordenar: ' + (e.message || ''), 'error'); load(); }
+  };
+  // Reordena un material dentro de su subtema con las flechas. items = materiales del subtema en orden.
+  const moverMaterial = (items, index, dir) => {
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= items.length) return;
+    const arr = items.slice();
+    [arr[index], arr[target]] = [arr[target], arr[index]];
+    aplicarOrdenGrupo(arr);
+  };
+  // Reordena arrastrando: mueve el material fromId a la posición de toId, dentro del mismo subtema.
+  const soltarMaterial = (items, fromId, toId) => {
+    if (!fromId || fromId === toId) return;
+    const from = items.findIndex(x => x.id === fromId);
+    const to = items.findIndex(x => x.id === toId);
+    if (from < 0 || to < 0) return;
+    const arr = items.slice();
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    aplicarOrdenGrupo(arr);
   };
 
   // Agrega o saca un video de la lista de resúmenes de un subtema (o del tema, subKey='').
@@ -9701,9 +9718,17 @@ function AdminMateriales({ aulaActiva }) {
                               )}
                               {subAbierto && g.items.map((m, mi) => {
                             const ti = TIPO_INFO[m.tipo] || { icon:'📄' };
+                            const arrastrando = dragMat && dragMat.id === m.id;
+                            const encima = dragOverMat === m.id && dragMat && dragMat.id !== m.id && dragMat.sub === g.subtema;
                             return (
-                              <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
-                                <td style={{padding:'10px 16px'}}><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
+                              <tr key={m.id}
+                                draggable
+                                onDragStart={() => setDragMat({ id: m.id, sub: g.subtema })}
+                                onDragOver={e => { if (dragMat && dragMat.sub === g.subtema) { e.preventDefault(); setDragOverMat(m.id); } }}
+                                onDragEnd={() => { setDragMat(null); setDragOverMat(null); }}
+                                onDrop={e => { e.preventDefault(); if (dragMat && dragMat.sub === g.subtema) soltarMaterial(g.items, dragMat.id, m.id); setDragMat(null); setDragOverMat(null); }}
+                                style={{borderTop: encima ? '2px solid var(--accent)' : '1px solid var(--border)',background:'var(--surface)',opacity:arrastrando?0.4:1}}>
+                                <td style={{padding:'10px 16px'}}><span style={{color:'var(--text2)',cursor:'grab',userSelect:'none',marginRight:6}} title="Arrastrar para reordenar">⠿</span><span style={{fontSize:'1.3rem'}}>{ti.icon}</span></td>
                                 <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{m.unidad||m.titulo}</strong>{m.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{m.publicar_en && new Date(m.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(m.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(m.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{m.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{m.descripcion}</span></>}</td>
                                 <td style={{padding:'10px 16px'}}>
                                   <div style={{display:'flex',alignItems:'center',gap:8}}>
