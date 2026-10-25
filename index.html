@@ -8522,6 +8522,7 @@ function AdminVideos({ aulaActiva }) {
   const [statsModal, setStatsModal] = useState(null); // video seleccionado para ver stats
   const [statsData, setStatsData] = useState([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [reproModal, setReproModal] = useState(null); // video que el docente reproduce
   const [sumarAlumnoId, setSumarAlumnoId] = useState(''); // alumno elegido para sumarle una visualización
   const [form, setForm] = useState({ titulo: '', descripcion: '', bunny_id: '', bunny_library: BUNNY_LIBRARY, url_externa: '', orden: 0, tema_id: '', max_vistas: '', publicar_en: '', vence_en: '', precio_extension: '', para_todos: true, alumnos_ids: [] });
   const [bunnyLibSel, setBunnyLibSel] = useState(BUNNY_LIBRARY);   // repositorio elegido para buscar
@@ -8735,6 +8736,22 @@ function AdminVideos({ aulaActiva }) {
     ));
   };
 
+  // URL embebible del video (Bunny / YouTube / Vimeo / Drive / URL directa) para reproducirlo.
+  const embedUrlDe = (v) => {
+    const bid = v.bunny_id || v.bunny_video_id;
+    if (bid) return `https://iframe.mediadelivery.net/embed/${v.bunny_library || BUNNY_LIBRARY}/${bid}?autoplay=true&loop=false&muted=false&preload=true`;
+    if (v.url_externa) {
+      const ytM = v.url_externa.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)+([\w-]+)/);
+      if (ytM) return `https://www.youtube.com/embed/${ytM[1]}`;
+      const vmM = v.url_externa.match(/vimeo\.com\/(\d+)/);
+      if (vmM) return `https://player.vimeo.com/video/${vmM[1]}`;
+      const gdM = v.url_externa.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
+      if (gdM) return `https://drive.google.com/file/d/${gdM[1]}/preview`;
+      return v.url_externa;
+    }
+    return null;
+  };
+
   // Oculta/muestra un video a los alumnos sin borrarlo.
   const toggleOculto = async (v) => {
     const nuevo = !v.oculto;
@@ -8889,7 +8906,7 @@ function AdminVideos({ aulaActiva }) {
                               <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
                               <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                               <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" title="Reproducir" onClick={() => setReproModal(v)}>▶️</button><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                             </tr>
                           ))}
                         </tbody>
@@ -8918,7 +8935,7 @@ function AdminVideos({ aulaActiva }) {
                           <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
                           <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}</td>
                           <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                          <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️ Asignar tema</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                          <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" title="Reproducir" onClick={() => setReproModal(v)}>▶️</button><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️ Asignar tema</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                         </tr>
                       ))}
                     </tbody>
@@ -8943,7 +8960,7 @@ function AdminVideos({ aulaActiva }) {
                     <td style={{color:'var(--text2)',fontSize:'0.82rem'}}>{temas.find(t=>t.id===v.tema_id)?.nombre||'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)?<span className="chip chip-blue">Bunny</span>:v.url_externa?<span className="chip chip-green">URL</span>:'—'}</td>
                     <td>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:44,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                    <td><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                    <td><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" title="Reproducir" onClick={() => setReproModal(v)}>▶️</button><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -8951,6 +8968,23 @@ function AdminVideos({ aulaActiva }) {
           </div>
         )
       )}
+
+            {/* Reproductor del video (para el docente) */}
+      {reproModal && (() => {
+        const src = embedUrlDe(reproModal);
+        return (
+          <Modal title={`▶️ ${reproModal.titulo}`} onClose={() => setReproModal(null)}>
+            {src ? (
+              <div style={{position:'relative',width:'100%',paddingTop:'56.25%',borderRadius:10,overflow:'hidden',background:'#000'}}>
+                <iframe src={src} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',border:0}} allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowFullScreen />
+              </div>
+            ) : (
+              <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>Este video no tiene una fuente reproducible (ni Bunny ni URL).</div>
+            )}
+            <div style={{fontSize:'0.76rem',color:'var(--text2)',marginTop:10}}>Vista del docente · no cuenta como visualización de ningún alumno.</div>
+          </Modal>
+        );
+      })()}
 
             {/* Modal estadísticas de visualizaciones */}
       {statsModal && (
