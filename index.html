@@ -9543,6 +9543,21 @@ function AdminMateriales({ aulaActiva }) {
     }
   };
 
+  // Reordena un material dentro de su subtema (sube/baja). items = materiales del subtema en orden.
+  const moverMaterial = async (items, index, dir) => {
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= items.length) return;
+    const arr = items.slice();
+    [arr[index], arr[target]] = [arr[target], arr[index]];
+    // Optimista: reflejo el nuevo orden al instante reasignando orden secuencial al grupo.
+    const nuevoOrden = {}; arr.forEach((m, i) => { nuevoOrden[m.id] = i; });
+    setMats(ms => ms.map(m => m.id in nuevoOrden ? { ...m, orden: nuevoOrden[m.id] } : m)
+                      .sort((a, b) => (a.orden || 0) - (b.orden || 0)));
+    try {
+      await Promise.all(arr.map((m, i) => supabase.from('materiales').update({ orden: i }).eq('id', m.id)));
+    } catch (e) { toast('No se pudo reordenar: ' + (e.message || ''), 'error'); load(); }
+  };
+
   // Agrega o saca un video de la lista de resúmenes de un subtema (o del tema, subKey='').
   const toggleVideoResumen = async (tema, subKey, videoId) => {
     const base = tema.videos_resumen && typeof tema.videos_resumen === 'object' && !Array.isArray(tema.videos_resumen) ? tema.videos_resumen : {};
@@ -9684,7 +9699,7 @@ function AdminMateriales({ aulaActiva }) {
                                   </td>
                                 </tr>
                               )}
-                              {subAbierto && g.items.map(m => {
+                              {subAbierto && g.items.map((m, mi) => {
                             const ti = TIPO_INFO[m.tipo] || { icon:'📄' };
                             return (
                               <tr key={m.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
@@ -9700,6 +9715,8 @@ function AdminMateriales({ aulaActiva }) {
                                 </td>
                                 <td style={{padding:'10px 16px'}}>
                                   <div style={{display:'flex',gap:6}}>
+                                    <button className="btn btn-ghost btn-sm" title="Subir" disabled={mi<=0} onClick={() => moverMaterial(g.items, mi, -1)}>▲</button>
+                                    <button className="btn btn-ghost btn-sm" title="Bajar" disabled={mi>=g.items.length-1} onClick={() => moverMaterial(g.items, mi, 1)}>▼</button>
                                     <button className="btn btn-ghost btn-sm" onClick={() => window.open(m.url,'_blank')}>👁️ Ver</button>
                                     <button className="btn btn-ghost btn-sm" onClick={() => verStats(m)} title="Visualizaciones">📊</button>
                                     <button className="btn btn-ghost btn-sm" onClick={() => openEdit(m)}>✏️</button><button className="btn btn-ghost btn-sm" title={m.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(m)}>{m.oculto?'🙈':'🚫'}</button>
