@@ -13285,6 +13285,7 @@ function App() {
     { id: 'materiales', icon: '📄', label: 'Materiales' },
     { id: 'evaluaciones', icon: '📝', label: 'Evaluaciones' },
     { id: 'extensiones', icon: '⏱️', label: 'Extensiones' },
+    { id: 'ver-como-alumno', icon: '👁', label: 'Ver como alumno' },
     { id: 'logout', icon: '🚪', label: 'Cerrar sesión' },
   ];
 
@@ -13372,6 +13373,7 @@ function App() {
                     setMasOpen(false);
                     if (item.id === 'logout') handleLogout();
                     else if (item.id === 'salir-preview') salirPreview();
+                    else if (item.id === 'ver-como-alumno') abrirPreview();
                     else setPage(item.id);
                   }}
                   style={{
