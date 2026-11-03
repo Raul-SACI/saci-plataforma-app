@@ -11286,6 +11286,16 @@ function AlumnoVideos({ alumno, user }) {
               {venceProximo(v) ? '⚠️ Vence' : '⌛ Disponible hasta'} el {fmtVence(v.vence_en)}
             </div>
           ) : null}
+          {alumno?.id && (() => {
+            const vistas = contadoresVistas[v.id] || 0;
+            return (
+              <div style={{fontSize:'0.68rem',marginTop:2,color:'var(--text2)'}}>
+                👁️ {v.max_vistas != null
+                  ? `${vistas} de ${v.max_vistas} visualización${v.max_vistas !== 1 ? 'es' : ''}`
+                  : `${vistas} visualización${vistas !== 1 ? 'es' : ''}`}
+              </div>
+            );
+          })()}
           {puedeComprarExtension(v) && (
             <button onClick={e => { e.stopPropagation(); setVencidoAviso(v); }}
               style={{marginTop:5,display:'inline-flex',alignItems:'center',gap:5,background:'var(--success)',color:'#fff',border:'none',borderRadius:20,padding:'3px 10px',fontSize:'0.68rem',fontWeight:700,cursor:'pointer'}}>
