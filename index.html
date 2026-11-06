@@ -7029,6 +7029,10 @@ function AdminAlumnos({ aulaActiva }) {
   const [notasMap, setNotasMap] = useState({});    // { alumno_id: { parcial: { nota, objetivo } } }
   const [notaModal, setNotaModal] = useState(null);   // { alumno, parcial, nota, objetivo } para cargar/corregir
   const [notaSaving, setNotaSaving] = useState(false);
+  const [aulasModal, setAulasModal] = useState(null);   // alumno al que se le habilitan aulas extra
+  const [aulasSel, setAulasSel] = useState([]);         // ids de aulas extra seleccionadas
+  const [aulasAccLoading, setAulasAccLoading] = useState(false);
+  const [aulasAccSaving, setAulasAccSaving] = useState(false);
   const [orden, setOrden] = useState('az');         // 'az' o 'za'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -7288,6 +7292,40 @@ function AdminAlumnos({ aulaActiva }) {
       return copy;
     });
     setNotaModal(null);
+  };
+
+  // Abrir el modal para habilitar a un alumno el acceso a otras aulas (además de la suya).
+  const abrirAulasAcceso = async (al) => {
+    setAulasModal(al); setAulasSel([]); setAulasAccLoading(true);
+    try {
+      const { data, error } = await supabase.from('alumnos_aulas').select('aula_id').eq('alumno_id', al.id);
+      if (error) throw error;
+      setAulasSel((data || []).map(r => r.aula_id));
+    } catch (e) {
+      toast('Para habilitar aulas extra agregá la tabla "alumnos_aulas" (correr el SQL indicado).', 'error');
+      setAulasModal(null);
+    } finally { setAulasAccLoading(false); }
+  };
+
+  // Guardar las aulas extra habilitadas: borra las anteriores e inserta las elegidas.
+  const guardarAulasAcceso = async () => {
+    const al = aulasModal;
+    if (!al) return;
+    setAulasAccSaving(true);
+    try {
+      const { error: delErr } = await supabase.from('alumnos_aulas').delete().eq('alumno_id', al.id);
+      if (delErr) throw delErr;
+      const limpias = aulasSel.filter(id => id && id !== al.aula_id);
+      if (limpias.length) {
+        const filas = limpias.map(aula_id => ({ alumno_id: al.id, aula_id }));
+        const { error: insErr } = await supabase.from('alumnos_aulas').insert(filas);
+        if (insErr) throw insErr;
+      }
+      toast('Aulas habilitadas actualizadas ✅', 'success');
+      setAulasModal(null);
+    } catch (e) {
+      toast('No se pudo guardar: ' + (e.message || ''), 'error');
+    } finally { setAulasAccSaving(false); }
   };
 
   const desactivarTodos = async () => {
@@ -7658,6 +7696,7 @@ function AdminAlumnos({ aulaActiva }) {
                     <div style={{display:'flex',gap:6}}>
                       <button className="btn btn-ghost btn-sm" onClick={() => openEdit(a)}>✏️ Editar</button>
                       <button className="btn btn-ghost btn-sm" title="Videos que vio" onClick={() => verVideosVistos(a)}>🎬</button>
+                      <button className="btn btn-ghost btn-sm" title="Aulas habilitadas" onClick={() => abrirAulasAcceso(a)}>🏫</button>
                       <button className="btn btn-ghost btn-sm" title="Contratos firmados" onClick={() => verContratos(a)}>📄</button>
                       <button className="btn btn-ghost btn-sm" title="Cambiar contraseña" onClick={() => { setPwModal(a); setNewPw(''); setShowPw(false); }}>🔑</button>
                       <button className="btn btn-danger btn-sm" onClick={() => remove(a.id)}>🗑️</button>
@@ -7882,6 +7921,48 @@ function AdminAlumnos({ aulaActiva }) {
           </Modal>
         );
       })()}
+
+      {aulasModal && (
+        <Modal title={`🏫 Aulas habilitadas — ${aulasModal.nombre}`} onClose={() => setAulasModal(null)}>
+          <div style={{padding:'4px 2px'}}>
+            {aulasAccLoading ? (
+              <div style={{textAlign:'center',padding:'24px 0',color:'var(--text2)'}}>⏳ Cargando...</div>
+            ) : (
+              <>
+                <div style={{fontSize:'0.84rem',color:'var(--text2)',marginBottom:12,lineHeight:1.5}}>
+                  El alumno siempre accede a su <b>aula principal</b>. Tildá acá las <b>aulas adicionales</b> a las que querés que también pueda entrar. En la app le aparecerá un selector para cambiar de aula.
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:10,background:'var(--surface2)',border:'1px solid var(--border)',marginBottom:10}}>
+                  <span style={{fontSize:'1.1rem'}}>🎓</span>
+                  <div>
+                    <div style={{fontWeight:700,fontSize:'0.88rem'}}>{aulasLista.find(x => x.id === aulasModal.aula_id)?.nombre || '(sin aula principal)'}</div>
+                    <div style={{fontSize:'0.72rem',color:'var(--text2)'}}>Aula principal (siempre habilitada)</div>
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:6,maxHeight:320,overflowY:'auto'}}>
+                  {aulasLista.filter(x => x.id !== aulasModal.aula_id).length === 0 ? (
+                    <div style={{color:'var(--text2)',fontSize:'0.85rem',padding:'8px 0'}}>No hay otras aulas para habilitar.</div>
+                  ) : aulasLista.filter(x => x.id !== aulasModal.aula_id).map(au => {
+                    const marcada = aulasSel.includes(au.id);
+                    return (
+                      <label key={au.id} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:10,cursor:'pointer',border:`1px solid ${marcada?'var(--accent)':'var(--border)'}`,background:marcada?'rgba(108,92,231,0.1)':'var(--surface)'}}>
+                        <input type="checkbox" checked={marcada} style={{width:'auto'}}
+                          onChange={e => setAulasSel(prev => e.target.checked ? [...prev, au.id] : prev.filter(id => id !== au.id))} />
+                        <span style={{fontWeight:600,fontSize:'0.88rem'}}>{au.nombre}</span>
+                        {au.estado === 'cerrada' && <span className="chip chip-red" style={{fontSize:'0.66rem'}}>cerrada</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button className="btn btn-ghost" onClick={() => setAulasModal(null)} disabled={aulasAccSaving}>Cancelar</button>
+            <button className="btn btn-primary" onClick={guardarAulasAcceso} disabled={aulasAccLoading || aulasAccSaving}>{aulasAccSaving ? '⏳ Guardando...' : '💾 Guardar'}</button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 
@@ -13166,6 +13247,14 @@ function App() {
   const [avisoAula, setAvisoAula] = useState(null);  // aviso del aula del alumno (cartel al entrar)
   const [contratoPend, setContratoPend] = useState(undefined);  // undefined=chequeando, null=firmado, {texto}=debe firmar
   const [notaPend, setNotaPend] = useState(undefined);          // undefined=chequeando, null=ok, {parcial}=debe cargar nota
+  const [pagoPend, setPagoPend] = useState(undefined);          // undefined=chequeando, false=ok, true=pago vencido (del aula activa)
+  // Multi-aula del alumno: aula activa elegida + lista de aulas a las que puede acceder.
+  const [aulaAlumno, setAulaAlumnoState] = useState(null);      // id del aula que el alumno está viendo
+  const [aulasAlumno, setAulasAlumno] = useState([]);           // [{id, nombre, estado}] accesibles por el alumno
+  const setAulaAlumno = (id) => {
+    setAulaAlumnoState(id);
+    try { if (id) localStorage.setItem('saci_aula_alumno', id); else localStorage.removeItem('saci_aula_alumno'); } catch (_) {}
+  };
   // Aula en la que el admin está trabajando. Se guarda como preferencia local (no es dato de negocio).
   const [aulaActiva, setAulaActivaState] = useState(() => localStorage.getItem('saci_aula_activa') || null);
   const [aulasLista, setAulasLista] = useState([]);
@@ -13175,6 +13264,41 @@ function App() {
     else localStorage.removeItem('saci_aula_activa');
   };
   const toast = useToast();
+
+  // Aula que el alumno está viendo (la elegida, o su aula principal por defecto).
+  const esAlumnoLogueado = !!(auth && !auth.isAdmin && auth.alumno);
+  const aulaAlumnoActiva = esAlumnoLogueado ? (aulaAlumno || auth.alumno.aula_id || null) : null;
+  // El alumno tal como lo ven las páginas: con el aula activa (puede diferir de la principal).
+  const alumnoActivo = esAlumnoLogueado ? { ...auth.alumno, aula_id: aulaAlumnoActiva } : (auth ? auth.alumno : null);
+
+  // Aulas a las que el alumno puede acceder: la principal + las habilitadas en alumnos_aulas.
+  useEffect(() => {
+    if (!auth || auth.isAdmin || !auth.alumno?.id) { setAulasAlumno([]); return; }
+    let cancel = false;
+    (async () => {
+      let extras = [];
+      try {
+        const { data, error } = await supabase.from('alumnos_aulas').select('aula_id').eq('alumno_id', auth.alumno.id);
+        if (!error) extras = (data || []).map(r => r.aula_id);
+      } catch (_) {}
+      const ids = [...new Set([auth.alumno.aula_id, ...extras].filter(Boolean))];
+      let list = [];
+      if (ids.length) {
+        const { data: aulas } = await supabase.from('aulas').select('id, nombre, estado').in('id', ids);
+        // Se oculta un aula extra cerrada; la principal se mantiene siempre.
+        list = (aulas || []).filter(a => a.estado !== 'cerrada' || a.id === auth.alumno.aula_id);
+        list.sort((a, b) => (a.id === auth.alumno.aula_id ? -1 : 0) - (b.id === auth.alumno.aula_id ? -1 : 0) || (a.nombre || '').localeCompare(b.nombre || ''));
+      }
+      if (cancel) return;
+      setAulasAlumno(list);
+      // Elegir el aula activa: la guardada (si sigue habilitada) o la principal.
+      let guardada = null;
+      try { guardada = localStorage.getItem('saci_aula_alumno'); } catch (_) {}
+      const valida = list.find(a => a.id === guardada);
+      setAulaAlumnoState(valida ? guardada : (auth.alumno.aula_id || null));
+    })();
+    return () => { cancel = true; };
+  }, [auth]);
 
   // Cargar la lista de aulas (para el selector de arriba)
   useEffect(() => {
@@ -13196,49 +13320,47 @@ function App() {
   // Aviso del aula: si el alumno pertenece a un aula con un aviso cargado, se lo mostramos
   // como cartel al entrar (una vez por sesión; vuelve a aparecer en el próximo inicio de sesión).
   useEffect(() => {
-    const al = auth?.alumno;
-    if (!auth || auth.isAdmin || !al?.aula_id) return;
+    if (!auth || auth.isAdmin || !aulaAlumnoActiva) return;
     let cancelado = false;
-    const key = `aviso_visto_${al.aula_id}`;
+    const key = `aviso_visto_${aulaAlumnoActiva}`;
     try { if (sessionStorage.getItem(key)) return; } catch (_) {}
-    supabase.from('aulas').select('aviso').eq('id', al.aula_id).single()
+    supabase.from('aulas').select('aviso').eq('id', aulaAlumnoActiva).single()
       .then(({ data }) => { if (!cancelado && data?.aviso && data.aviso.trim()) setAvisoAula(data.aviso.trim()); });
     return () => { cancelado = true; };
-  }, [auth]);
+  }, [auth, aulaAlumnoActiva]);
 
   const cerrarAviso = () => {
-    const al = auth?.alumno;
-    if (al?.aula_id) { try { sessionStorage.setItem(`aviso_visto_${al.aula_id}`, '1'); } catch (_) {} }
+    if (aulaAlumnoActiva) { try { sessionStorage.setItem(`aviso_visto_${aulaAlumnoActiva}`, '1'); } catch (_) {} }
     setAvisoAula(null);
   };
 
   // ¿El alumno ya firmó el contrato de su aula actual? Si no, hay que pedirle la firma (bloqueante).
   useEffect(() => {
     const al = auth?.alumno;
-    if (!auth || auth.isAdmin || !al?.aula_id) { setContratoPend(null); return; }
+    if (!auth || auth.isAdmin || !al || !aulaAlumnoActiva) { setContratoPend(null); return; }
     let cancel = false;
     (async () => {
       try {
         const { data, error } = await supabase.from('firmas_contrato')
-          .select('aula_id').eq('alumno_id', al.id).eq('aula_id', al.aula_id).limit(1);
+          .select('aula_id').eq('alumno_id', al.id).eq('aula_id', aulaAlumnoActiva).limit(1);
         if (error) throw error;                                  // tabla sin crear → no bloquear
         if (data && data.length) { if (!cancel) setContratoPend(null); return; }  // ya firmó esta aula
         let texto = TYC_TEXTO;
-        try { const { data: aula } = await supabase.from('aulas').select('contrato').eq('id', al.aula_id).single(); if (aula?.contrato && aula.contrato.trim()) texto = aula.contrato; } catch (_) {}
+        try { const { data: aula } = await supabase.from('aulas').select('contrato').eq('id', aulaAlumnoActiva).single(); if (aula?.contrato && aula.contrato.trim()) texto = aula.contrato; } catch (_) {}
         if (!cancel) setContratoPend({ texto });
       } catch (_) { if (!cancel) setContratoPend(null); }         // ante cualquier error, no bloquear
     })();
     return () => { cancel = true; };
-  }, [auth]);
+  }, [auth, aulaAlumnoActiva]);
 
   // ¿El aula del alumno exige cargar la nota de un parcial? Si sí y todavía no la cargó, es bloqueante.
   useEffect(() => {
     const al = auth?.alumno;
-    if (!auth || auth.isAdmin || !al?.aula_id) { setNotaPend(null); return; }
+    if (!auth || auth.isAdmin || !al || !aulaAlumnoActiva) { setNotaPend(null); return; }
     let cancel = false;
     (async () => {
       try {
-        const { data: aula, error } = await supabase.from('aulas').select('nota_obligatoria').eq('id', al.aula_id).single();
+        const { data: aula, error } = await supabase.from('aulas').select('nota_obligatoria').eq('id', aulaAlumnoActiva).single();
         if (error) throw error;                                   // columna sin crear → no bloquear
         const parcial = aula?.nota_obligatoria;
         if (!parcial) { if (!cancel) setNotaPend(null); return; } // no exigido en esta aula
@@ -13255,7 +13377,21 @@ function App() {
       } catch (_) { if (!cancel) setNotaPend(null); }             // ante cualquier error, no bloquear
     })();
     return () => { cancel = true; };
-  }, [auth]);
+  }, [auth, aulaAlumnoActiva]);
+
+  // ¿El alumno tiene un pago vencido en el aula activa? Si sí, es bloqueante (se re-chequea al cambiar de aula).
+  useEffect(() => {
+    const al = auth?.alumno;
+    if (!auth || auth.isAdmin || !al?.id || !aulaAlumnoActiva) { setPagoPend(false); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const v = await tienePagoVencido(al.id, aulaAlumnoActiva);
+        if (!cancel) setPagoPend(!!v);
+      } catch (_) { if (!cancel) setPagoPend(false); }
+    })();
+    return () => { cancel = true; };
+  }, [auth, aulaAlumnoActiva]);
 
   // Abrir el modal de "Ver como alumno": carga la lista de alumnos activos del aula activa.
   const abrirPreview = async () => {
@@ -13336,27 +13472,30 @@ function App() {
   if (!auth.isAdmin && !(auth.alumno && auth.alumno.estado === 'activo'))
     return <PantallaEspera alumno={auth.alumno} onLogout={handleLogout} />;
 
-  // Alumno con un pago vencido sin regularizar: no entra hasta hablar con el docente.
-  if (!auth.isAdmin && auth.pagoVencido)
+  // Alumno con un pago vencido sin regularizar (en el aula activa): no entra hasta hablar con el docente.
+  if (!auth.isAdmin && pagoPend === undefined)
+    return <Loading />;
+  if (!auth.isAdmin && pagoPend)
     return <PantallaBloqueoPago onLogout={handleLogout} />;
 
   // Alumno que todavía no firmó el contrato de su aula actual: debe firmarlo para entrar.
   if (!auth.isAdmin && contratoPend === undefined)
     return <Loading />;
   if (!auth.isAdmin && contratoPend)
-    return <PantallaFirmaContrato texto={contratoPend.texto} alumno={auth.alumno} onFirmar={() => setContratoPend(null)} onLogout={handleLogout} />;
+    return <PantallaFirmaContrato texto={contratoPend.texto} alumno={alumnoActivo} onFirmar={() => setContratoPend(null)} onLogout={handleLogout} />;
 
   // Alumno de un aula que exige la nota de un parcial y todavía no la cargó: pantalla bloqueante.
   if (!auth.isAdmin && notaPend === undefined)
     return <Loading />;
   if (!auth.isAdmin && notaPend)
-    return <PantallaCargarNota parcial={notaPend.parcial} notaInicial={notaPend.nota} alumno={auth.alumno} onListo={() => setNotaPend(null)} onLogout={handleLogout} />;
+    return <PantallaCargarNota parcial={notaPend.parcial} notaInicial={notaPend.nota} alumno={alumnoActivo} onListo={() => setNotaPend(null)} onLogout={handleLogout} />;
 
   // Si el admin está en modo "ver como alumno", la app se comporta como ese alumno.
+  // Para un alumno real, se usa su aula ACTIVA (puede tener acceso a más de un aula).
   const enPreview = !!(auth.isAdmin && preview);
   const authEfectivo = enPreview
     ? { user: auth.user, isAdmin: false, alumno: preview }
-    : auth;
+    : (!auth.isAdmin ? { ...auth, alumno: alumnoActivo } : auth);
   const { isAdmin, alumno, user } = authEfectivo;
 
   const PAGE_MAP = {
@@ -13490,6 +13629,37 @@ function App() {
                 Elegí un aula para trabajar en ella
               </span>
             )}
+          </div>
+        )}
+        {/* Selector de aula para el alumno habilitado en más de un aula */}
+        {!isAdmin && !enPreview && aulasAlumno.length > 1 && (
+          <div style={{
+            background:'rgba(108,92,231,0.12)',
+            borderBottom:'1px solid var(--accent)',
+            padding:'8px 16px',
+            display:'flex',
+            alignItems:'center',
+            gap:10,
+            flexWrap:'wrap',
+            fontSize:'0.85rem'
+          }}>
+            <span style={{fontWeight:600}}>🏫 Aula:</span>
+            <select
+              value={aulaAlumnoActiva || ''}
+              onChange={e => {
+                const id = e.target.value || null;
+                if (id === aulaAlumnoActiva) return;
+                // Se vuelven a chequear los candados del aula elegida.
+                setContratoPend(undefined); setNotaPend(undefined); setPagoPend(undefined);
+                setAulaAlumno(id);
+                setPage('muro'); setSidebarOpen(false); setMasOpen(false);
+              }}
+              style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.85rem',fontWeight:600,cursor:'pointer'}}>
+              {aulasAlumno.map(a => (
+                <option key={a.id} value={a.id}>{a.nombre}{a.id === auth.alumno.aula_id ? ' (principal)' : ''}</option>
+              ))}
+            </select>
+            <span style={{color:'var(--text2)',fontSize:'0.78rem'}}>Tenés acceso a {aulasAlumno.length} aulas</span>
           </div>
         )}
         {PAGE_MAP[page] || <Empty icon="🔍" text="Página no encontrada" />}
