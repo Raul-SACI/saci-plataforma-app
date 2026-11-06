@@ -7027,6 +7027,8 @@ function AdminAlumnos({ aulaActiva }) {
   const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
   const [planMap, setPlanMap] = useState({});      // { alumno_id: plan del pago más reciente }
   const [notasMap, setNotasMap] = useState({});    // { alumno_id: { parcial: { nota, objetivo } } }
+  const [notaModal, setNotaModal] = useState(null);   // { alumno, parcial, nota, objetivo } para cargar/corregir
+  const [notaSaving, setNotaSaving] = useState(false);
   const [orden, setOrden] = useState('az');         // 'az' o 'za'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -7242,6 +7244,50 @@ function AdminAlumnos({ aulaActiva }) {
       toast('No se pudieron cargar las visualizaciones: ' + (e.message || ''), 'error');
       setVideosModal(null);
     } finally { setVideosLoading(false); }
+  };
+
+  // Abrir el modal para cargar/corregir la nota de un parcial de un alumno.
+  const abrirNota = (al, parcialKey) => {
+    const pk = parcialKey || 'primer';
+    const ex = notasMap[al.id]?.[pk] || {};
+    setNotaModal({ alumno: al, parcial: pk, nota: ex.nota || '', objetivo: ex.objetivo || '' });
+  };
+
+  // Guardar (upsert) la nota y el objetivo del parcial elegido.
+  const guardarNota = async () => {
+    const m = notaModal;
+    if (!m || !m.nota) return;
+    const objOpc = objetivosDeNota(m.nota);
+    const objEfectivo = objOpc.length === 1 ? objOpc[0] : m.objetivo;
+    if (objOpc.length > 1 && !objEfectivo) return toast('Elegí el objetivo', 'error');
+    setNotaSaving(true);
+    const { error } = await supabase.from('resultados_parcial').upsert(
+      { alumno_id: m.alumno.id, aula_id: m.alumno.aula_id || aulaActiva || null, parcial: m.parcial, nota: m.nota, objetivo: objEfectivo || null, updated_at: new Date().toISOString() },
+      { onConflict: 'alumno_id,parcial' }
+    );
+    setNotaSaving(false);
+    if (error) return toast(/resultados_parcial|relation|column/i.test(error.message || '') ? 'Falta correr la migración resultados_parcial.sql' : error.message, 'error');
+    toast('Nota guardada ✅', 'success');
+    setNotasMap(prev => ({ ...prev, [m.alumno.id]: { ...(prev[m.alumno.id] || {}), [m.parcial]: { nota: m.nota, objetivo: objEfectivo || null } } }));
+    setNotaModal(null);
+  };
+
+  // Quitar la nota cargada de un parcial (p.ej. si se cargó por error).
+  const borrarNota = async () => {
+    const m = notaModal;
+    if (!m) return;
+    if (!confirm(`¿Quitar la nota del ${parcialLabel(m.parcial)} de ${m.alumno.nombre}?`)) return;
+    setNotaSaving(true);
+    const { error } = await supabase.from('resultados_parcial').delete().eq('alumno_id', m.alumno.id).eq('parcial', m.parcial);
+    setNotaSaving(false);
+    if (error) return toast(error.message, 'error');
+    toast('Nota eliminada', 'success');
+    setNotasMap(prev => {
+      const copy = { ...prev };
+      if (copy[m.alumno.id]) { const inner = { ...copy[m.alumno.id] }; delete inner[m.parcial]; copy[m.alumno.id] = inner; }
+      return copy;
+    });
+    setNotaModal(null);
   };
 
   const desactivarTodos = async () => {
@@ -7585,22 +7631,25 @@ function AdminAlumnos({ aulaActiva }) {
                     {(() => {
                       const rp = notasMap[a.id];
                       const conNota = PARCIALES.filter(p => rp && rp[p.key] && rp[p.key].nota != null && rp[p.key].nota !== '');
-                      if (!conNota.length) return <span style={{color:'var(--text2)'}}>—</span>;
                       return (
                         <div style={{display:'flex',flexDirection:'column',gap:5,minWidth:200}}>
                           {conNota.map(p => {
                             const row = rp[p.key];
                             const info = situacionDeNota(row.nota, row.objetivo);
                             return (
-                              <div key={p.key} style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                              <div key={p.key} onClick={() => abrirNota(a, p.key)} title="Corregir esta nota"
+                                style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',cursor:'pointer'}}>
                                 <span style={{fontSize:'0.7rem',color:'var(--text2)',fontWeight:600,minWidth:52}}>{parcialCorto(p.key)}</span>
                                 <span className={`chip ${info?.color || 'chip-blue'}`} style={{fontSize:'0.68rem'}}>{info ? info.chip : notaLabel(row.nota)}</span>
                                 {row.objetivo
                                   ? <span className="chip chip-blue" style={{fontSize:'0.66rem'}}>🎯 {objetivoLabel(row.objetivo)}</span>
-                                  : (objetivosDeNota(row.nota).length > 1 && <span style={{fontSize:'0.66rem',color:'var(--text2)'}}>sin objetivo</span>)}
+                                  : (objetivosDeNota(row.nota).length > 1 && <span style={{fontSize:'0.66rem',color:'var(--warning)'}}>sin objetivo</span>)}
                               </div>
                             );
                           })}
+                          <button className="btn btn-ghost btn-sm" style={{alignSelf:'flex-start',fontSize:'0.72rem',padding:'2px 8px'}} onClick={() => abrirNota(a)}>
+                            {conNota.length ? '✏️ Cargar/corregir' : '➕ Cargar nota'}
+                          </button>
                         </div>
                       );
                     })()}
@@ -7781,6 +7830,58 @@ function AdminAlumnos({ aulaActiva }) {
           )}
         </Modal>
       )}
+
+      {notaModal && (() => {
+        const objOpc = objetivosDeNota(notaModal.nota);
+        const objEfectivo = objOpc.length === 1 ? objOpc[0] : notaModal.objetivo;
+        const info = situacionDeNota(notaModal.nota, objEfectivo);
+        const yaCargada = !!notasMap[notaModal.alumno.id]?.[notaModal.parcial];
+        return (
+          <Modal title={`📝 Nota — ${notaModal.alumno.nombre}`} onClose={() => setNotaModal(null)}>
+            <div style={{padding:'4px 2px'}}>
+              <div className="form-group">
+                <label>Parcial</label>
+                <select value={notaModal.parcial} onChange={e => {
+                  const pk = e.target.value;
+                  const ex = notasMap[notaModal.alumno.id]?.[pk] || {};
+                  setNotaModal(m => ({ ...m, parcial: pk, nota: ex.nota || '', objetivo: ex.objetivo || '' }));
+                }}>
+                  {PARCIALES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Nota del {parcialLabel(notaModal.parcial)}</label>
+                <select value={notaModal.nota} onChange={e => setNotaModal(m => ({ ...m, nota: e.target.value, objetivo: '' }))}>
+                  <option value="">-- Elegí la nota --</option>
+                  {NOTAS_PARCIAL.map(n => <option key={n.key} value={n.key}>{n.label}</option>)}
+                </select>
+              </div>
+              {info && <div style={{fontSize:'0.82rem',color:'var(--text2)',margin:'-4px 0 14px'}}>Situación: <b style={{color:'var(--text)'}}>{info.sit}</b></div>}
+              {notaModal.nota && objOpc.length > 1 && (
+                <div className="form-group">
+                  <label>Objetivo</label>
+                  <select value={notaModal.objetivo} onChange={e => setNotaModal(m => ({ ...m, objetivo: e.target.value }))}>
+                    <option value="">-- Elegí el objetivo --</option>
+                    {objOpc.map(o => <option key={o} value={o}>{objetivoLabel(o)}</option>)}
+                  </select>
+                </div>
+              )}
+              {notaModal.nota && objOpc.length === 1 && (
+                <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:14}}>Objetivo: <b style={{color:'var(--text)'}}>{objetivoLabel(objOpc[0])}</b></div>
+              )}
+            </div>
+            <div className="modal-footer" style={{justifyContent:'space-between'}}>
+              {yaCargada
+                ? <button className="btn btn-danger btn-sm" onClick={borrarNota} disabled={notaSaving}>🗑️ Quitar nota</button>
+                : <span />}
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn btn-ghost" onClick={() => setNotaModal(null)} disabled={notaSaving}>Cancelar</button>
+                <button className="btn btn-primary" onClick={guardarNota} disabled={!notaModal.nota || notaSaving}>{notaSaving ? '⏳ Guardando...' : '💾 Guardar'}</button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
     </div>
   );
 
