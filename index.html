@@ -13265,40 +13265,48 @@ function App() {
   };
   const toast = useToast();
 
-  // Aula que el alumno está viendo (la elegida, o su aula principal por defecto).
-  const esAlumnoLogueado = !!(auth && !auth.isAdmin && auth.alumno);
-  const aulaAlumnoActiva = esAlumnoLogueado ? (aulaAlumno || auth.alumno.aula_id || null) : null;
+  // Alumno cuyo contenido se muestra: el logueado, o el que el admin está "viendo como".
+  const previewActivo = (auth && auth.isAdmin) ? preview : null;
+  const alumnoBase = previewActivo || (auth && !auth.isAdmin ? auth.alumno : null);
+  const esVistaAlumno = !!alumnoBase;
+  // Aula que se está viendo (la elegida, o la principal del alumno por defecto).
+  const aulaAlumnoActiva = esVistaAlumno ? (aulaAlumno || alumnoBase.aula_id || null) : null;
   // El alumno tal como lo ven las páginas: con el aula activa (puede diferir de la principal).
-  const alumnoActivo = esAlumnoLogueado ? { ...auth.alumno, aula_id: aulaAlumnoActiva } : (auth ? auth.alumno : null);
+  const alumnoActivo = esVistaAlumno ? { ...alumnoBase, aula_id: aulaAlumnoActiva } : (auth ? auth.alumno : null);
 
-  // Aulas a las que el alumno puede acceder: la principal + las habilitadas en alumnos_aulas.
+  // Aulas a las que el alumno (real o en preview) puede acceder: la principal + las de alumnos_aulas.
   useEffect(() => {
-    if (!auth || auth.isAdmin || !auth.alumno?.id) { setAulasAlumno([]); return; }
+    const target = (auth && auth.isAdmin) ? preview : (auth && !auth.isAdmin ? auth.alumno : null);
+    if (!target?.id) { setAulasAlumno([]); return; }
     let cancel = false;
     (async () => {
       let extras = [];
       try {
-        const { data, error } = await supabase.from('alumnos_aulas').select('aula_id').eq('alumno_id', auth.alumno.id);
+        const { data, error } = await supabase.from('alumnos_aulas').select('aula_id').eq('alumno_id', target.id);
         if (!error) extras = (data || []).map(r => r.aula_id);
       } catch (_) {}
-      const ids = [...new Set([auth.alumno.aula_id, ...extras].filter(Boolean))];
+      const ids = [...new Set([target.aula_id, ...extras].filter(Boolean))];
       let list = [];
       if (ids.length) {
         const { data: aulas } = await supabase.from('aulas').select('id, nombre, estado').in('id', ids);
         // Se oculta un aula extra cerrada; la principal se mantiene siempre.
-        list = (aulas || []).filter(a => a.estado !== 'cerrada' || a.id === auth.alumno.aula_id);
-        list.sort((a, b) => (a.id === auth.alumno.aula_id ? -1 : 0) - (b.id === auth.alumno.aula_id ? -1 : 0) || (a.nombre || '').localeCompare(b.nombre || ''));
+        list = (aulas || []).filter(a => a.estado !== 'cerrada' || a.id === target.aula_id);
+        list.sort((a, b) => (a.id === target.aula_id ? -1 : 0) - (b.id === target.aula_id ? -1 : 0) || (a.nombre || '').localeCompare(b.nombre || ''));
       }
       if (cancel) return;
       setAulasAlumno(list);
-      // Elegir el aula activa: la guardada (si sigue habilitada) o la principal.
-      let guardada = null;
-      try { guardada = localStorage.getItem('saci_aula_alumno'); } catch (_) {}
-      const valida = list.find(a => a.id === guardada);
-      setAulaAlumnoState(valida ? guardada : (auth.alumno.aula_id || null));
+      // Elegir el aula activa. En preview se usa la principal del alumno; para el alumno real, la guardada si sigue habilitada.
+      if (auth.isAdmin) {
+        setAulaAlumnoState(target.aula_id || null);
+      } else {
+        let guardada = null;
+        try { guardada = localStorage.getItem('saci_aula_alumno'); } catch (_) {}
+        const valida = list.find(a => a.id === guardada);
+        setAulaAlumnoState(valida ? guardada : (target.aula_id || null));
+      }
     })();
     return () => { cancel = true; };
-  }, [auth]);
+  }, [auth, preview]);
 
   // Cargar la lista de aulas (para el selector de arriba)
   useEffect(() => {
@@ -13405,6 +13413,7 @@ function App() {
   // Entrar en modo vista-alumno con el alumno elegido
   const entrarPreview = (al) => {
     setPreview(al);
+    setAulaAlumnoState(al.aula_id || null);   // arranca en el aula principal del alumno previsualizado
     setPreviewModal(false);
     setPage('muro');
     setSidebarOpen(false);
@@ -13494,7 +13503,7 @@ function App() {
   // Para un alumno real, se usa su aula ACTIVA (puede tener acceso a más de un aula).
   const enPreview = !!(auth.isAdmin && preview);
   const authEfectivo = enPreview
-    ? { user: auth.user, isAdmin: false, alumno: preview }
+    ? { user: auth.user, isAdmin: false, alumno: alumnoActivo }
     : (!auth.isAdmin ? { ...auth, alumno: alumnoActivo } : auth);
   const { isAdmin, alumno, user } = authEfectivo;
 
@@ -13631,8 +13640,8 @@ function App() {
             )}
           </div>
         )}
-        {/* Selector de aula para el alumno habilitado en más de un aula */}
-        {!isAdmin && !enPreview && aulasAlumno.length > 1 && (
+        {/* Selector de aula para el alumno habilitado en más de un aula (también en "Ver como alumno") */}
+        {!isAdmin && aulasAlumno.length > 1 && (
           <div style={{
             background:'rgba(108,92,231,0.12)',
             borderBottom:'1px solid var(--accent)',
@@ -13649,17 +13658,22 @@ function App() {
               onChange={e => {
                 const id = e.target.value || null;
                 if (id === aulaAlumnoActiva) return;
-                // Se vuelven a chequear los candados del aula elegida.
-                setContratoPend(undefined); setNotaPend(undefined); setPagoPend(undefined);
-                setAulaAlumno(id);
+                if (enPreview) {
+                  // En preview no hay candados ni persistencia: solo se cambia el aula que se muestra.
+                  setAulaAlumnoState(id);
+                } else {
+                  // Se vuelven a chequear los candados del aula elegida.
+                  setContratoPend(undefined); setNotaPend(undefined); setPagoPend(undefined);
+                  setAulaAlumno(id);
+                }
                 setPage('muro'); setSidebarOpen(false); setMasOpen(false);
               }}
               style={{padding:'4px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:'0.85rem',fontWeight:600,cursor:'pointer'}}>
               {aulasAlumno.map(a => (
-                <option key={a.id} value={a.id}>{a.nombre}{a.id === auth.alumno.aula_id ? ' (principal)' : ''}</option>
+                <option key={a.id} value={a.id}>{a.nombre}{a.id === alumnoBase?.aula_id ? ' (principal)' : ''}</option>
               ))}
             </select>
-            <span style={{color:'var(--text2)',fontSize:'0.78rem'}}>Tenés acceso a {aulasAlumno.length} aulas</span>
+            <span style={{color:'var(--text2)',fontSize:'0.78rem'}}>{enPreview ? `${alumnoBase?.nombre || 'El alumno'} tiene acceso a ${aulasAlumno.length} aulas` : `Tenés acceso a ${aulasAlumno.length} aulas`}</span>
           </div>
         )}
         {PAGE_MAP[page] || <Empty icon="🔍" text="Página no encontrada" />}
