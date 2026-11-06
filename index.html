@@ -564,6 +564,9 @@ const PARCIALES = [
   { key: 'final',   label: 'Examen Final' },
 ];
 const parcialLabel = (k) => (PARCIALES.find(p => p.key === k) || {}).label || k;
+// Etiqueta corta del parcial, para tablas angostas (p.ej. en el listado de Alumnos).
+const PARCIAL_CORTO = { primer: '1° Parc.', segundo: '2° Parc.', tercer: '3° Parc.', final: 'Final' };
+const parcialCorto = (k) => PARCIAL_CORTO[k] || parcialLabel(k);
 
 // Notas puntuales que el alumno puede elegir.
 const NOTAS_PARCIAL = [
@@ -7023,6 +7026,7 @@ function AdminAlumnos({ aulaActiva }) {
   const [alumnos, setAlumnos] = useState([]);
   const [pagosMap, setPagosMap] = useState({});   // { alumno_id: total_pagado }
   const [planMap, setPlanMap] = useState({});      // { alumno_id: plan del pago más reciente }
+  const [notasMap, setNotasMap] = useState({});    // { alumno_id: { parcial: { nota, objetivo } } }
   const [orden, setOrden] = useState('az');         // 'az' o 'za'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -7077,6 +7081,19 @@ function AdminAlumnos({ aulaActiva }) {
     });
     setPagosMap(mapa);
     setPlanMap(planes);
+    // Notas por parcial de cada alumno (tabla resultados_parcial). Si la tabla o la columna
+    // objetivo todavía no existen (SQL sin correr), se degrada sin romper.
+    const idsAlu = (al.data || []).map(a => a.id);
+    const notas = {};
+    if (idsAlu.length) {
+      let rp = await supabase.from('resultados_parcial').select('alumno_id, parcial, nota, objetivo').in('alumno_id', idsAlu);
+      if (rp.error) rp = await supabase.from('resultados_parcial').select('alumno_id, parcial, nota').in('alumno_id', idsAlu);
+      if (!rp.error) (rp.data || []).forEach(r => {
+        if (!notas[r.alumno_id]) notas[r.alumno_id] = {};
+        notas[r.alumno_id][r.parcial] = { nota: r.nota, objetivo: r.objetivo };
+      });
+    }
+    setNotasMap(notas);
     // Planes del aula (para editar el plan del alumno): estándar + personalizados + los que estén en uso.
     const baseP = ['Parcial', 'Final', 'Cursado Completo'];
     let planesA = baseP;
@@ -7537,7 +7554,7 @@ function AdminAlumnos({ aulaActiva }) {
               <th style={{cursor:'pointer',userSelect:'none'}} onClick={() => setOrden(o => o === 'az' ? 'za' : 'az')} title="Ordenar por nombre">
                 Nombre {orden === 'az' ? '▲' : '▼'}
               </th>
-              <th>Email</th><th>DNI</th><th>Plan</th><th>Estado</th><th>Contrato</th><th>Total pagado</th><th>Acciones</th>
+              <th>Email</th><th>DNI</th><th>Plan</th><th>Estado</th><th>Contrato</th><th>Total pagado</th><th>Notas por parcial</th><th>Acciones</th>
             </tr></thead>
             <tbody>
               {filtered.map(a => (
@@ -7563,6 +7580,30 @@ function AdminAlumnos({ aulaActiva }) {
                     {pagosMap[a.id]
                       ? <strong style={{color:'var(--success)'}}>{fmtPesos(pagosMap[a.id])}</strong>
                       : <span style={{color:'var(--text2)'}}>$0</span>}
+                  </td>
+                  <td>
+                    {(() => {
+                      const rp = notasMap[a.id];
+                      const conNota = PARCIALES.filter(p => rp && rp[p.key] && rp[p.key].nota != null && rp[p.key].nota !== '');
+                      if (!conNota.length) return <span style={{color:'var(--text2)'}}>—</span>;
+                      return (
+                        <div style={{display:'flex',flexDirection:'column',gap:5,minWidth:200}}>
+                          {conNota.map(p => {
+                            const row = rp[p.key];
+                            const info = situacionDeNota(row.nota, row.objetivo);
+                            return (
+                              <div key={p.key} style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+                                <span style={{fontSize:'0.7rem',color:'var(--text2)',fontWeight:600,minWidth:52}}>{parcialCorto(p.key)}</span>
+                                <span className={`chip ${info?.color || 'chip-blue'}`} style={{fontSize:'0.68rem'}}>{info ? info.chip : notaLabel(row.nota)}</span>
+                                {row.objetivo
+                                  ? <span className="chip chip-blue" style={{fontSize:'0.66rem'}}>🎯 {objetivoLabel(row.objetivo)}</span>
+                                  : (objetivosDeNota(row.nota).length > 1 && <span style={{fontSize:'0.66rem',color:'var(--text2)'}}>sin objetivo</span>)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td>
                     <div style={{display:'flex',gap:6}}>
