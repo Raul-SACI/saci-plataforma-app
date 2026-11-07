@@ -8032,6 +8032,20 @@ function AdminPagos({ aulaActiva }) {
         aData = r2.data;
       } else aData = r1.data;
     }
+    // Sumar los alumnos de otra aula con ACCESO habilitado a esta (alumnos_aulas), para que también
+    // figuren acá (p. ej. como pago pendiente). La tabla puede no existir todavía.
+    try {
+      const { data: acc, error: accErr } = await supabase.from('alumnos_aulas').select('alumno_id').eq('aula_id', aulaActiva);
+      if (!accErr && acc && acc.length) {
+        const ya = new Set((aData || []).map(a => a.id));
+        const extraIds = [...new Set(acc.map(r => r.alumno_id).filter(id => id && !ya.has(id)))];
+        if (extraIds.length) {
+          let ex = await supabase.from('alumnos').select('id, nombre, estado, referido_por, ref_desc_usados').in('id', extraIds);
+          if (ex.error) ex = await supabase.from('alumnos').select('id, nombre, estado').in('id', extraIds);
+          aData = [...(aData || []), ...((ex.data) || []).map(a => ({ ...a, __acceso: true }))].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+        }
+      }
+    } catch (_) {}
     const { data: aulaRow } = await supabase.from('aulas').select('precios, referidos_monto').eq('id', aulaActiva).single();
     setPrecios(aulaRow?.precios || {});
     setRefMonto(parseFloat(aulaRow?.referidos_monto) || 0);
@@ -8418,8 +8432,8 @@ function AdminPagos({ aulaActiva }) {
           <div style={{fontSize:'0.82rem',fontWeight:700,textTransform:'uppercase',letterSpacing:'0.06em',color:'var(--warning)',marginBottom:10}}>⚠️ Alumnos sin pagos registrados ({alumnosSinPago.length})</div>
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {alumnosSinPago.map(a => (
-              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id }); setEditing(null); setAplicarDesc(false); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar un pago para este alumno" style={{display:'flex',alignItems:'center',gap:6}}>
-                {a.nombre} <span style={{color:'var(--warning)',fontWeight:700}}>+</span>
+              <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id }); setEditing(null); setAplicarDesc(false); setModal(true); }} className="btn btn-ghost btn-sm" title={a.__acceso ? 'De otra aula, con acceso habilitado · registrar un pago' : 'Registrar un pago para este alumno'} style={{display:'flex',alignItems:'center',gap:6}}>
+                {a.nombre}{a.__acceso && <span title="De otra aula, con acceso habilitado" style={{fontSize:'0.72rem'}}>🏫</span>} <span style={{color:'var(--warning)',fontWeight:700}}>+</span>
               </button>
             ))}
           </div>
@@ -8434,7 +8448,7 @@ function AdminPagos({ aulaActiva }) {
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {incompletos.map(({ a, r }) => (
               <button key={a.id} onClick={() => { setForm({ ...emptyForm, alumno_id: a.id, plan: r.plan || 'Cursado Completo' }); setEditing(null); setAplicarDesc(false); setModal(true); }} className="btn btn-ghost btn-sm" title="Registrar el pago que falta" style={{display:'flex',alignItems:'center',gap:6}}>
-                {a.nombre} <span style={{color:'var(--accent2)',fontWeight:700}}>falta $ {r.falta.toLocaleString('es-AR')}</span>
+                {a.nombre}{a.__acceso && <span title="De otra aula, con acceso habilitado" style={{fontSize:'0.72rem'}}>🏫</span>} <span style={{color:'var(--accent2)',fontWeight:700}}>falta $ {r.falta.toLocaleString('es-AR')}</span>
               </button>
             ))}
           </div>
@@ -8449,7 +8463,7 @@ function AdminPagos({ aulaActiva }) {
           <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
             {completos.map(({ a, r }) => (
               <button key={a.id} onClick={() => setFilterAlumno(a.id)} className="btn btn-ghost btn-sm" title="Ver detalle del alumno" style={{display:'flex',alignItems:'center',gap:6}}>
-                {a.nombre} <span style={{color:'var(--success)',fontWeight:700}}>$ {r.paid.toLocaleString('es-AR')}</span>
+                {a.nombre}{a.__acceso && <span title="De otra aula, con acceso habilitado" style={{fontSize:'0.72rem'}}>🏫</span>} <span style={{color:'var(--success)',fontWeight:700}}>$ {r.paid.toLocaleString('es-AR')}</span>
               </button>
             ))}
           </div>
