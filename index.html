@@ -6616,8 +6616,14 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       supabase.from('alumnos').select('id, aula_id'),
       supabase.from('alumno_aulas').select('aula_id, alumno_id'),
     ]);
-    const c = {};
-    (als || []).forEach(a => { if (a.aula_id) c[a.aula_id] = (c[a.aula_id] || 0) + 1; });
+    // Alumnos con ACCESO habilitado a otra aula (alumnos_aulas). La tabla puede no existir todavía.
+    let acc = [];
+    try { const { data, error } = await supabase.from('alumnos_aulas').select('aula_id, alumno_id'); if (!error) acc = data || []; } catch (_) {}
+    // Conteo actual por aula = alumnos con esa aula como principal + alumnos con acceso habilitado (sin duplicar).
+    const setsActual = {};
+    (als || []).forEach(a => { if (a.aula_id) (setsActual[a.aula_id] = setsActual[a.aula_id] || new Set()).add(a.id); });
+    acc.forEach(r => { if (r.aula_id) (setsActual[r.aula_id] = setsActual[r.aula_id] || new Set()).add(r.alumno_id); });
+    const c = {}; Object.keys(setsActual).forEach(k => { c[k] = setsActual[k].size; });
     setConteos(c);
     // Histórico = alumnos distintos por aula (registro alumno_aulas ∪ el aula actual, por si falta algún registro).
     const sets = {};
@@ -7073,7 +7079,20 @@ function AdminAlumnos({ aulaActiva }) {
     // Pagos: se intenta con aula_id; si la columna no existe (SQL sin correr), se cae sin ella.
     let pg = await supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago, aula_id');
     if (pg.error) pg = await supabase.from('pagos').select('alumno_id, monto, plan, fecha_pago');
-    setAlumnos(al.data || []);
+    // Lista = alumnos con esta aula como PRINCIPAL + alumnos con ACCESO habilitado (alumnos_aulas).
+    let lista = al.data || [];
+    try {
+      const { data: acc, error: accErr } = await supabase.from('alumnos_aulas').select('alumno_id').eq('aula_id', aulaActiva);
+      if (!accErr && acc && acc.length) {
+        const yaIds = new Set(lista.map(a => a.id));
+        const extraIds = [...new Set(acc.map(r => r.alumno_id).filter(id => id && !yaIds.has(id)))];
+        if (extraIds.length) {
+          const { data: extraAl } = await supabase.from('alumnos').select('*').in('id', extraIds);
+          (extraAl || []).forEach(a => lista.push({ ...a, __acceso: true }));
+        }
+      }
+    } catch (_) {}
+    setAlumnos(lista);
     setAulasLista(au.data || []);
     const mapa = {};
     // Recorrido de pagos más reciente primero para quedarnos con el plan del último pago de cada alumno.
@@ -7089,7 +7108,7 @@ function AdminAlumnos({ aulaActiva }) {
     setPlanMap(planes);
     // Notas por parcial de cada alumno (tabla resultados_parcial). Si la tabla o la columna
     // objetivo todavía no existen (SQL sin correr), se degrada sin romper.
-    const idsAlu = (al.data || []).map(a => a.id);
+    const idsAlu = lista.map(a => a.id);
     const notas = {};
     if (idsAlu.length) {
       let rp = await supabase.from('resultados_parcial').select('alumno_id, parcial, nota, objetivo').in('alumno_id', idsAlu);
@@ -7646,7 +7665,7 @@ function AdminAlumnos({ aulaActiva }) {
                   <td style={{textAlign:'center'}}>
                     <input type="checkbox" checked={seleccion.includes(a.id)} onChange={() => toggleSeleccion(a.id)} style={{cursor:'pointer'}} />
                   </td>
-                  <td><strong>{a.nombre}</strong></td>
+                  <td><strong>{a.nombre}</strong>{a.__acceso && <span className="chip chip-blue" style={{marginLeft:6,fontSize:'0.64rem'}} title="Alumno de otra aula con acceso habilitado a esta">🏫 Acceso</span>}</td>
                   <td style={{color:'var(--text2)'}}>{a.email}</td>
                   <td style={{color:'var(--text2)'}}>{a.dni || a.telefono || '—'}</td>
                   <td>{planMap[a.id]
@@ -13408,7 +13427,22 @@ function App() {
     let q = supabase.from('alumnos').select('id, nombre, email, aula_id').eq('estado','activo').order('nombre');
     if (aulaActiva) q = q.eq('aula_id', aulaActiva);
     const { data } = await q;
-    setPreviewLista(data || []);
+    let lista = data || [];
+    // También los alumnos de otra aula con acceso habilitado a la actual.
+    if (aulaActiva) {
+      try {
+        const { data: acc, error } = await supabase.from('alumnos_aulas').select('alumno_id').eq('aula_id', aulaActiva);
+        if (!error && acc && acc.length) {
+          const ya = new Set(lista.map(a => a.id));
+          const extraIds = [...new Set(acc.map(r => r.alumno_id).filter(id => id && !ya.has(id)))];
+          if (extraIds.length) {
+            const { data: ex } = await supabase.from('alumnos').select('id, nombre, email, aula_id').in('id', extraIds).eq('estado','activo');
+            lista = [...lista, ...(ex || [])].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+          }
+        }
+      } catch (_) {}
+    }
+    setPreviewLista(lista);
   };
   // Entrar en modo vista-alumno con el alumno elegido
   const entrarPreview = (al) => {
