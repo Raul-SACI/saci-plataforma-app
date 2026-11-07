@@ -7990,7 +7990,7 @@ function AdminAlumnos({ aulaActiva }) {
 function AdminPagos({ aulaActiva }) {
   const today = hoyISOArg();
   const PLANES_DEFAULT = ['Parcial', 'Final', 'Cursado Completo'];
-  const emptyForm = { alumno_id: '', plan: 'Cursado Completo', monto: '', fecha_pago: today, proximo_pago: '', notas: '' };
+  const emptyForm = { alumno_id: '', plan: 'Cursado Completo', monto: '', fecha_pago: today, proximo_pago: '', notas: '', aula_id: aulaActiva || '' };
 
   const [pagos, setPagos] = useState([]);
   const [alumnos, setAlumnos] = useState([]);
@@ -8098,7 +8098,7 @@ function AdminPagos({ aulaActiva }) {
       fecha_pago: form.fecha_pago || today,
       proximo_pago: form.proximo_pago || null,
       notas: notasFinal,
-      aula_id: (editing ? (form.aula_id || aulaActiva) : aulaActiva),   // el pago queda ligado a su aula
+      aula_id: form.aula_id || aulaActiva,   // el pago queda ligado al aula elegida en el modal (por defecto, la activa)
     };
     const guardarPago = async (pl) => editing
       ? supabase.from('pagos').update(pl).eq('id', editing)
@@ -8651,8 +8651,19 @@ function AdminPagos({ aulaActiva }) {
             <label>Alumno</label>
             <select value={form.alumno_id} onChange={e => { const v = e.target.value; setForm(p => ({ ...p, alumno_id: v })); setAplicarDesc(false); }}>
               <option value="">-- Seleccionar alumno --</option>
-              {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+              {alumnos.map(a => <option key={a.id} value={a.id}>{a.nombre}{a.__acceso ? ' (acceso)' : ''}</option>)}
             </select>
+          </div>
+
+          {/* Aula del pago: por defecto el aula activa. Útil para alumnos con acceso a más de un aula. */}
+          <div className="form-group">
+            <label>🏫 Aula a la que corresponde el pago</label>
+            <select value={form.aula_id || ''} onChange={e => setForm(p => ({ ...p, aula_id: e.target.value }))}>
+              {(aulasList.length ? aulasList : [{ id: aulaActiva, nombre: 'Aula actual' }]).map(a => (
+                <option key={a.id} value={a.id}>{a.nombre}{a.id === aulaActiva ? ' (activa)' : ''}{a.estado === 'cerrada' ? ' (cerrada)' : ''}</option>
+              ))}
+            </select>
+            <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:4}}>El pago figura en esta aula. Para un alumno que accede a varias, elegí la correcta.</div>
           </div>
 
           {/* Plan */}
