@@ -1082,6 +1082,20 @@ async function tienePagoVencido(alumnoId, aulaId) {
   } catch { return false; }
 }
 
+// ¿El alumno tiene un pago INCOMPLETO en este aula (pagó una parte del plan pero no el total)?
+// Usa la misma lógica que el tablero de Pagos (resumenPagoDe → completo === false).
+async function tienePagoIncompleto(alumnoId, aulaId) {
+  try {
+    if (!alumnoId || !aulaId) return false;
+    const { data: aula } = await supabase.from('aulas').select('precios').eq('id', aulaId).single();
+    const { data: psAll } = await supabase.from('pagos').select('*').eq('alumno_id', alumnoId).order('fecha_pago', { ascending: false });
+    const ps = (psAll || []).filter(p => p.aula_id == null || p.aula_id === aulaId);
+    if (!ps.length) return false;
+    const r = resumenPagoDe(ps, aula?.precios || {});
+    return r.completo === false;   // pagó algo pero no completó el plan
+  } catch { return false; }
+}
+
 // ── Factura C visible (representación del comprobante para ver/imprimir) ──
 const EMISOR = {
   razon: 'DIAZ CORTES RAUL EMILIANO',
@@ -6605,7 +6619,7 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [delInfo, setDelInfo] = useState(null);
   const [deleting, setDeleting] = useState(false);
-  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' });
+  const [form, setForm] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '', aviso_pago: '', aviso_pago_hasta: '' });
   const toast = useToast();
 
   const load = async () => {
@@ -6646,28 +6660,30 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
       aviso: (form.aviso || '').trim() || null,
       contrato: (form.contrato || '').trim() || null,
       nota_obligatoria: form.nota_obligatoria || null,
+      aviso_pago: (form.aviso_pago || '').trim() || null,
+      aviso_pago_hasta: form.aviso_pago_hasta || null,
     };
     const guardar = (pl) => editing
       ? supabase.from('aulas').update(pl).eq('id', editing)
       : supabase.from('aulas').insert({ ...pl, estado: 'activa' });
     let { error } = await guardar(payload);
-    // Si las columnas "aviso"/"contrato"/"nota_obligatoria" todavía no existen (SQL sin correr), reintenta sin ellas.
-    if (error && /aviso|contrato|nota_obligatoria/i.test(error.message || '')) {
-      const { aviso, contrato, nota_obligatoria, ...sinOpcionales } = payload;
+    // Si las columnas opcionales todavía no existen (SQL sin correr), reintenta sin ellas.
+    if (error && /aviso|contrato|nota_obligatoria|aviso_pago/i.test(error.message || '')) {
+      const { aviso, contrato, nota_obligatoria, aviso_pago, aviso_pago_hasta, ...sinOpcionales } = payload;
       ({ error } = await guardar(sinOpcionales));
-      if (!error) toast('Guardado, pero para el aviso/contrato/nota obligatoria agregá esas columnas en la tabla aulas (correr el SQL indicado).', 'info');
+      if (!error) toast('Guardado, pero para el aviso/contrato/nota obligatoria/aviso de pago agregá esas columnas en la tabla aulas (correr el SQL indicado).', 'info');
     }
     setSaving(false);
     if (error) return toast('Error: ' + error.message, 'error');
     toast(editing ? 'Aula actualizada ✅' : 'Aula creada ✅', 'success');
     setModal(false); setEditing(null);
-    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' });
+    setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '', aviso_pago: '', aviso_pago_hasta: '' });
     load();
   };
 
-  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '' }); setEditing(null); setModal(true); };
+  const openNew = () => { setForm({ nombre: '', fecha_inicio: '', fecha_fin: '', fecha_examen: '', aviso: '', contrato: '', nota_obligatoria: '', aviso_pago: '', aviso_pago_hasta: '' }); setEditing(null); setModal(true); };
   const openEdit = a => {
-    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '', contrato: a.contrato || '', nota_obligatoria: a.nota_obligatoria || '' });
+    setForm({ nombre: a.nombre, fecha_inicio: a.fecha_inicio || '', fecha_fin: a.fecha_fin || '', fecha_examen: a.fecha_examen || '', aviso: a.aviso || '', contrato: a.contrato || '', nota_obligatoria: a.nota_obligatoria || '', aviso_pago: a.aviso_pago || '', aviso_pago_hasta: a.aviso_pago_hasta || '' });
     setEditing(a.id); setModal(true);
   };
 
@@ -6820,6 +6836,19 @@ function AdminAulas({ aulaActiva, setAulaActiva }) {
                   {PARCIALES.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
                 </select>
                 <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:4}}>Si elegís un parcial, los alumnos de esta aula <b>no podrán entrar</b> hasta cargar su nota de ese parcial (una pantalla bloqueante al iniciar sesión). El que ya la cargó, entra directo. Cuando termines de recolectar las notas, volvé a ponerlo en "No pedir nota".</div>
+              </div>
+              <div className="form-group">
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
+                  <label style={{margin:0}}>💳 Aviso de pago (solo a los que tienen el pago incompleto)</label>
+                  {!form.aviso_pago && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setForm(p => ({ ...p, aviso_pago: 'Tenés un pago pendiente de esta cursada. Por favor regularizá tu situación antes de la fecha límite para seguir accediendo sin inconvenientes.' }))}>✍️ Cargar texto sugerido</button>}
+                </div>
+                <textarea value={form.aviso_pago} onChange={e=>setForm(p=>({...p,aviso_pago:e.target.value}))} rows={3} placeholder="Ej: Tenés un pago pendiente. Regularizá tu situación antes de la fecha límite." />
+                <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8,flexWrap:'wrap'}}>
+                  <span style={{fontSize:'0.82rem',fontWeight:600}}>Mostrar hasta el:</span>
+                  <input type="date" value={form.aviso_pago_hasta} onChange={e=>setForm(p=>({...p,aviso_pago_hasta:e.target.value}))} style={{maxWidth:180}} />
+                  {form.aviso_pago_hasta && <button type="button" className="btn btn-ghost btn-sm" onClick={()=>setForm(p=>({...p,aviso_pago:'',aviso_pago_hasta:''}))}>✕ Quitar aviso</button>}
+                </div>
+                <div style={{fontSize:'0.75rem',color:'var(--text2)',marginTop:6}}>El aviso le aparece <b>cada vez que entra a la app</b> a los alumnos de esta aula que tienen un <b>pago incompleto</b>, hasta la fecha elegida (inclusive). No bloquea el acceso: es solo un recordatorio. Dejá el texto o la fecha vacíos para desactivarlo.</div>
               </div>
             </div>
             <div className="modal-footer">
@@ -13304,6 +13333,7 @@ function App() {
   const [previewBusca, setPreviewBusca] = useState('');
   const [masOpen, setMasOpen] = useState(false);   // menú "Más" de la barra inferior (celular)
   const [avisoAula, setAvisoAula] = useState(null);  // aviso del aula del alumno (cartel al entrar)
+  const [avisoPago, setAvisoPago] = useState(null);  // {texto, hasta} aviso de pago para quien tiene el pago incompleto
   const [contratoPend, setContratoPend] = useState(undefined);  // undefined=chequeando, null=firmado, {texto}=debe firmar
   const [notaPend, setNotaPend] = useState(undefined);          // undefined=chequeando, null=ok, {parcial}=debe cargar nota
   const [pagoPend, setPagoPend] = useState(undefined);          // undefined=chequeando, false=ok, true=pago vencido (del aula activa)
@@ -13400,6 +13430,26 @@ function App() {
     if (aulaAlumnoActiva) { try { sessionStorage.setItem(`aviso_visto_${aulaAlumnoActiva}`, '1'); } catch (_) {} }
     setAvisoAula(null);
   };
+
+  // Aviso de pago: si el aula tiene un aviso de pago vigente (hasta >= hoy) y el alumno
+  // tiene el pago incompleto, se lo mostramos CADA VEZ que entra (no se guarda "visto").
+  useEffect(() => {
+    if (!auth || auth.isAdmin || !aulaAlumnoActiva || !auth.alumno?.id) { setAvisoPago(null); return; }
+    let cancel = false;
+    (async () => {
+      try {
+        const hoy = hoyISOArg();
+        const { data: aula, error } = await supabase.from('aulas').select('aviso_pago, aviso_pago_hasta').eq('id', aulaAlumnoActiva).single();
+        if (error) { if (!cancel) setAvisoPago(null); return; }   // columnas sin crear → sin aviso
+        const texto = (aula?.aviso_pago || '').trim();
+        const hasta = aula?.aviso_pago_hasta || null;
+        if (!texto || !hasta || hasta < hoy) { if (!cancel) setAvisoPago(null); return; }  // sin aviso o ya vencido
+        const incompleto = await tienePagoIncompleto(auth.alumno.id, aulaAlumnoActiva);
+        if (!cancel) setAvisoPago(incompleto ? { texto, hasta } : null);
+      } catch (_) { if (!cancel) setAvisoPago(null); }
+    })();
+    return () => { cancel = true; };
+  }, [auth, aulaAlumnoActiva]);
 
   // ¿El alumno ya firmó el contrato de su aula actual? Si no, hay que pedirle la firma (bloqueante).
   useEffect(() => {
@@ -13672,6 +13722,19 @@ function App() {
             <div style={{fontWeight:700,fontSize:'1.15rem',marginBottom:12}}>Aviso importante</div>
             <div style={{color:'var(--text2)',fontSize:'0.95rem',lineHeight:1.55,whiteSpace:'pre-wrap',marginBottom:22}}>{avisoAula}</div>
             <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={cerrarAviso}>Entendido</button>
+          </div>
+        </div>
+      )}
+      {avisoPago && !enPreview && (
+        <div className="modal-overlay" style={{zIndex:10000}} onClick={() => setAvisoPago(null)}>
+          <div style={{background:'var(--surface)',border:'2px solid var(--accent2)',borderRadius:18,width:'92vw',maxWidth:460,padding:'28px 26px',textAlign:'center'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:'2.6rem',marginBottom:12}}>💳</div>
+            <div style={{fontWeight:700,fontSize:'1.15rem',marginBottom:12}}>Pago pendiente</div>
+            <div style={{color:'var(--text2)',fontSize:'0.95rem',lineHeight:1.55,whiteSpace:'pre-wrap',marginBottom:14}}>{avisoPago.texto}</div>
+            <div style={{background:'rgba(255,101,132,0.12)',border:'1px solid var(--accent2)',borderRadius:12,padding:'10px 14px',marginBottom:20,fontSize:'0.92rem'}}>
+              📅 Tenés tiempo hasta el <b style={{color:'var(--accent2)'}}>{new Date(avisoPago.hasta + 'T00:00:00').toLocaleDateString('es-AR',{day:'2-digit',month:'long',year:'numeric'})}</b> para regularizar el pago.
+            </div>
+            <button className="btn btn-primary" style={{width:'100%',justifyContent:'center'}} onClick={() => setAvisoPago(null)}>Entendido</button>
           </div>
         </div>
       )}
