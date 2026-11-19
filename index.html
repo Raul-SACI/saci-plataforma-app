@@ -2331,6 +2331,7 @@ function AlumnoPlanificacion({ alumno }) {
   // modal = { fecha, items: [{campo, okKey, icon, label, texto, fechaOriginal, ok, nuevaFecha}] }
   const [saving, setSaving] = useState(false);
   const [moviendo, setMoviendo] = useState(null); // "campo-fechaOriginal" key
+  const [vista, setVista] = useState('almanaque');   // 'almanaque' | 'lista'
   const toast = useToast();
 
   const load = async () => {
@@ -2454,7 +2455,7 @@ function AlumnoPlanificacion({ alumno }) {
     <div className="page-content fade-in">
       <div className="page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:10}}>
         <div><div className="page-title">📅 Mi Planificación</div><div className="page-subtitle">Organizá tu estudio mes a mes · Tocá un día para ver o reorganizar tareas</div></div>
-        <button className="btn btn-ghost btn-sm" onClick={() => descargarPlanificacionPDF({ nombre: alumno?.nombre, mes, año, planDocente, personalView, planAlumno })}>⬇️ Descargar PDF</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => (vista === 'lista' ? descargarPlanificacionListaPDF : descargarPlanificacionPDF)({ nombre: alumno?.nombre, mes, año, planDocente, personalView, planAlumno })}>⬇️ Descargar PDF ({vista === 'lista' ? 'lista' : 'almanaque'})</button>
       </div>
 
       <CaminoExamen aulaId={alumno?.aula_id} esAdmin={false} />
@@ -2476,12 +2477,20 @@ function AlumnoPlanificacion({ alumno }) {
         </div>
       )}
 
-      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:14,justifyContent:'center'}}>
         <button className="btn btn-ghost" onClick={()=>navMes(-1)}>◀</button>
         <div style={{fontWeight:700,fontSize:'1.1rem',minWidth:200,textAlign:'center'}}>{PLAN_MESES[mes]} {año}</div>
         <button className="btn btn-ghost" onClick={()=>navMes(1)}>▶</button>
       </div>
+      {/* Selector de vista: almanaque (grilla) o lista */}
+      <div style={{display:'flex',justifyContent:'center',marginBottom:20}}>
+        <div style={{display:'inline-flex',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:3,gap:3}}>
+          <button className={`btn btn-sm ${vista==='almanaque'?'btn-primary':'btn-ghost'}`} onClick={() => setVista('almanaque')}>📅 Almanaque</button>
+          <button className={`btn btn-sm ${vista==='lista'?'btn-primary':'btn-ghost'}`} onClick={() => setVista('lista')}>📋 Lista</button>
+        </div>
+      </div>
 
+      {vista === 'almanaque' && (
       <div style={{overflowX:'auto'}}>
         <div style={{minWidth:560}}>
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
@@ -2542,6 +2551,59 @@ function AlumnoPlanificacion({ alumno }) {
           )}
         </div>
       </div>
+      )}
+      {vista === 'lista' && (
+        loading ? <Loading /> : (() => {
+          const pref = `${año}-${String(mes+1).padStart(2,'0')}-`;
+          const fechas = new Set([...Object.keys(personalView), ...Object.keys(planAlumno), ...Object.keys(planDocente)]);
+          const dias = [...fechas]
+            .filter(f => f.startsWith(pref))
+            .filter(f => (personalView[f] && personalView[f].length) || (planAlumno[f]?.notas || []).some(n => n.texto) || planDocente[f]?.horario_especial)
+            .sort();
+          if (!dias.length) return <Empty icon="📋" text="No hay actividades planificadas en este mes." />;
+          return (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {dias.map(f => {
+                const items = personalView[f] || [];
+                const notas = (planAlumno[f]?.notas || []).filter(n => n.texto);
+                const horario = planDocente[f]?.horario_especial;
+                const dn = parseInt(f.split('-')[2]);
+                const dd = new Date(f + 'T00:00:00').getDay();
+                const wd = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'][dd === 0 ? 6 : dd - 1];
+                const isToday = f === todayStr;
+                const col = planDocente[f]?.color;
+                return (
+                  <div key={f} onClick={() => openDay(f)} className="card"
+                    style={{padding:'12px 16px',cursor:'pointer',borderLeft:`4px solid ${col || 'var(--accent)'}`,outline:isToday?'2px solid var(--accent)':'none'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:(items.length||notas.length||horario)?8:0,flexWrap:'wrap'}}>
+                      <span style={{fontWeight:700,fontSize:'1rem'}}>{String(dn).padStart(2,'0')} {PLAN_MESES[mes]}</span>
+                      <span style={{fontSize:'0.8rem',color:'var(--text2)',textTransform:'capitalize'}}>{wd}</span>
+                      {isToday && <span className="chip chip-blue" style={{fontSize:'0.66rem'}}>Hoy</span>}
+                      {horario && <span style={{background:'#ff6b35',color:'#fff',borderRadius:6,padding:'2px 8px',fontSize:'0.7rem',fontWeight:700}}>⏰ {horario}</span>}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                      {items.map((it, idx) => (
+                        <div key={`${it.campo}-${it.fechaOriginal}-${idx}`} style={{display:'flex',alignItems:'flex-start',gap:8,flexWrap:'wrap'}}>
+                          <span style={{fontSize:'0.85rem',flexShrink:0}}>{it.ok?'✅':it.icon}</span>
+                          <span style={{fontSize:'0.8rem',color:'var(--text2)',fontWeight:600,minWidth:120,flexShrink:0}}>{it.label}:</span>
+                          <span style={{fontSize:'0.82rem',flex:1,minWidth:150,textDecoration:it.ok?'line-through':'none',opacity:it.ok?0.7:1}}>{it.texto}{it.reasignada && <span style={{color:'var(--accent)',marginLeft:6}}>↩ movida</span>}</span>
+                        </div>
+                      ))}
+                      {notas.map((n, i) => (
+                        <div key={`n-${i}`} style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                          <span style={{fontSize:'0.85rem',flexShrink:0}}>📝</span>
+                          <span style={{fontSize:'0.8rem',color:'var(--text2)',fontWeight:600,minWidth:120,flexShrink:0}}>Nota:</span>
+                          <span style={{fontSize:'0.82rem',flex:1,minWidth:150,fontStyle:'italic'}}>{n.texto}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()
+      )}
 
       {modal && (
         <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${PLAN_MESES[mes]} ${año}`} onClose={()=>setModal(null)}>
