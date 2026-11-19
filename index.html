@@ -8835,6 +8835,8 @@ function AdminVideos({ aulaActiva }) {
   const [dragOver, setDragOver] = useState(false);
   const [dragTema, setDragTema] = useState(null);
   const [dragOverTema, setDragOverTema] = useState(null);
+  const [dragVid, setDragVid] = useState(null);        // { id, tema } video que se arrastra
+  const [dragOverVid, setDragOverVid] = useState(null);
   const fileRef = useRef();
   const toast = useToast();
   // Chips con la config del video (vencimiento, precio de extensión, límite de vistas).
@@ -9057,6 +9059,36 @@ function AdminVideos({ aulaActiva }) {
     load();
   };
 
+  // Persiste el orden de los videos de un tema: reasigna orden secuencial a cada uno.
+  const aplicarOrdenVideos = async (arr) => {
+    const nuevo = {}; arr.forEach((v, i) => { nuevo[v.id] = i; });
+    // Optimista: se ve al instante.
+    setVideos(vs => vs.map(v => v.id in nuevo ? { ...v, orden: nuevo[v.id] } : v)
+                       .sort((a, b) => (a.orden || 0) - (b.orden || 0)));
+    try {
+      await Promise.all(arr.map((v, i) => supabase.from('videos').update({ orden: i }).eq('id', v.id)));
+    } catch (e) { toast('No se pudo reordenar: ' + (e.message || ''), 'error'); load(); }
+  };
+  // Reordena un video dentro de su tema con las flechas. items = videos del tema en orden.
+  const moverVideo = (items, index, dir) => {
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= items.length) return;
+    const arr = items.slice();
+    [arr[index], arr[target]] = [arr[target], arr[index]];
+    aplicarOrdenVideos(arr);
+  };
+  // Reordena arrastrando: mueve el video fromId a la posición de toId, dentro del mismo tema.
+  const soltarVideo = (items, fromId, toId) => {
+    if (!fromId || fromId === toId) return;
+    const from = items.findIndex(x => x.id === fromId);
+    const to = items.findIndex(x => x.id === toId);
+    if (from < 0 || to < 0) return;
+    const arr = items.slice();
+    const [moved] = arr.splice(from, 1);
+    arr.splice(to, 0, moved);
+    aplicarOrdenVideos(arr);
+  };
+
   const remove = async id => {
     // Aviso reforzado si el video tiene extensiones PAGAS: al borrarlo se pierde ese historial de cobros.
     let aviso = '¿Eliminar video?';
@@ -9154,7 +9186,7 @@ function AdminVideos({ aulaActiva }) {
         <div>
           {temas.length === 0 && videos.length === 0 && <Empty icon="🎬" text="No hay videos. Crea un tema para empezar a organizar." />}
           {temas.map(t => {
-            const tVids = videos.filter(v => v.tema_id === t.id);
+            const tVids = videos.filter(v => v.tema_id === t.id).sort((a, b) => (a.orden || 0) - (b.orden || 0));
             const isOpen = expandedTemas[t.id];
             const isDragging = dragTema === t.id;
             const isDragOver = dragOverTema === t.id && dragTema !== t.id;
@@ -9197,14 +9229,24 @@ function AdminVideos({ aulaActiva }) {
                           {['#','Título','Vista previa',''].map(h => <th key={h} style={{padding:'10px 16px',textAlign:'left',fontSize:'0.72rem',textTransform:'uppercase',letterSpacing:'0.08em',color:'var(--text2)'}}>{h}</th>)}
                         </tr></thead>
                         <tbody>
-                          {tVids.map(v => (
-                            <tr key={v.id} style={{borderTop:'1px solid var(--border)',background:'var(--surface)'}}>
-                              <td style={{padding:'10px 16px',fontFamily:'Space Mono',color:'var(--text2)',fontSize:'0.82rem'}}>{v.orden}</td>
+                          {tVids.map((v, vi) => {
+                            const arrastrando = dragVid && dragVid.id === v.id;
+                            const encima = dragOverVid === v.id && dragVid && dragVid.id !== v.id && dragVid.tema === t.id;
+                            return (
+                            <tr key={v.id}
+                              draggable
+                              onDragStart={() => setDragVid({ id: v.id, tema: t.id })}
+                              onDragOver={e => { if (dragVid && dragVid.tema === t.id) { e.preventDefault(); setDragOverVid(v.id); } }}
+                              onDragEnd={() => { setDragVid(null); setDragOverVid(null); }}
+                              onDrop={e => { e.preventDefault(); if (dragVid && dragVid.tema === t.id) soltarVideo(tVids, dragVid.id, v.id); setDragVid(null); setDragOverVid(null); }}
+                              style={{borderTop: encima ? '2px solid var(--accent)' : '1px solid var(--border)',background:'var(--surface)',opacity:arrastrando?0.4:1}}>
+                              <td style={{padding:'10px 16px',color:'var(--text2)',fontSize:'0.82rem',whiteSpace:'nowrap'}}><span style={{cursor:'grab',userSelect:'none',marginRight:6}} title="Arrastrar para reordenar">⠿</span><span style={{fontFamily:'Space Mono'}}>{vi+1}</span></td>
                               <td style={{padding:'10px 16px'}}><strong style={{fontSize:'0.88rem'}}>{v.titulo}</strong>{v.oculto && <span className="chip chip-red" style={{marginLeft:8,fontSize:'0.68rem'}}>🙈 Oculto</span>}{v.publicar_en && new Date(v.publicar_en) > new Date() && <span className="chip chip-yellow" style={{marginLeft:8,fontSize:'0.68rem'}}>⏰ {new Date(v.publicar_en).toLocaleDateString('es-AR',{day:'2-digit',month:'short'})} {new Date(v.publicar_en).toLocaleTimeString('es-AR',{hour:'2-digit',minute:'2-digit'})}</span>}{v.descripcion&&<><br/><span style={{fontSize:'0.75rem',color:'var(--text2)'}}>{v.descripcion}</span></>}{infoVideoChips(v)}</td>
                               <td style={{padding:'10px 16px'}}>{(v.bunny_id||v.bunny_video_id)&&<img src={bunnyThumbUrl(v)} style={{height:40,borderRadius:6,objectFit:'cover'}} onError={e=>e.target.style.display='none'} />}</td>
-                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" title="Reproducir" onClick={() => setReproModal(v)}>▶️</button><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
+                              <td style={{padding:'10px 16px'}}><div style={{display:'flex',gap:6}}><button className="btn btn-ghost btn-sm" title="Subir" disabled={vi<=0} onClick={() => moverVideo(tVids, vi, -1)}>▲</button><button className="btn btn-ghost btn-sm" title="Bajar" disabled={vi>=tVids.length-1} onClick={() => moverVideo(tVids, vi, 1)}>▼</button><button className="btn btn-ghost btn-sm" title="Reproducir" onClick={() => setReproModal(v)}>▶️</button><button className="btn btn-ghost btn-sm" onClick={() => verStats(v)}>👁️</button><button className="btn btn-ghost btn-sm" onClick={() => openEdit(v)}>✏️</button><button className="btn btn-ghost btn-sm" title={v.oculto?'Volver a mostrar a los alumnos':'Ocultar a los alumnos'} onClick={() => toggleOculto(v)}>{v.oculto?'🙈':'🚫'}</button><button className="btn btn-danger btn-sm" onClick={() => remove(v.id)}>🗑️</button></div></td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     )}
