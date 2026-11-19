@@ -2016,6 +2016,7 @@ function AdminPlanificacion({ aulaActiva }) {
   const PLAN_COLORES = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4'];
   const [form, setForm] = useState({ videos:'', videos_grabados:'', material:'', prueba:'', ejercicio:'', otros:'', color:'', horario_especial:'' });
   const [saving, setSaving] = useState(false);
+  const [vista, setVista] = useState('almanaque');   // 'almanaque' | 'lista'
   const toast = useToast();
 
   const load = async () => {
@@ -2072,11 +2073,19 @@ function AdminPlanificacion({ aulaActiva }) {
         }}>⬇️ Descargar PDF</button>
       </div>
       <CaminoExamen aulaId={aulaActiva} esAdmin={true} />
-      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:20,justifyContent:'center'}}>
+      <div style={{display:'flex',alignItems:'center',gap:16,marginBottom:14,justifyContent:'center'}}>
         <button className="btn btn-ghost" onClick={() => navMes(-1)}>◀</button>
         <div style={{fontWeight:700,fontSize:'1.15rem',minWidth:200,textAlign:'center'}}>{PLAN_MESES[mes]} {año}</div>
         <button className="btn btn-ghost" onClick={() => navMes(1)}>▶</button>
       </div>
+      {/* Selector de vista: almanaque (grilla) o lista */}
+      <div style={{display:'flex',justifyContent:'center',gap:0,marginBottom:20}}>
+        <div style={{display:'inline-flex',background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:3,gap:3}}>
+          <button className={`btn btn-sm ${vista==='almanaque'?'btn-primary':'btn-ghost'}`} onClick={() => setVista('almanaque')}>📅 Almanaque</button>
+          <button className={`btn btn-sm ${vista==='lista'?'btn-primary':'btn-ghost'}`} onClick={() => setVista('lista')}>📋 Lista</button>
+        </div>
+      </div>
+      {vista === 'almanaque' && (
       <div style={{overflowX:'auto'}}>
         <div style={{minWidth:560}}>
           <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',gap:4,marginBottom:4}}>
@@ -2125,6 +2134,47 @@ function AdminPlanificacion({ aulaActiva }) {
           )}
         </div>
       </div>
+      )}
+      {vista === 'lista' && (
+        loading ? <Loading /> : (() => {
+          const pref = `${año}-${String(mes+1).padStart(2,'0')}-`;
+          const dias = Object.keys(planDocente)
+            .filter(f => f.startsWith(pref))
+            .filter(f => { const p = planDocente[f]; return p.horario_especial || PLAN_CAMPOS.some(c => p[c.key]); })
+            .sort();
+          if (!dias.length) return <Empty icon="📋" text="No hay días planificados en este mes." />;
+          return (
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {dias.map(f => {
+                const p = planDocente[f];
+                const dn = parseInt(f.split('-')[2]);
+                const wd = new Date(f + 'T00:00:00').toLocaleDateString('es-AR', { weekday: 'long', timeZone: 'America/Argentina/Buenos_Aires' });
+                const isToday = f === todayStr;
+                return (
+                  <div key={f} onClick={() => openDay(f)} className="card"
+                    style={{padding:'12px 16px',cursor:'pointer',borderLeft:`4px solid ${p.color || 'var(--accent)'}`,outline:isToday?'2px solid var(--accent)':'none'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:p.horario_especial||PLAN_CAMPOS.some(c=>p[c.key])?8:0,flexWrap:'wrap'}}>
+                      <span style={{fontWeight:700,fontSize:'1rem'}}>{String(dn).padStart(2,'0')} {PLAN_MESES[mes]}</span>
+                      <span style={{fontSize:'0.8rem',color:'var(--text2)',textTransform:'capitalize'}}>{wd}</span>
+                      {isToday && <span className="chip chip-blue" style={{fontSize:'0.66rem'}}>Hoy</span>}
+                      {p.horario_especial && <span style={{background:'#ff6b35',color:'#fff',borderRadius:6,padding:'2px 8px',fontSize:'0.7rem',fontWeight:700}}>⏰ {p.horario_especial}</span>}
+                    </div>
+                    <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                      {PLAN_CAMPOS.map(c => p[c.key] ? (
+                        <div key={c.key} style={{display:'flex',alignItems:'flex-start',gap:8,flexWrap:'wrap'}}>
+                          <span style={{fontSize:'0.85rem',flexShrink:0}}>{c.icon}</span>
+                          <span style={{fontSize:'0.8rem',color:'var(--text2)',fontWeight:600,minWidth:120,flexShrink:0}}>{c.label}:</span>
+                          <span style={{fontSize:'0.82rem',flex:1,minWidth:150}}>{p[c.key]}</span>
+                        </div>
+                      ) : null)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()
+      )}
       {modal && (
         <Modal title={`📅 ${String(parseInt(modal.fecha.split('-')[2])).padStart(2,'0')} de ${PLAN_MESES[mes]} ${año}`} onClose={() => setModal(null)}>
           {PLAN_CAMPOS.map((c,idx) => (
