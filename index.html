@@ -10682,6 +10682,7 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoBuscaAdmin, setBancoBuscaAdmin] = useState(''); // buscador en el modal de administrar el banco
   const [editQ, setEditQ] = useState(null);             // pregunta del banco en edición { id, tema, texto, opciones, correctas }
   const [editQSaving, setEditQSaving] = useState(false);
+  const [verPreguntasEv, setVerPreguntasEv] = useState(null); // evaluación cuya hoja de respuestas se está viendo
   const [usadasMap, setUsadasMap] = useState({});       // { textoNormalizado: [títulos de evaluaciones donde ya se usó] }
   const [ocultarUsadas, setOcultarUsadas] = useState(false); // filtro: esconder las ya usadas en el picker
   const [parteDestino, setParteDestino] = useState('teorica'); // a qué parte se agregan las del banco/Excel
@@ -11110,6 +11111,7 @@ function AdminEvaluaciones({ aulaActiva }) {
                       {ev.tipo === 'quiz' ? (
                         <>
                           <span style={{fontSize:'0.82rem',color:'var(--accent)',display:'flex',alignItems:'center',gap:4}}>📝 Prueba en la app · {(ev.preguntas||[]).length} pregunta(s)</span>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setVerPreguntasEv(ev)}>👁️ Ver preguntas</button>
                           <button className="btn btn-ghost btn-sm" onClick={() => verResultados(ev)}>📊 Ver resultados</button>
                         </>
                       ) : (
@@ -11137,6 +11139,50 @@ function AdminEvaluaciones({ aulaActiva }) {
           })}
         </div>
       )}
+
+      {/* Ver todas las preguntas de una prueba con sus respuestas correctas */}
+      {verPreguntasEv && (() => {
+        const preguntas = Array.isArray(verPreguntasEv.preguntas) ? verPreguntasEv.preguntas : [];
+        const grupos = PARTES
+          .map(p => ({ parte: p, items: preguntas.map((q, i) => ({ q, i })).filter(x => parteDe(x.q) === p.key) }))
+          .filter(g => g.items.length);
+        return (
+          <Modal title={`👁️ ${verPreguntasEv.titulo}`} onClose={() => setVerPreguntasEv(null)}>
+            {preguntas.length === 0 ? <Empty icon="📝" text="Esta prueba no tiene preguntas cargadas (puede ser un link de Google Forms)." /> : (
+              <>
+                <div style={{fontSize:'0.8rem',color:'var(--text2)',marginBottom:12}}>{preguntas.length} pregunta(s) · la respuesta correcta está marcada en verde ✓</div>
+                <div style={{maxHeight:460,overflowY:'auto',display:'flex',flexDirection:'column',gap:14}}>
+                  {grupos.map(g => (
+                    <div key={g.parte.key}>
+                      {grupos.length > 1 && <div style={{fontWeight:700,fontSize:'0.82rem',color:'var(--accent)',margin:'4px 0 8px'}}>{g.parte.icon} {g.parte.label} ({g.items.length})</div>}
+                      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                        {g.items.map(({ q, i }, ni) => (
+                          <div key={i} className="card" style={{padding:'10px 14px',background:'var(--surface2)'}}>
+                            <div style={{fontWeight:600,fontSize:'0.88rem',marginBottom:8}}>{ni + 1}. {q.texto}</div>
+                            <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                              {(q.opciones || []).map((op, j) => {
+                                const ok = (q.correctas || []).includes(j);
+                                return (
+                                  <div key={j} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'5px 8px',borderRadius:8,background: ok ? 'rgba(67,233,123,0.12)' : 'transparent',border:`1px solid ${ok ? 'var(--success)' : 'var(--border)'}`}}>
+                                    <span style={{fontFamily:'Space Mono',fontWeight:700,color: ok ? 'var(--success)' : 'var(--text2)',flexShrink:0,width:16}}>{String.fromCharCode(65 + j)}</span>
+                                    <span style={{fontSize:'0.82rem',flex:1,color: ok ? 'var(--success)' : 'var(--text)',fontWeight: ok ? 600 : 400}}>{op}</span>
+                                    {ok && <span style={{flexShrink:0,color:'var(--success)',fontWeight:700}}>✓</span>}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn btn-ghost" onClick={() => setVerPreguntasEv(null)}>Cerrar</button></div>
+          </Modal>
+        );
+      })()}
 
       {modal && (
         <Modal title={editing ? '✏️ Editar evaluación' : '➕ Nueva evaluación'} onClose={() => { setModal(false); setEditing(null); setForm(emptyForm); }}>
