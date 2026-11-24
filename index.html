@@ -10679,6 +10679,9 @@ function AdminEvaluaciones({ aulaActiva }) {
   const [bancoPicker, setBancoPicker] = useState(false);// elegir del banco para la evaluación
   const [bancoSel, setBancoSel] = useState([]);         // ids elegidos en el picker
   const [bancoBusca, setBancoBusca] = useState('');     // filtro de texto en el picker
+  const [bancoBuscaAdmin, setBancoBuscaAdmin] = useState(''); // buscador en el modal de administrar el banco
+  const [editQ, setEditQ] = useState(null);             // pregunta del banco en edición { id, tema, texto, opciones, correctas }
+  const [editQSaving, setEditQSaving] = useState(false);
   const [usadasMap, setUsadasMap] = useState({});       // { textoNormalizado: [títulos de evaluaciones donde ya se usó] }
   const [ocultarUsadas, setOcultarUsadas] = useState(false); // filtro: esconder las ya usadas en el picker
   const [parteDestino, setParteDestino] = useState('teorica'); // a qué parte se agregan las del banco/Excel
@@ -10990,6 +10993,34 @@ function AdminEvaluaciones({ aulaActiva }) {
     if (!confirm('¿Eliminar esta pregunta del banco?')) return;
     await supabase.from('banco_preguntas').delete().eq('id', id);
     setBanco(b => b.filter(x => x.id !== id));
+  };
+  // Abre el editor de una pregunta del banco (texto, opciones y respuesta correcta).
+  const abrirEditarQ = (q) => setEditQ({ id: q.id, tema: q.tema || '', texto: q.texto || '', opciones: [...(q.opciones || [])], correctas: [...(q.correctas || [])] });
+  const editQToggleCorrecta = (i) => setEditQ(e => ({ ...e, correctas: e.correctas.includes(i) ? e.correctas.filter(x => x !== i) : [...e.correctas, i] }));
+  const editQSetOpcion = (i, val) => setEditQ(e => ({ ...e, opciones: e.opciones.map((o, idx) => idx === i ? val : o) }));
+  const editQQuitarOpcion = (i) => setEditQ(e => ({ ...e, opciones: e.opciones.filter((_, idx) => idx !== i), correctas: e.correctas.filter(x => x !== i).map(x => x > i ? x - 1 : x) }));
+  const editQAgregarOpcion = () => setEditQ(e => ({ ...e, opciones: [...e.opciones, ''] }));
+  // Guarda los cambios de la pregunta: limpia opciones vacías y reajusta los índices de las correctas.
+  const guardarEdicionQ = async () => {
+    const e = editQ;
+    if (!e.texto.trim()) return toast('La pregunta no puede quedar vacía', 'error');
+    const kept = [], nuevasCorr = [];
+    e.opciones.forEach((txt, i) => {
+      const t = (txt || '').trim();
+      if (!t) return;
+      if (e.correctas.includes(i)) nuevasCorr.push(kept.length);
+      kept.push(t);
+    });
+    if (kept.length < 2) return toast('Tiene que haber al menos 2 opciones', 'error');
+    if (!nuevasCorr.length) return toast('Marcá al menos una opción correcta', 'error');
+    setEditQSaving(true);
+    const payload = { tema: e.tema.trim() || null, texto: e.texto.trim(), opciones: kept, correctas: nuevasCorr.sort((a, b) => a - b) };
+    const { error } = await supabase.from('banco_preguntas').update(payload).eq('id', e.id);
+    setEditQSaving(false);
+    if (error) return toast(error.message, 'error');
+    toast('Pregunta actualizada ✅', 'success');
+    setEditQ(null);
+    loadBanco();
   };
   // Normaliza el texto de una pregunta para comparar (minúsculas, espacios colapsados).
   const normQ = (t) => (t || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -11436,28 +11467,91 @@ function AdminEvaluaciones({ aulaActiva }) {
       {bancoModal && (
         <Modal title={`🏦 Banco de preguntas (${banco.length})`} onClose={() => setBancoModal(false)}>
           <div style={{fontSize:'0.82rem',color:'var(--text2)',marginBottom:10}}>Preguntas reutilizables para armar cualquier evaluación. Importalas por Excel (con columna <strong>Tema</strong>) o desde acá.</div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
             <button className="btn btn-ghost btn-sm" onClick={plantillaBanco}>⬇️ Plantilla Excel</button>
             <label className="btn btn-primary btn-sm" style={{margin:0,cursor:'pointer'}}>📤 Importar al banco
               <input type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={e => { if (e.target.files[0]) importarBanco(e.target.files[0]); e.target.value=''; }} />
             </label>
           </div>
-          {banco.length === 0 ? <Empty icon="🏦" text="El banco está vacío. Importá tus preguntas con la plantilla." /> : (
+          <div style={{fontSize:'0.78rem',color:'var(--text2)',marginBottom:8}}>Tocá una pregunta para ver sus opciones y corregir la respuesta correcta. 🗑️ la elimina.</div>
+          {banco.length > 0 && (
+            <div className="search-bar" style={{marginBottom:10}}>
+              <span className="search-icon">🔍</span>
+              <input placeholder="Buscar pregunta o tema..." value={bancoBuscaAdmin} onChange={e => setBancoBuscaAdmin(e.target.value)} />
+              {bancoBuscaAdmin && <button className="btn btn-ghost btn-sm" onClick={() => setBancoBuscaAdmin('')}>✕</button>}
+            </div>
+          )}
+          {banco.length === 0 ? <Empty icon="🏦" text="El banco está vacío. Importá tus preguntas con la plantilla." /> : (() => {
+            const filtro = bancoBuscaAdmin.trim().toLowerCase();
+            const lista = banco.filter(q => !filtro || (q.texto || '').toLowerCase().includes(filtro) || (q.tema || '').toLowerCase().includes(filtro));
+            if (!lista.length) return <Empty icon="🔍" text="No hay preguntas que coincidan con la búsqueda." />;
+            const grupos = Object.entries(lista.reduce((a,q)=>{ const k=q.tema||'Sin tema'; (a[k]=a[k]||[]).push(q); return a; },{}));
+            return (
             <div style={{maxHeight:420,overflowY:'auto',display:'flex',flexDirection:'column',gap:8}}>
-              {Object.entries(banco.reduce((a,q)=>{ const k=q.tema||'Sin tema'; (a[k]=a[k]||[]).push(q); return a; },{})).map(([tema,qs]) => (
+              {filtro && <div style={{fontSize:'0.76rem',color:'var(--text2)'}}>{lista.length} resultado{lista.length!==1?'s':''}</div>}
+              {grupos.map(([tema,qs]) => (
                 <div key={tema}>
                   <div style={{fontWeight:700,fontSize:'0.78rem',color:'var(--accent)',margin:'6px 0'}}>{tema} <span style={{color:'var(--text2)',fontWeight:400}}>({qs.length})</span></div>
-                  {qs.map(q => (
-                    <div key={q.id} className="card" style={{padding:'8px 12px',marginBottom:6,background:'var(--surface2)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
-                      <div style={{fontSize:'0.82rem'}}>{q.texto} <span style={{color:'var(--text2)'}}>· {(q.opciones||[]).length} opciones</span></div>
-                      <button className="btn btn-danger btn-sm" style={{flexShrink:0}} onClick={() => borrarDelBanco(q.id)}>🗑️</button>
+                  {qs.map(q => {
+                    const corrLetras = (q.correctas || []).map(i => String.fromCharCode(65 + i)).join(', ');
+                    return (
+                    <div key={q.id} onClick={() => abrirEditarQ(q)} className="card" title="Tocá para editar"
+                      style={{padding:'8px 12px',marginBottom:6,background:'var(--surface2)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10,cursor:'pointer'}}>
+                      <div style={{fontSize:'0.82rem',flex:1,minWidth:0}}>
+                        <span style={{marginRight:6}}>✏️</span>{q.texto}
+                        <div style={{fontSize:'0.72rem',color:'var(--text2)',marginTop:3}}>{(q.opciones||[]).length} opciones · Correcta{(q.correctas||[]).length!==1?'s':''}: <b style={{color:'var(--success)'}}>{corrLetras || '—'}</b></div>
+                      </div>
+                      <button className="btn btn-danger btn-sm" style={{flexShrink:0}} onClick={e => { e.stopPropagation(); borrarDelBanco(q.id); }}>🗑️</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ))}
             </div>
-          )}
+            );
+          })()}
           <div style={{display:'flex',justifyContent:'flex-end',marginTop:12}}><button className="btn btn-ghost" onClick={() => setBancoModal(false)}>Cerrar</button></div>
+        </Modal>
+      )}
+
+      {/* Editar una pregunta del banco: texto, opciones y respuesta correcta */}
+      {editQ && (
+        <Modal title="✏️ Editar pregunta" onClose={() => setEditQ(null)}>
+          <div className="form-group">
+            <label>🏷️ Tema (opcional)</label>
+            <input value={editQ.tema} onChange={e => setEditQ(p => ({ ...p, tema: e.target.value }))} placeholder="Ej: Créditos" />
+          </div>
+          <div className="form-group">
+            <label>❓ Pregunta</label>
+            <textarea value={editQ.texto} onChange={e => setEditQ(p => ({ ...p, texto: e.target.value }))} rows={3} />
+          </div>
+          <div className="form-group">
+            <label>Opciones · tildá la/s correcta/s ✅</label>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {editQ.opciones.map((op, i) => {
+                const esCorrecta = editQ.correctas.includes(i);
+                return (
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 8px',borderRadius:10,border:`1px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'rgba(67,233,123,0.08)':'var(--surface)'}}>
+                    <button type="button" onClick={() => editQToggleCorrecta(i)} title={esCorrecta?'Marcada como correcta':'Marcar como correcta'}
+                      style={{flexShrink:0,width:26,height:26,borderRadius:'50%',border:`2px solid ${esCorrecta?'var(--success)':'var(--border)'}`,background:esCorrecta?'var(--success)':'transparent',color:'#fff',cursor:'pointer',fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'0.8rem'}}>
+                      {esCorrecta ? '✓' : ''}
+                    </button>
+                    <span style={{fontFamily:'Space Mono',fontWeight:700,color:'var(--text2)',flexShrink:0,width:16}}>{String.fromCharCode(65 + i)}</span>
+                    <input value={op} onChange={e => editQSetOpcion(i, e.target.value)} style={{flex:1,minWidth:0}} placeholder={`Opción ${String.fromCharCode(65 + i)}`} />
+                    <button type="button" className="btn btn-ghost btn-sm" style={{flexShrink:0}} title="Quitar opción" onClick={() => editQQuitarOpcion(i)}>✕</button>
+                  </div>
+                );
+              })}
+            </div>
+            <button type="button" className="btn btn-ghost btn-sm" style={{marginTop:8}} onClick={editQAgregarOpcion}>➕ Agregar opción</button>
+          </div>
+          <div className="modal-footer" style={{justifyContent:'space-between'}}>
+            <button className="btn btn-danger btn-sm" onClick={() => { const id = editQ.id; setEditQ(null); borrarDelBanco(id); }}>🗑️ Eliminar</button>
+            <div style={{display:'flex',gap:10}}>
+              <button className="btn btn-ghost" onClick={() => setEditQ(null)} disabled={editQSaving}>Cancelar</button>
+              <button className="btn btn-primary" onClick={guardarEdicionQ} disabled={editQSaving}>{editQSaving ? '⏳ Guardando...' : '💾 Guardar'}</button>
+            </div>
+          </div>
         </Modal>
       )}
 
