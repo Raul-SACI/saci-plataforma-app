@@ -6397,10 +6397,23 @@ function AdminExtensiones({ aulaActiva }) {
     // Videos y alumnos del aula (las extensiones no tienen aula: se acotan por ellos).
     const [{ data: vData }, { data: aData }] = await Promise.all([
       supabase.from('videos').select('id, titulo, precio_extension').eq('aula_id', aulaActiva).order('orden'),
-      supabase.from('alumnos').select('id, nombre, email').eq('aula_id', aulaActiva).order('nombre'),
+      supabase.from('alumnos').select('id, nombre, email').eq('aula_id', aulaActiva).eq('estado', 'activo').order('nombre'),
     ]);
     setVideos(vData || []);
-    setAlumnos(aData || []);
+    // Lista de alumnos = activos con esta aula como principal + activos de otra aula con acceso habilitado.
+    let listaAlu = aData || [];
+    try {
+      const { data: acc, error: accErr } = await supabase.from('alumnos_aulas').select('alumno_id').eq('aula_id', aulaActiva);
+      if (!accErr && acc && acc.length) {
+        const ya = new Set(listaAlu.map(a => a.id));
+        const extraIds = [...new Set(acc.map(r => r.alumno_id).filter(id => id && !ya.has(id)))];
+        if (extraIds.length) {
+          const { data: ex } = await supabase.from('alumnos').select('id, nombre, email').in('id', extraIds).eq('estado', 'activo');
+          listaAlu = [...listaAlu, ...((ex || []).map(a => ({ ...a, __acceso: true })))].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+        }
+      }
+    } catch (_) {}
+    setAlumnos(listaAlu);
 
     // Evaluaciones tipo quiz del aula (para extender el plazo a un alumno). Resiliente.
     const { data: evData } = await supabase.from('evaluaciones')
@@ -6702,7 +6715,7 @@ function AdminExtensiones({ aulaActiva }) {
                 {alumnos.length === 0 ? <div style={{fontSize:'0.8rem',color:'var(--text2)'}}>No hay alumnos.</div> : alumnos.map(a => (
                   <label key={a.id} style={{display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'5px 0'}}>
                     <input type="checkbox" checked={evalForm.alumnos_ids.includes(a.id)} onChange={() => setEvalForm(p => ({ ...p, alumnos_ids: p.alumnos_ids.includes(a.id) ? p.alumnos_ids.filter(x => x !== a.id) : [...p.alumnos_ids, a.id] }))} style={{width:'auto'}} />
-                    <span style={{fontSize:'0.85rem'}}>{a.nombre}</span>
+                    <span style={{fontSize:'0.85rem'}}>{a.nombre}{a.__acceso && <span className="chip chip-blue" style={{marginLeft:6,fontSize:'0.62rem'}}>🏫 acceso</span>}</span>
                   </label>
                 ))}
               </div>
@@ -6748,7 +6761,7 @@ function AdminExtensiones({ aulaActiva }) {
                    : alumnos.map(a => (
                     <label key={a.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 6px',borderRadius:6,cursor:'pointer',fontSize:'0.84rem'}}>
                       <input type="checkbox" checked={form.alumnos_ids.includes(a.id)} onChange={() => toggleId('alumnos_ids', a.id)} style={{width:'auto'}} />
-                      {a.nombre}
+                      {a.nombre}{a.__acceso && <span className="chip chip-blue" style={{marginLeft:6,fontSize:'0.62rem'}}>🏫 acceso</span>}
                     </label>
                   ))}
                 </div>
